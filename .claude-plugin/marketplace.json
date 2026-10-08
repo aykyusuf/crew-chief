@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "crew-chief",
+  "owner": {
+    "name": "aykyusuf",
+    "url": "https://github.com/aykyusuf"
+  },
+  "description": "Crew Chief: difficulty-based subagent routing for Claude Code.",
+  "plugins": [
+    {
+      "name": "crew-chief",
+      "source": "./",
+      "description": "Difficulty-based routing to tiered Haiku, Sonnet, and Opus subagents, with escalation, a read-only guard, and user overrides.",
+      "category": "productivity",
+      "tags": ["subagents", "routing", "cost"]
+    }
+  ]
+}

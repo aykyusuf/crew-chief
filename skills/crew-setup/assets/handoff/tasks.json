@@ -1,0 +1,14 @@
+{
+  "_rule": "Never delete or reword a task (id, title, done_when). Only status (todo | in_progress | done | blocked) and evidence change. New tasks may be added.",
+  "updated": "YYYY-MM-DD",
+  "tasks": [
+    {
+      "id": "EXAMPLE-01",
+      "title": "...",
+      "priority": 1,
+      "done_when": "A measurable finish line: which check passes, who signs off",
+      "status": "todo",
+      "evidence": ""
+    }
+  ]
+}

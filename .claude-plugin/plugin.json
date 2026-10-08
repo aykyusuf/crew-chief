@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "crew-chief",
+  "displayName": "Crew Chief",
+  "version": "0.1.1",
+  "description": "Difficulty-based routing for Claude Code. You pick the main model and effort; Claude decides what to do itself and what to hand to tiered Haiku, Sonnet, and Opus subagents, escalates when a tier gets stuck, and follows your overrides like \"do it yourself\" or \"give this to Sonnet at medium\".",
+  "author": {
+    "name": "aykyusuf",
+    "url": "https://github.com/aykyusuf"
+  },
+  "homepage": "https://github.com/aykyusuf/crew-chief",
+  "repository": "https://github.com/aykyusuf/crew-chief",
+  "documentationUrl": "https://github.com/aykyusuf/crew-chief#readme",
+  "supportUrl": "https://github.com/aykyusuf/crew-chief/issues",
+  "privacyPolicyUrl": "https://github.com/aykyusuf/crew-chief#privacy",
+  "license": "MIT",
+  "keywords": [
+    "subagents",
+    "routing",
+    "model-selection",
+    "effort",
+    "cost",
+    "delegation",
+    "haiku",
+    "sonnet",
+    "opus"
+  ],
+  "userConfig": {
+    "default_mode": {
+      "type": "string",
+      "title": "Default delegation mode",
+      "description": "auto routes by difficulty, solo keeps all work in the main session, delegate hands independent work to subagents. Switch any time with /crew-chief:crew-mode.",
+      "options": [
+        "auto",
+        "solo",
+        "delegate"
+      ],
+      "default": "auto"
+    }
+  }
+}
