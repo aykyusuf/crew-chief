@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0 (2026-10-08)
+- New tier `ui-tester` (sonnet/medium): multi-step browser, Android emulator, and iOS simulator checks with Claude in Chrome, adb, and computer use; cheapest tool first, screenshots in batches, one device at a time, pass/fail report with evidence.
+- New tier `ui-smoke` (haiku/low): read-only yes/no check from page text, DOM, console, or logcat; covered by the read-only guard.
+- Routing policy and `crew-routing` skill explain when UI checks stay inline, go to ui-smoke, or go to ui-tester.
+
 ## 0.1.2 (2026-10-08)
 - Guard no longer lists `wget` and avoids a variable named `key`, which the directory scanner read as a credential.
 - Guard parses hook input with `jq` or `sed` in a single script; the Python helper is gone.

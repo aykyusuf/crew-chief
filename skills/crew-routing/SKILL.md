@@ -30,6 +30,8 @@ Multi-agent setups cost several times the tokens of one session, and most coding
 | Understand several files together, trace a flow, find a root cause, map impact | `crew-chief:deep-reader` | sonnet / medium |
 | Change with named files, a clear change, and a check to run | `crew-chief:implementer` | sonnet / medium |
 | Multi-module change, algorithms, concurrency, unknown root cause, a task `implementer` stopped on | `crew-chief:implementer-hard` | opus / high |
+| Quick read-only check that a page or screen is up, shows text X, or logs errors | `crew-chief:ui-smoke` | haiku / low |
+| Multi-step UI flow or regression pass in a browser, emulator, or simulator (screenshots) | `crew-chief:ui-tester` | sonnet / medium |
 | Independent check before a commit or PR of a significant or risky change, or when the user asks | `crew-chief:reviewer` | opus / high |
 
 If the plugin is not installed but the project has `.claude/agents/` copies from `/crew-chief:crew-setup`, use the bare names (`scanner`, `implementer`, ...).
@@ -47,6 +49,13 @@ If the plugin is not installed but the project has `.claude/agents/` copies from
 - Small or mechanical edits: no review agent. Run the checks yourself.
 
 If the Agent tool has no `effort` parameter (older Claude Code), pick the tier whose defaults fit instead.
+
+**UI checks.** Screenshots cost about 1,000 to 3,000 tokens each and are resent on every later turn, so a long visual check in the main session gets expensive fast.
+- One quick look (did it load, is the text there): do it yourself or use `ui-smoke`.
+- A flow, a regression pass, or more than about five screenshots: `ui-tester`. It keeps the images in its own context and returns a short pass/fail report with evidence paths.
+- Judging whether a design looks right is a product call: keep it with the user in the main session, using the tester's evidence.
+- Only one UI agent per browser, emulator, or simulator at a time, and do not use that device yourself while it runs. UI agents cannot ask the user; on login, CAPTCHA, or permission prompts they come back BLOCKED.
+- If the project has no launch recipe yet, `/run-skill-generator` records one so testers do not rediscover it each time.
 
 ## 3. Brief the subagent
 

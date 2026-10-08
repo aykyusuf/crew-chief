@@ -28,6 +28,8 @@ printf '%s\n' \
   '- crew-chief:deep-reader (sonnet/medium): read-only analysis across several files, root cause from code.' \
   '- crew-chief:implementer (sonnet/medium): changes where files, change, and check are all specified.' \
   '- crew-chief:implementer-hard (opus/high): multi-module, algorithmic, or unknown-root-cause work.' \
+  '- crew-chief:ui-smoke (haiku/low): quick read-only check that a page or screen is up, shows given text, or logs errors; no screenshots.' \
+  '- crew-chief:ui-tester (sonnet/medium): multi-step browser, emulator, or simulator checks with screenshots; reports pass/fail with evidence; never two UI agents on the same device or browser at once.' \
   '- crew-chief:reviewer (opus/high): independent review before a commit or PR of a significant or risky change; effort xhigh only for security, data loss, concurrency, money, or shipping code; large diffs go to /code-review.' \
   '' \
   'Rules:' \

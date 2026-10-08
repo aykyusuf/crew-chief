@@ -10,6 +10,8 @@ you ──▶ main session (your model/effort) ──┬─ does interactive, co
                                            ├─▶ deep-reader      sonnet / medium  multi-file analysis
                                            ├─▶ implementer      sonnet / medium  well-specified edits
                                            ├─▶ implementer-hard opus   / high    hard, multi-module work
+                                           ├─▶ ui-smoke         haiku  / low     quick read-only UI check
+                                           ├─▶ ui-tester        sonnet / medium  browser/emulator flows
                                            └─▶ reviewer         opus   / high    independent review
 ```
 
@@ -18,9 +20,10 @@ you ──▶ main session (your model/effort) ──┬─ does interactive, co
 Out of the box, every subagent runs on whatever model and effort it was given, no matter how easy or hard the job is. Claude Code now lets the main session set `model` and `effort` per subagent call (2.1.292+), but something has to decide when to use them. Crew Chief is that decision layer, plus the tiers it routes to:
 
 - **Routing policy** injected at every session start (and after `/clear` or compaction), so it is always active.
-- **Five tiered agents** with tight "use when / don't use when" descriptions, tool limits, turn limits, and a fixed report format.
+- **Seven tiered agents** with tight "use when / don't use when" descriptions, tool limits, turn limits, and a fixed report format.
 - **Escalation ladder**: `implementer` → `implementer-hard` → main session, instead of retrying the same tier.
-- **Read-only guard**: a hook that stops the scanner, deep-reader, and reviewer from writing files, changing git state, or installing anything, even when your session runs with permissions bypassed.
+- **UI testing tiers**: `ui-smoke` for a quick read-only check and `ui-tester` for multi-step browser, emulator, or simulator flows, so screenshots stay out of the main context.
+- **Read-only guard**: a hook that stops the scanner, deep-reader, reviewer, and ui-smoke from writing files, changing git state, or installing anything, even when your session runs with permissions bypassed.
 - **Overrides in plain language**: "do it yourself", "use agents", "give this to Sonnet at medium", or `/crew-chief:crew-mode solo`.
 - **A mechanism guide** (`routing` skill) for when one subagent is the wrong tool: forks, Monitor, `/loop`, `/goal`, dynamic workflows, agent teams, routines.
 
@@ -70,7 +73,7 @@ Everything is plain, readable shell in this repo. Nothing is sent over the netwo
 | Component | When | What it does |
 |---|---|---|
 | `scripts/session-policy.sh` | SessionStart (startup, resume, clear, compact) | Prints the ~2 KB routing policy into the session context |
-| `scripts/readonly-guard.sh` | PreToolUse on Bash | Reads the hook input; if the caller is `crew-chief:scanner`, `deep-reader`, or `reviewer`, blocks commands that write files, change git state, or install packages (exit 2). Every other caller passes through untouched |
+| `scripts/readonly-guard.sh` | PreToolUse on Bash | Reads the hook input; if the caller is `crew-chief:scanner`, `deep-reader`, `reviewer`, or `ui-smoke`, blocks commands that write files, change git state, or install packages (exit 2). Every other caller passes through untouched |
 
 With `/crew-setup` (no plugin), the same guard is copied to `.claude/hooks/crew-chief-guard.sh` and wired through `.claude/settings.json` with `--project`, matching the bare agent names. It is not put in the agents' frontmatter on purpose: Claude Code skips frontmatter hooks of project agents until the folder's trust dialog is accepted, and never runs them in `-p` sessions.
 

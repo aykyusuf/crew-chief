@@ -6,11 +6,13 @@
 
 ## Ne getirir
 - **Her oturumda aktif yönlendirme politikası.** Açılışta, `/clear` sonrasında ve sıkıştırmadan sonra bağlama eklenir.
-- **Beş seviyeli ajan.**
+- **Yedi seviyeli ajan.**
   - `scanner` (Haiku/low): arama ve uzun log süzme.
   - `deep-reader` (Sonnet/medium): birden çok dosyayı birlikte inceleme.
   - `implementer` (Sonnet/medium): kapsamı net kod değişikliği.
   - `implementer-hard` (Opus/high): zor ve çok modüllü iş.
+  - `ui-smoke` (Haiku/low): sayfa/ekran açık mı, metin var mı, hata var mı; sadece okur.
+  - `ui-tester` (Sonnet/medium): tarayıcı, emülatör ve simülatörde çok adımlı test; ekran görüntüleri ana sohbeti şişirmez.
   - `reviewer` (Opus/high): bağımsız inceleme.
 - **Yükselme merdiveni.** Aynı seviyeyi tekrar denemek yerine `implementer` → `implementer-hard` → ana oturum sırasıyla bir üste çıkar.
 - **Salt-okuma bekçisi.** Okuyan ajanların dosya yazmasını, git'e yazmasını ve paket kurmasını engelleyen bir hook. İzinleri kapatsan da çalışır.
@@ -53,7 +55,7 @@ Bir seviyenin modelini ya da eforunu değiştirmek için projende aynı adla `.c
 ## Ne çalıştırır
 Her şey bu repoda okunabilir shell olarak duruyor. Ağa hiçbir şey göndermez.
 - `session-policy.sh`: oturum açılırken yaklaşık 2 KB'lık politikayı bağlama ekler.
-- `readonly-guard.sh`: Bash çağrılarında çalışır. Sadece `scanner`, `deep-reader` ve `reviewer` için yazma komutlarını engeller, diğer çağrılara dokunmaz.
+- `readonly-guard.sh`: Bash çağrılarında çalışır. Sadece `scanner`, `deep-reader`, `reviewer` ve `ui-smoke` için yazma komutlarını engeller, diğer çağrılara dokunmaz.
 
 Ayrıntılar ve geliştirme komutları için İngilizce README'ye bak.
 

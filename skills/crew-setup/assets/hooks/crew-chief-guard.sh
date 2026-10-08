@@ -3,14 +3,14 @@
 #
 # Blocks Bash commands that modify files, git state, or installed software when
 # they come from one of crew-chief's read-only agents (scanner, deep-reader,
-# reviewer). Reading, listing, and running tests stay allowed.
+# reviewer, ui-smoke). Reading, listing, and running tests stay allowed.
 #
 # Usage:
 #   readonly-guard.sh            plugin hook: acts only when agent_type is
-#                                crew-chief:scanner, :deep-reader, or :reviewer
+#                                crew-chief:scanner, :deep-reader, :reviewer, or :ui-smoke
 #   readonly-guard.sh --project  project settings hook (/crew-setup install):
 #                                acts when agent_type is scanner, deep-reader,
-#                                or reviewer
+#                                reviewer, or ui-smoke
 #   readonly-guard.sh --always   acts on every call it receives (for a hook in
 #                                an agent's own frontmatter)
 #
@@ -37,12 +37,12 @@ case "$1" in
   --always) ;;
   --project)
     case "$(field agent_type)" in
-      scanner|deep-reader|reviewer) ;;
+      scanner|deep-reader|reviewer|ui-smoke) ;;
       *) exit 0 ;;
     esac ;;
   *)
     case "$(field agent_type)" in
-      crew-chief:scanner|crew-chief:deep-reader|crew-chief:reviewer) ;;
+      crew-chief:scanner|crew-chief:deep-reader|crew-chief:reviewer|crew-chief:ui-smoke) ;;
       *) exit 0 ;;
     esac ;;
 esac

@@ -61,22 +61,22 @@ def main():
         if got != code:
             failures.append(f"expected {code}, got {got}: {command!r} {kw}")
 
-    for agent in ("crew-chief:scanner", "crew-chief:deep-reader", "crew-chief:reviewer"):
+    for agent in ("crew-chief:scanner", "crew-chief:deep-reader", "crew-chief:reviewer", "crew-chief:ui-smoke"):
         for c in ALLOWED:
             expect(0, c, agent_type=agent)
         for c in BLOCKED:
             expect(2, c, agent_type=agent)
     # Writing agents, the main session, and other plugins' agents are never touched.
-    for agent in (None, "crew-chief:implementer", "crew-chief:implementer-hard", "reviewer", "other:scanner"):
+    for agent in (None, "crew-chief:implementer", "crew-chief:implementer-hard", "crew-chief:ui-tester", "reviewer", "other:scanner"):
         for c in BLOCKED:
             expect(0, c, agent_type=agent)
     # --project (settings hook from /crew-setup) matches bare agent names only.
-    for agent in ("scanner", "deep-reader", "reviewer"):
+    for agent in ("scanner", "deep-reader", "reviewer", "ui-smoke"):
         for c in BLOCKED:
             expect(2, c, agent_type=agent, project=True)
         for c in ALLOWED:
             expect(0, c, agent_type=agent, project=True)
-    for agent in (None, "implementer", "crew-chief:scanner", "my-scanner"):
+    for agent in (None, "implementer", "ui-tester", "crew-chief:scanner", "my-scanner"):
         for c in BLOCKED:
             expect(0, c, agent_type=agent, project=True)
     # --always ignores agent_type.
@@ -85,7 +85,7 @@ def main():
     for c in ALLOWED:
         expect(0, c, always=True)
 
-    total = 6 * (len(ALLOWED) + len(BLOCKED)) + 9 * len(BLOCKED) + len(BLOCKED) + len(ALLOWED)
+    total = 8 * (len(ALLOWED) + len(BLOCKED)) + 11 * len(BLOCKED) + len(BLOCKED) + len(ALLOWED)
     if failures:
         print("\n".join(failures))
         print(f"FAIL {len(failures)}/{total}")
