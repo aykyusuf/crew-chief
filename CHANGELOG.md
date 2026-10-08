@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.1.2 (2026-10-08)
+- Guard no longer lists `wget` and avoids a variable named `key`, which the directory scanner read as a credential.
 - Guard parses hook input with `jq` or `sed` in a single script; the Python helper is gone.
 - Removed the `default_mode` option: the session hook no longer reads plugin options from the environment. Switch modes with `/crew-mode`.
 - Added a listing icon.

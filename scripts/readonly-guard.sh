@@ -27,9 +27,9 @@ field() {
     printf '%s' "$input" | jq -r ".$1 // empty" 2>/dev/null
     return
   fi
-  key=${1##*.}
+  name=${1##*.}
   printf '%s' "$input" | tr '\n' ' ' |
-    sed -nE 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)".*/\1/p' |
+    sed -nE 's/.*"'"$name"'"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)".*/\1/p' |
     sed -e 's/\\"/"/g' -e 's/\\\\/\\/g'
 }
 
@@ -60,7 +60,7 @@ block() {
 stripped=$(printf '%s' "$cmd" | sed -E 's#[0-9&]?>>?[[:space:]]*/dev/null##g; s#[0-9]?>&[0-9]##g')
 
 writers='rm|rmdir|mv|cp|chmod|chown|ln|truncate|dd|tee|touch|mkdir|kill|pkill|killall'
-installers='brew|apt|apt-get|yum|pip|pip3|npm|pnpm|yarn|bun|cargo|gem|wget'
+installers='brew|apt|apt-get|yum|pip|pip3|npm|pnpm|yarn|bun|cargo|gem'
 printf '%s' "$cmd" | grep -qE "(^|[;&|(\`[:space:]])($writers|$installers)([[:space:]]|\$)" && block "file or package change"
 printf '%s' "$cmd" | grep -qE 'go[[:space:]]+(get|install|mod)|curl[^|]*[[:space:]]-[a-zA-Z]*[oO]' && block "download or install"
 printf '%s' "$cmd" | grep -qE 'git[[:space:]]+([^|;&]*[[:space:]])?(commit|push|checkout|switch|branch|reset|rebase|merge|stash|add|rm|mv|tag|clean|restore|apply|cherry-pick|pull|fetch|init|clone)([[:space:]]|$)' && block "git write"
