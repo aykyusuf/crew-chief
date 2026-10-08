@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "crew-chief",
   "displayName": "Crew Chief",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Difficulty-based routing for Claude Code. You pick the main model and effort; Claude decides what to do itself and what to hand to tiered Haiku, Sonnet, and Opus subagents (including browser and emulator UI testers), escalates when a tier gets stuck, and follows your overrides like \"do it yourself\" or \"give this to Sonnet at medium\".",
   "author": {
     "name": "aykyusuf",

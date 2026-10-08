@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3 (2026-10-08)
+- Agent panel rows fit narrow terminals: the model is always shown; effort, tokens, and the description drop out in that order as space runs out; long agent names lose their plugin prefix and are shortened with an ellipsis instead of pushing the model off screen.
+- Rows mark failed (✗) and stopped (■) subagents, strip control characters, show token counts in millions, and skip malformed rows.
+
 ## 0.2.2 (2026-10-08)
 - Session handoff, offered once per project: on a fresh start in a git repository without handoff files, the session hook asks Claude to offer STATUS.md, tasks.json, and PROGRESS.md plus a marked CLAUDE.md routine, saying what changes and citing Anthropic's "Effective harnesses for long-running agents". Quiet on resume/clear/compact, outside git, in home and temp directories, when similar files exist (including `durum.md` / `ilerleme.md`), or with `CREW_CHIEF_HANDOFF_OFFER=off`. Answers (`installed`, `never`, `later` for 7 days) are kept in `${CLAUDE_PLUGIN_DATA}`, never in the repository.
 - New `crew-handoff` skill (model-invocable): finds existing equivalents first, previews before writing, creates only missing files, never overwrites or commits. `crew-setup --handoff` now delegates to it.
