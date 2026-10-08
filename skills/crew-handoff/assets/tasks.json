@@ -1,0 +1,14 @@
+{
+  "_rule": "Never delete or reword a task (id, title, done_when); new tasks may be added. Only status and evidence change. status: todo -> in_progress when work on it starts -> done only when every part of done_when is met, including any sign-off it names (passing tests alone do not close a task that also needs the user's approval) -> blocked when it cannot move, with the reason in evidence. evidence: what proves the status, e.g. the command run and its result, a file path, a date.",
+  "updated": "YYYY-MM-DD",
+  "tasks": [
+    {
+      "id": "EXAMPLE-01",
+      "title": "...",
+      "priority": 1,
+      "done_when": "A measurable finish line: which check passes, who signs off",
+      "status": "todo",
+      "evidence": ""
+    }
+  ]
+}

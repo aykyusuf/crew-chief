@@ -38,13 +38,6 @@ Do not write any `effort` or model setting into `.claude/settings.json`: project
 
 ## 5. Optional: session handoff files (`--handoff`)
 
-Only if the user passed `--handoff` or says yes when offered. These files let a fresh session pick up where the last one stopped.
-
-For the project (or a sub-project the user names), create only the files that do not exist yet, using `${CLAUDE_SKILL_DIR}/assets/handoff/` as templates:
-- `STATUS.md`: now, environment, next, open questions, failed attempts, decisions.
-- `tasks.json`: task list where only `status` and `evidence` change over time.
-- `PROGRESS.md`: dated log, newest first.
-
-Fill them from what you can verify in the repository (README, build files, git log). Mark anything you could not verify as unverified; never invent it. Then add the start and end routine from `${CLAUDE_SKILL_DIR}/assets/handoff/claude-md-routine.md` to `CLAUDE.md` if it is not there yet.
+Only if the user passed `--handoff` or says yes when offered. Follow the `crew-handoff` skill (`/crew-chief:crew-handoff`, or `/crew-handoff` when installed with npx): it creates STATUS.md, tasks.json, and PROGRESS.md only where nothing equivalent exists, shows a preview first, and adds a marked routine block to `CLAUDE.md`.
 
 Do not commit anything. Report what was created and anything you could not fill in.
