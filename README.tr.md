@@ -17,6 +17,7 @@
 - **Yükselme merdiveni.** Aynı seviyeyi tekrar denemek yerine `implementer` → `implementer-hard` → ana oturum sırasıyla bir üste çıkar.
 - **Salt-okuma bekçisi.** Okuyan ajanların dosya yazmasını, git'e yazmasını ve paket kurmasını engelleyen bir hook. İzinleri kapatsan da çalışır.
 - **Doğal dilde geçersiz kılma.** "tek başına yap", "ajanları kullan", "bunu Sonnet medium'a ver" ya da `/crew-chief:crew-mode solo`.
+- **Kim hangi modelde, görürsün.** Prompt'un altındaki ajan listesinde her alt ajanın modeli ve eforu yazar: `ui-tester  sonnet-5.5 · medium · 41.2k  Checking the login flow` (`jq` gerekir).
 - **Mekanizma rehberi.** Fork, Monitor, `/loop`, `/goal`, workflow, agent team ve routine'den hangisinin ne zaman kullanılacağını anlatır.
 
 ## Kurulum
@@ -55,6 +56,7 @@ Bir seviyenin modelini ya da eforunu değiştirmek için projende aynı adla `.c
 ## Ne çalıştırır
 Her şey bu repoda okunabilir shell olarak duruyor. Ağa hiçbir şey göndermez.
 - `session-policy.sh`: oturum açılırken yaklaşık 2 KB'lık politikayı bağlama ekler.
+- `subagent-row.sh`: alt ajanlar çalışırken listedeki her satıra model, efor ve token bilgisini yazar.
 - `readonly-guard.sh`: Bash çağrılarında çalışır. Sadece `scanner`, `deep-reader`, `reviewer` ve `ui-smoke` için yazma komutlarını engeller, diğer çağrılara dokunmaz.
 
 Ayrıntılar ve geliştirme komutları için İngilizce README'ye bak.

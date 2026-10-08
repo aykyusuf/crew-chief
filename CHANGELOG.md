@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.1 (2026-10-08)
+- The agent panel below the prompt now shows each subagent's model, effort, and token count (`ui-tester  sonnet-5.5 · medium · 41.2k  Checking the login flow`), via a default `subagentStatusLine` in the plugin's `settings.json`. Needs `jq`; without it the default rows stay. A `subagentStatusLine` in your own settings takes precedence.
+
 ## 0.2.0 (2026-10-08)
 - New tier `ui-tester` (sonnet/medium): multi-step browser, Android emulator, and iOS simulator checks with Claude in Chrome, adb, and computer use; cheapest tool first, screenshots in batches, one device at a time, pass/fail report with evidence.
 - New tier `ui-smoke` (haiku/low): read-only yes/no check from page text, DOM, console, or logcat; covered by the read-only guard.

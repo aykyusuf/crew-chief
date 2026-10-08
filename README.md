@@ -25,6 +25,7 @@ Out of the box, every subagent runs on whatever model and effort it was given, n
 - **UI testing tiers**: `ui-smoke` for a quick read-only check and `ui-tester` for multi-step browser, emulator, or simulator flows, so screenshots stay out of the main context.
 - **Read-only guard**: a hook that stops the scanner, deep-reader, reviewer, and ui-smoke from writing files, changing git state, or installing anything, even when your session runs with permissions bypassed.
 - **Overrides in plain language**: "do it yourself", "use agents", "give this to Sonnet at medium", or `/crew-chief:crew-mode solo`.
+- **See who runs where**: the agent panel below the prompt shows each subagent's model and effort, for example `ui-tester  sonnet-5.5 · medium · 41.2k  Checking the login flow`.
 - **A mechanism guide** (`routing` skill) for when one subagent is the wrong tool: forks, Monitor, `/loop`, `/goal`, dynamic workflows, agent teams, routines.
 
 ## Install
@@ -73,6 +74,7 @@ Everything is plain, readable shell in this repo. Nothing is sent over the netwo
 | Component | When | What it does |
 |---|---|---|
 | `scripts/session-policy.sh` | SessionStart (startup, resume, clear, compact) | Prints the ~2 KB routing policy into the session context |
+| `scripts/subagent-row.sh` | Agent panel refresh, while subagents run | Reads the panel's row data (agent type, model, effort, tokens) and prints the row text. Needs `jq`; without it the default rows stay |
 | `scripts/readonly-guard.sh` | PreToolUse on Bash | Reads the hook input; if the caller is `crew-chief:scanner`, `deep-reader`, `reviewer`, or `ui-smoke`, blocks commands that write files, change git state, or install packages (exit 2). Every other caller passes through untouched |
 
 With `/crew-setup` (no plugin), the same guard is copied to `.claude/hooks/crew-chief-guard.sh` and wired through `.claude/settings.json` with `--project`, matching the bare agent names. It is not put in the agents' frontmatter on purpose: Claude Code skips frontmatter hooks of project agents until the folder's trust dialog is accepted, and never runs them in `-p` sessions.
