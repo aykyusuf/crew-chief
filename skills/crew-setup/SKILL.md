@@ -10,7 +10,7 @@ Set up crew-chief in the current project. Arguments: `$ARGUMENTS`. Assets are in
 ## 1. Check what is already there
 
 - If agent types named `crew-chief:scanner` and so on are available to you, the crew-chief **plugin** is installed: its agents, guard, and policy are already active. Do not copy agents or hooks (that would create duplicates). Say so, and continue only with step 5 if `--handoff` was given or the user wants it.
-- List `.claude/agents/`, `.claude/hooks/`, `.claude/settings.json`, and `CLAUDE.md` in the project root. Note any file that setup would overwrite: `scanner.md`, `deep-reader.md`, `implementer.md`, `implementer-hard.md`, `reviewer.md`, `crew-chief-guard.sh`, `json-field.py`.
+- List `.claude/agents/`, `.claude/hooks/`, `.claude/settings.json`, and `CLAUDE.md` in the project root. Note any file that setup would overwrite: `scanner.md`, `deep-reader.md`, `implementer.md`, `implementer-hard.md`, `reviewer.md`, `crew-chief-guard.sh`.
 
 ## 2. Confirm the plan
 
@@ -19,7 +19,7 @@ Show the user, in their language, exactly which files will be created or replace
 ## 3. Install
 
 1. Copy every file in `${CLAUDE_SKILL_DIR}/assets/agents/` to `.claude/agents/`.
-2. Copy `${CLAUDE_SKILL_DIR}/assets/hooks/crew-chief-guard.sh` and `json-field.py` to `.claude/hooks/`, then make the guard executable (`chmod +x .claude/hooks/crew-chief-guard.sh`).
+2. Copy `${CLAUDE_SKILL_DIR}/assets/hooks/crew-chief-guard.sh` to `.claude/hooks/`, then make the guard executable (`chmod +x .claude/hooks/crew-chief-guard.sh`).
 3. Merge `${CLAUDE_SKILL_DIR}/assets/settings-hook.json` into `.claude/settings.json` (create it if missing): append its entry to `hooks.PreToolUse`, keep every existing key and hook, and skip the append if a hook command containing `crew-chief-guard.sh` is already there. Keep the file valid JSON. This wires the read-only guard; it is deliberately not in the agents' frontmatter, because frontmatter hooks of project agents are skipped until the folder's trust dialog is accepted and never run in `-p` sessions.
 4. Insert `${CLAUDE_SKILL_DIR}/assets/claude-md-section.md` into `CLAUDE.md` (create the file if missing). If a block between `<!-- crew-chief:start` and `<!-- crew-chief:end -->` already exists, replace that block; otherwise append it at the end. Leave the rest of `CLAUDE.md` untouched.
 
@@ -35,7 +35,6 @@ Do not write any `effort` or model setting into `.claude/settings.json`: project
 - Tell the user:
   - If `.claude/agents/` did not exist before this run, Claude Code must be **restarted** before the new agents appear.
   - How to override: "do it yourself", "use agents", "give X to Sonnet at medium", `@agent-implementer-hard ...`.
-  - The guard needs `jq` or `python3`; without either it allows everything.
 
 ## 5. Optional: session handoff files (`--handoff`)
 

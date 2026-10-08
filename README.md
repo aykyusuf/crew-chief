@@ -45,7 +45,7 @@ This installs the skills but not the agents or hooks. In Claude Code, run `/crew
 
 Pick one route per machine. Installing both the plugin and the `npx` skills lists each skill twice (`/crew-chief:crew-routing` and `/crew-routing`), which only wastes context. `/crew-setup` detects the plugin and skips the agents and guard, and the plugin's session hook stays quiet when the policy is already in `CLAUDE.md`.
 
-Requirements: Claude Code 2.1.292 or later for per-call effort (older versions still work, routing by tier defaults). The guard uses `jq` or `python3`; with neither it allows everything.
+Requirements: Claude Code 2.1.292 or later for per-call effort (older versions still work, routing by tier defaults). The guard parses its input with `jq` when installed and with `sed` otherwise.
 
 ## Use
 
@@ -61,19 +61,16 @@ Nothing to do: start a session, pick your model and effort as usual, and work. C
 | `@agent-crew-chief:implementer-hard fix the race in sync.go` | That agent, guaranteed |
 | `/crew-chief:crew-mode auto\|solo\|delegate\|status` | Switch or show the mode |
 
-Set the default mode in the plugin options (`claude plugin configure crew-chief`): `auto`, `solo`, or `delegate`.
-
 **Change a tier's model or effort:** create `.claude/agents/<name>.md` in your project with the same name (for example `implementer.md`). Project agents take priority over plugin agents, and plugin updates never overwrite them.
 
 ## What it runs
 
-Everything is plain, readable shell and Python in this repo. Nothing is sent over the network.
+Everything is plain, readable shell in this repo. Nothing is sent over the network.
 
 | Component | When | What it does |
 |---|---|---|
 | `scripts/session-policy.sh` | SessionStart (startup, resume, clear, compact) | Prints the ~2 KB routing policy into the session context |
 | `scripts/readonly-guard.sh` | PreToolUse on Bash | Reads the hook input; if the caller is `crew-chief:scanner`, `deep-reader`, or `reviewer`, blocks commands that write files, change git state, or install packages (exit 2). Every other caller passes through untouched |
-| `scripts/json-field.py` | Called by the guard when `jq` is missing | Reads one field from the hook input JSON |
 
 With `/crew-setup` (no plugin), the same guard is copied to `.claude/hooks/crew-chief-guard.sh` and wired through `.claude/settings.json` with `--project`, matching the bare agent names. It is not put in the agents' frontmatter on purpose: Claude Code skips frontmatter hooks of project agents until the folder's trust dialog is accepted, and never runs them in `-p` sessions.
 
@@ -93,7 +90,7 @@ The full policy is in [skills/crew-routing/SKILL.md](skills/crew-routing/SKILL.m
 
 ```bash
 claude --plugin-dir .                      # load this checkout for one session
-python3 tests/test_guard.py                # guard: 161 cases, with and without jq
+python3 tests/test_guard.py                # guard tests, with and without jq
 python3 tools/build_assets.py              # regenerate skills/crew-setup/assets after editing agents/ or scripts/
 claude plugin validate . --strict          # marketplace manifest
 claude plugin validate .claude-plugin/plugin.json --strict

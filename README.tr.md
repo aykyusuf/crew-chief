@@ -35,7 +35,7 @@ Bir makinede tek bir yol seç. Plugin ve `npx` skill'leri birlikte kurarsan her 
 
 Gereksinimler:
 - Çağrı başına efor için Claude Code 2.1.292 veya üstü. Eski sürümlerde de çalışır, o zaman seviyelerin varsayılan eforları kullanılır.
-- Bekçi için `jq` ya da `python3`.
+- Bekçi, `jq` kuruluysa onu, değilse `sed` kullanır; ek bir şey gerekmez.
 
 ## Kullanım
 | Sen dersin | Olan |
@@ -51,7 +51,7 @@ Gereksinimler:
 Bir seviyenin modelini ya da eforunu değiştirmek için projende aynı adla `.claude/agents/<ad>.md` dosyası aç. Proje ajanı plugin ajanının önüne geçer ve güncellemeler onu ezmez.
 
 ## Ne çalıştırır
-Her şey bu repoda okunabilir shell ve Python olarak duruyor. Ağa hiçbir şey göndermez.
+Her şey bu repoda okunabilir shell olarak duruyor. Ağa hiçbir şey göndermez.
 - `session-policy.sh`: oturum açılırken yaklaşık 2 KB'lık politikayı bağlama ekler.
 - `readonly-guard.sh`: Bash çağrılarında çalışır. Sadece `scanner`, `deep-reader` ve `reviewer` için yazma komutlarını engeller, diğer çağrılara dokunmaz.
 

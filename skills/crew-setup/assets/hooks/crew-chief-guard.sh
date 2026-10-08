@@ -15,33 +15,39 @@
 #                                an agent's own frontmatter)
 #
 # Exit 0 = allow, exit 2 = block (Claude Code shows stderr to the agent).
-# Needs jq or python3 to read the hook input; with neither, it allows.
+# Reads the hook input with jq when available, otherwise with sed. Everything
+# runs from this one file.
 
 input=$(cat)
 
+# Print a top-level string field of the hook input ("agent_type") or the
+# command of a Bash call ("tool_input.command").
 field() {
   if command -v jq >/dev/null 2>&1; then
-    printf '%s' "$input" | jq -r "$1 // empty" 2>/dev/null
-  elif command -v python3 >/dev/null 2>&1; then
-    printf '%s' "$input" | python3 "$(dirname "$0")/json-field.py" "$1" 2>/dev/null
+    printf '%s' "$input" | jq -r ".$1 // empty" 2>/dev/null
+    return
   fi
+  key=${1##*.}
+  printf '%s' "$input" | tr '\n' ' ' |
+    sed -nE 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)".*/\1/p' |
+    sed -e 's/\\"/"/g' -e 's/\\\\/\\/g'
 }
 
 case "$1" in
   --always) ;;
   --project)
-    case "$(field .agent_type)" in
+    case "$(field agent_type)" in
       scanner|deep-reader|reviewer) ;;
       *) exit 0 ;;
     esac ;;
   *)
-    case "$(field .agent_type)" in
+    case "$(field agent_type)" in
       crew-chief:scanner|crew-chief:deep-reader|crew-chief:reviewer) ;;
       *) exit 0 ;;
     esac ;;
 esac
 
-cmd=$(field .tool_input.command)
+cmd=$(field tool_input.command)
 [ -z "$cmd" ] && exit 0
 cmd=${cmd#rtk }
 

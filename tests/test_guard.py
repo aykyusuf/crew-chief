@@ -19,6 +19,8 @@ ALLOWED = [
     "cat README.md",
     "find . -name '*.py' | wc -l",
     "rtk git log -3",
+    'grep -rn "TODO" src | head -5',
+    "python3 -c 'print(1)'",
 ]
 
 BLOCKED = [
@@ -35,6 +37,8 @@ BLOCKED = [
     "npm install",
     "mkdir build",
     "ls && touch x",
+    'echo "a \\"quoted\\" word" > out.txt',
+    "printf 'x\\n' >> log.txt",
 ]
 
 
@@ -90,11 +94,11 @@ def main():
 
 
 def without_jq_env():
-    """PATH with the usual tools but no jq, to exercise the python3 fallback."""
+    """PATH with the usual tools but no jq, to exercise the sed fallback."""
     import shutil
     import tempfile
     bindir = tempfile.mkdtemp(prefix="crew-chief-nojq-")
-    for tool in ("sh", "cat", "grep", "sed", "dirname", "python3"):
+    for tool in ("sh", "cat", "grep", "sed", "tr"):
         path = shutil.which(tool)
         if path:
             os.symlink(path, os.path.join(bindir, tool))

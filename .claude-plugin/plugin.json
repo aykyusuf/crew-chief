@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "crew-chief",
   "displayName": "Crew Chief",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Difficulty-based routing for Claude Code. You pick the main model and effort; Claude decides what to do itself and what to hand to tiered Haiku, Sonnet, and Opus subagents, escalates when a tier gets stuck, and follows your overrides like \"do it yourself\" or \"give this to Sonnet at medium\".",
   "author": {
     "name": "aykyusuf",
@@ -24,18 +24,5 @@
     "haiku",
     "sonnet",
     "opus"
-  ],
-  "userConfig": {
-    "default_mode": {
-      "type": "string",
-      "title": "Default delegation mode",
-      "description": "auto routes by difficulty, solo keeps all work in the main session, delegate hands independent work to subagents. Switch any time with /crew-chief:crew-mode.",
-      "options": [
-        "auto",
-        "solo",
-        "delegate"
-      ],
-      "default": "auto"
-    }
-  }
+  ]
 }

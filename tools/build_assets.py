@@ -46,7 +46,7 @@ def project_agent(name, text):
 def claude_md_section():
     policy = subprocess.run(
         ["sh", os.path.join(ROOT, "scripts", "session-policy.sh")],
-        capture_output=True, text=True, check=True,
+        input="", capture_output=True, text=True, check=True,
         env={"PATH": os.environ["PATH"], "CLAUDE_PROJECT_DIR": tempfile.gettempdir()},
     ).stdout
     policy = re.sub(r"</?crew-chief-policy>\n?", "", policy)
@@ -74,7 +74,6 @@ def build(out_dir):
             with open(os.path.join(agents_out, fname), "w") as f:
                 f.write(project_agent(fname[:-3], text))
     shutil.copy2(os.path.join(ROOT, "scripts", "readonly-guard.sh"), os.path.join(hooks_out, "crew-chief-guard.sh"))
-    shutil.copy2(os.path.join(ROOT, "scripts", "json-field.py"), os.path.join(hooks_out, "json-field.py"))
     with open(os.path.join(out_dir, "claude-md-section.md"), "w") as f:
         f.write(claude_md_section())
     with open(os.path.join(out_dir, "settings-hook.json"), "w") as f:

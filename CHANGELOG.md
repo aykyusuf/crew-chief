@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 (2026-10-08)
+- Guard parses hook input with `jq` or `sed` in a single script; the Python helper is gone.
+- Removed the `default_mode` option: the session hook no longer reads plugin options from the environment. Switch modes with `/crew-mode`.
+- Added a listing icon.
+
 ## 0.1.1 (2026-10-08)
 - Reviewer verifies every candidate finding against the code before reporting, follows the repository's `REVIEW.md`, and uses Claude Code's Important / Nit / Pre-existing severities with a nit cap.
 - Review depth by risk: high by default, `effort: xhigh` per call only for security, data loss, concurrency, money, or shipping code; large diffs go to `/code-review`.
