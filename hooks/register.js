@@ -8,21 +8,29 @@
 //     Sonnet at high (no xhigh or max). Haiku and the main session are never touched.
 //   - One toast when the context passes 150k tokens, one when the session is 8 hours old.
 //   - /saver [on|off|status]
-// Environment: CREW_CHIEF_SAVER=off silences the questions and toasts;
+//   - Once, after the first finished turn of a session where the advisor is off: offers to turn on
+//     /advisor (a stronger model Claude can ask at hard moments). It asks first, remembers "not now"
+//     for a week and "never" for good, and runs /advisor only after a yes.
+// Environment: CREW_CHIEF_SAVER=off silences the saver questions and toasts (not the advisor offer);
 // CREW_CHIEF_SAVER_FIVE_HOUR and CREW_CHIEF_SAVER_SEVEN_DAY set the thresholds ("70,80,90");
+// CREW_CHIEF_ADVISOR_OFFER=off never offers the advisor;
 // CREW_CHIEF_LANG=tr|en forces the language of the messages (otherwise: Claude Code's `language`
 // setting, then what you have been writing, then the last language seen, then the locale).
-// The only thing kept between sessions is that language ("tr" or "en", in the plugin's store);
-// nothing leaves the machine.
+// Kept between sessions, in the plugin's store: the language ("tr" or "en") and the answer to the
+// advisor offer ("never", "answered", or "later:<time>"). Nothing leaves the machine.
 import { classifyText, pickLanguage, t, unitsFor, windowName } from './saver-i18n.mjs'
 import {
   CONTEXT_TOAST_TOKENS,
   FIVE_HOUR_DEFAULT,
   SEVEN_DAY_DEFAULT,
   SESSION_AGE_TOAST_MS,
+  ADVISOR_LATER_MS,
+  advisorOfferAllowed,
+  advisorPlan,
   capEffort,
   crossing,
   formatDuration,
+  isEnvFlag,
   parseThresholds,
   tokensLabel,
 } from './saver-logic.mjs'
@@ -44,6 +52,7 @@ let quiet = false
 let contextToasted = false
 let ageToasted = false
 let capToasted = false
+let advisorChecked = false
 let settingPromise
 let storedPromise
 let storedLang
@@ -63,6 +72,7 @@ function resetState() {
   contextToasted = false
   ageToasted = false
   capToasted = false
+  advisorChecked = false
   settingPromise = undefined
   storedPromise = undefined
   storedLang = undefined
@@ -196,6 +206,98 @@ async function evaluate($) {
   if (hit !== undefined) pending = hit
 }
 
+async function onCloudProvider($) {
+  // The advisor is a server tool of the Anthropic API; these routes do not have it.
+  const flags = [
+    await $.env.get('CLAUDE_CODE_USE_BEDROCK'),
+    await $.env.get('CLAUDE_CODE_USE_VERTEX'),
+    await $.env.get('CLAUDE_CODE_USE_FOUNDRY'),
+    await $.env.get('CLAUDE_CODE_USE_ANTHROPIC_AWS'),
+    await $.env.get('CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD'),
+  ]
+  return flags.some(isEnvFlag)
+}
+
+async function rememberAdvisorAnswer($, value) {
+  try {
+    await $.store.set('advisor', value)
+  } catch (err) {
+    // Not remembered: the offer may come back next session.
+  }
+}
+
+// The command writes the setting a moment after it returns, so look a few times before giving up.
+async function advisorIsSet($) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const settings = await $.settings.read()
+    if (settings.advisorModel) return true
+    if (attempt < 4) await $.clock.sleep(400)
+  }
+  return false
+}
+
+// Runs outside the hook that scheduled it (a hook the turn waits on may not run commands). Only a
+// result that is visible in the settings counts as "answered"; a refusal (a policy, Fable credits)
+// is remembered as "never" so the offer does not repeat a command that cannot work.
+async function enableAdvisor($, advisor, lang) {
+  try {
+    await $.command.run({ command: 'advisor', args: advisor })
+    if (!(await advisorIsSet($))) throw new Error('the advisor setting did not change')
+    await rememberAdvisorAnswer($, 'answered')
+    $.ui.toast(t(lang, 'advisor_toast_on', { advisor: t(lang, 'model_' + advisor) }), { timeoutMs: 8000 })
+  } catch (err) {
+    await rememberAdvisorAnswer($, 'never')
+    $.ui.toast(t(lang, 'advisor_toast_failed'), { timeoutMs: 12000 })
+  }
+}
+
+// Offers the advisor once. Every gate that says "not for this person or this setup" returns
+// quietly; a dismissed dialog (or a run with nobody to ask) leaves no trace, so it can come back.
+async function offerAdvisor($) {
+  if (asking) return
+  asking = true
+  try {
+    if ((await $.env.get('CREW_CHIEF_ADVISOR_OFFER')) === 'off') return
+    if (isEnvFlag(await $.env.get('CLAUDE_CODE_DISABLE_ADVISOR_TOOL'))) return
+    if (await onCloudProvider($)) return
+    const settings = await $.settings.read()
+    if (settings.advisorModel) return
+    const commands = await $.command.list()
+    if (!commands.some((c) => c.name === 'advisor')) return
+    const plan = advisorPlan(await $.session.model())
+    if (plan === undefined) return
+    let stored
+    try {
+      stored = await $.store.get('advisor')
+    } catch (err) {
+      // No store: treated as never asked.
+    }
+    const now = await $.clock.now()
+    if (!advisorOfferAllowed(stored, now)) return
+    const lang = await resolveLang($)
+    const answers = [t(lang, 'advisor_answer_on'), t(lang, 'advisor_answer_later'), t(lang, 'advisor_answer_never')]
+    const main = t(lang, 'model_' + plan.family)
+    const advisor = t(lang, 'model_' + plan.advisor)
+    let answer
+    try {
+      answer = await $.ui.ask(t(lang, plan.kind === 'second' ? 'advisor_ask_second' : 'advisor_ask_standard', { main, advisor }), answers)
+    } catch (err) {
+      return
+    }
+    if (answer === answers[0]) {
+      $.clock.after(300, () => enableAdvisor($, plan.advisor, lang))
+    } else if (answer === answers[1]) {
+      await rememberAdvisorAnswer($, 'later:' + (now + ADVISOR_LATER_MS))
+    } else if (answer === answers[2]) {
+      await rememberAdvisorAnswer($, 'never')
+    }
+  } catch (err) {
+    // Anything unexpected: stay quiet rather than get in the way.
+  } finally {
+    asking = false
+  }
+}
+
 // A main-thread turn is running when a prompt or a model request went out after the last finished
 // turn. Model requests count too: a prompt queued while the previous turn ran, a turn longer than
 // TURN_STALE_MS, and a turn started by a background notification never pass through prompt.submit
@@ -271,6 +373,10 @@ export function register(on) {
       lastCompleteAt = await $.clock.now()
       await evaluate($)
       launchAsk($)
+      if (e.reason === 'answer' && !advisorChecked && pending === null && !asking) {
+        advisorChecked = true
+        offerAdvisor($)
+      }
     }
     return next(e)
   })

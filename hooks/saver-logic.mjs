@@ -73,3 +73,47 @@ export function tokensLabel(n) {
   if (typeof n !== 'number') return '?'
   return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)
 }
+
+// ---- advisor offer -------------------------------------------------------------------------
+
+export const ADVISOR_LATER_MS = 7 * 24 * 60 * 60 * 1000
+
+// 'claude-sonnet-5-5' -> 'sonnet'. Used to pick the advisor and to name the model in a message.
+export function modelFamily(model) {
+  const name = typeof model === 'string' ? model.toLowerCase() : ''
+  for (const family of ['fable', 'opus', 'sonnet', 'haiku']) {
+    if (name.includes(family)) return family
+  }
+  return 'other'
+}
+
+// Whether and how to offer the advisor for this main model. Sonnet and Haiku get the usual offer
+// (a stronger model on call); Opus and Fable get the "second opinion" wording, with the advisor
+// Claude Code accepts for them (Opus 5+ or Fable for Opus, only Fable for Fable). Unknown models
+// get nothing: the pairing rules are not known.
+export function advisorPlan(model) {
+  const family = modelFamily(model)
+  if (family === 'sonnet' || family === 'haiku') return { family, advisor: 'opus', kind: 'standard' }
+  if (family === 'opus') return { family, advisor: 'opus', kind: 'second' }
+  if (family === 'fable') return { family, advisor: 'fable', kind: 'second' }
+  return undefined
+}
+
+// What is stored under the `advisor` key: 'never' and 'answered' end the offers for good,
+// 'later:<ms>' pauses them until that time, anything else (including nothing) allows one.
+export function advisorOfferAllowed(stored, now) {
+  if (stored === 'never' || stored === 'answered') return false
+  if (typeof stored === 'string' && stored.startsWith('later:')) {
+    const until = Number(stored.slice('later:'.length))
+    // A pause longer than a week was written with a clock that has since moved back: ignore it.
+    return Number.isFinite(until) ? now >= until || until - now > ADVISOR_LATER_MS : true
+  }
+  return true
+}
+
+// An environment variable that switches something on: set, and not 0/false/no/off.
+export function isEnvFlag(value) {
+  if (typeof value !== 'string') return false
+  const v = value.trim().toLowerCase()
+  return v !== '' && !['0', 'false', 'no', 'off'].includes(v)
+}

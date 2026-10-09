@@ -15,7 +15,21 @@ function usageOf(rateLimits: Window[], extra: Record<string, unknown> = {}) {
 }
 
 // Everything the mod asks Claude Code for, answered from variables the test can change.
-function harness(on: any, opts: { env?: Record<string, string>; answer?: string | 'reject'; refuseCommand?: boolean; settings?: Record<string, unknown>; stored?: string } = {}) {
+type Opts = {
+  env?: Record<string, string>
+  answer?: string | 'reject'
+  refuseCommand?: boolean
+  settings?: Record<string, unknown>
+  stored?: string
+  advisorOff?: boolean // the advisor is not configured: the mod may offer it
+  advisorStored?: string
+  model?: string
+  noAdvisorCommand?: boolean
+  advisorRunFails?: boolean
+  advisorRunChangesNothing?: boolean
+}
+
+function harness(on: any, opts: Opts = {}) {
   const state = {
     usage: usageOf([]),
     answer: opts.answer ?? ON,
@@ -24,6 +38,9 @@ function harness(on: any, opts: { env?: Record<string, string>; answer?: string 
     efforts: [] as unknown[],
     clock: undefined as any,
     storedWrites: [] as unknown[],
+    advisorWrites: [] as unknown[],
+    commandRuns: [] as string[][],
+    settings: { ...(opts.advisorOff ? {} : { advisorModel: 'opus' }), ...(opts.settings ?? {}) } as Record<string, unknown>,
   }
   mock.env(on, opts.env ?? {})
   state.clock = mock.clock(on, { now: 3_600_000 })
@@ -34,11 +51,22 @@ function harness(on: any, opts: { env?: Record<string, string>; answer?: string 
     return { value: undefined }
   })
   on('ui.log', () => ({ value: undefined }))
-  on('settings.read', () => ({ value: opts.settings ?? {} }))
-  on('store.get', () => ({ value: opts.stored }))
+  on('settings.read', () => ({ value: state.settings }))
+  on('store.get', ($: any, e: any) => ({ value: e.key === 'advisor' ? opts.advisorStored : opts.stored }))
   on('store.set', ($: any, e: any) => {
-    state.storedWrites.push(e.value)
+    if (e.key === 'advisor') state.advisorWrites.push(e.value)
+    else state.storedWrites.push(e.value)
     return { value: undefined }
+  })
+  on('command.list', () => ({ value: opts.noAdvisorCommand ? [{ name: 'saver' }] : [{ name: 'saver' }, { name: 'advisor' }] }))
+  on('session.model', () => ({ value: opts.model ?? 'claude-sonnet-5-5' }))
+  on('command.run', ($: any, e: any) => {
+    state.commandRuns.push([e.command, e.args])
+    if (e.command === 'advisor') {
+      if (opts.advisorRunFails) return { deny: 'refused' }
+      if (!opts.advisorRunChangesNothing) state.settings.advisorModel = e.args
+    }
+    return { text: '' }
   })
   on('session.start', () => ({ cwd: '/work' }))
   on('session.end', ($: any, e: any) => ({ sessionId: e.sessionId }))
@@ -444,4 +472,190 @@ test('a prompt with a Turkish name or French text does not turn the session Turk
   await measure($, s, FIVE(72))
   expect(s.questions[0]).toContain('Your 5-hour limit is 72% used')
   expect(s.storedWrites).toEqual([])
+})
+
+// ---- advisor offer --------------------------------------------------------------------------
+
+const ADV_ON = 'Turn it on'
+const ADV_LATER = 'Remind me in a week'
+const ADV_NEVER = "Don't ask again"
+const WEEK = 604_800_000
+
+async function pump($: any, s: any, ms = 3000) {
+  for (let spent = 0; spent < ms; spent += 250) {
+    await s.clock.advance(250)
+    await settle()
+  }
+}
+
+async function offerSession($: any, on: any, opts: Opts) {
+  const s = harness(on, { advisorOff: true, ...opts })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await say($, 'please fix the failing test')
+  await settle()
+  return s
+}
+
+test('advisor off, Sonnet main: offered once after the first finished turn; yes runs /advisor opus', async ($, on) => {
+  const s = await offerSession($, on, { answer: ADV_ON })
+  expect(s.questions.length).toBe(1)
+  expect(s.questions[0]).toContain('The advisor is off. Turned on, Sonnet asks Opus for advice')
+  expect(s.questions[0]).toContain('/advisor off switches it off again')
+  await pump($, s)
+  expect(s.commandRuns).toEqual([['advisor', 'opus']])
+  expect(s.advisorWrites).toEqual(['answered'])
+  expect(s.toasts.some((t) => t.includes('Advisor set to Opus'))).toBe(true)
+  await say($, 'can you add this to the README')
+  expect(s.questions.length).toBe(1)
+})
+
+test('the advisor offer comes after a finished turn, not at startup', async ($, on) => {
+  const s = harness(on, { advisorOff: true, answer: ADV_NEVER })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, s, FIVE(10))
+  expect(s.questions.length).toBe(0)
+})
+
+test('not offered when the advisor is already set', async ($, on) => {
+  const s = await offerSession($, on, { advisorOff: false, answer: ADV_ON })
+  expect(s.questions.length).toBe(0)
+})
+
+for (const env of [
+  { CLAUDE_CODE_USE_BEDROCK: '1' },
+  { CLAUDE_CODE_USE_VERTEX: 'true' },
+  { CLAUDE_CODE_USE_FOUNDRY: '1' },
+  { CLAUDE_CODE_USE_ANTHROPIC_AWS: '1' },
+  { CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD: '1' },
+  { CLAUDE_CODE_DISABLE_ADVISOR_TOOL: '1' },
+  { CREW_CHIEF_ADVISOR_OFFER: 'off' },
+]) {
+  test(`advisor not offered with ${JSON.stringify(env)}`, async ($, on) => {
+    const s = await offerSession($, on, { env, answer: ADV_ON })
+    expect(s.questions.length).toBe(0)
+  })
+}
+
+test('a cloud flag set to 0 does not block the offer', async ($, on) => {
+  const s = await offerSession($, on, { env: { CLAUDE_CODE_USE_BEDROCK: '0' }, answer: ADV_NEVER })
+  expect(s.questions.length).toBe(1)
+})
+
+test('not offered when this Claude Code has no /advisor', async ($, on) => {
+  expect((await offerSession($, on, { noAdvisorCommand: true })).questions.length).toBe(0)
+})
+
+test('not offered when the main model is unknown', async ($, on) => {
+  expect((await offerSession($, on, { model: 'some-other-model' })).questions.length).toBe(0)
+})
+
+test('Haiku main is offered the usual advisor', async ($, on) => {
+  const s = await offerSession($, on, { model: 'claude-haiku-5-5', answer: ADV_NEVER })
+  expect(s.questions[0]).toContain('Turned on, Haiku asks Opus')
+})
+
+test('Opus main is offered a second opinion, and gets the Opus advisor', async ($, on) => {
+  const s = await offerSession($, on, { model: 'claude-opus-5-5', answer: ADV_ON })
+  expect(s.questions[0]).toContain('a second Opus reviews Opus')
+  await pump($, s)
+  expect(s.commandRuns).toEqual([['advisor', 'opus']])
+})
+
+test('Fable main is offered a second opinion with the Fable advisor', async ($, on) => {
+  const s = await offerSession($, on, { model: 'claude-fable-5-1', answer: ADV_ON })
+  expect(s.questions[0]).toContain('a second Fable reviews Fable')
+  await pump($, s)
+  expect(s.commandRuns).toEqual([['advisor', 'fable']])
+})
+
+test('"remind me in a week" pauses the offer for exactly a week', async ($, on) => {
+  const s = await offerSession($, on, { answer: ADV_LATER })
+  expect(s.advisorWrites).toEqual(['later:' + (3_600_000 + WEEK)])
+  expect(s.commandRuns).toEqual([])
+})
+
+test('"don\'t ask again" is remembered and nothing is run', async ($, on) => {
+  const s = await offerSession($, on, { answer: ADV_NEVER })
+  expect(s.advisorWrites).toEqual(['never'])
+  expect(s.commandRuns).toEqual([])
+})
+
+for (const [stored, expected] of [
+  ['never', 0],
+  ['answered', 0],
+  ['later:' + (3_600_000 + 1000), 0],
+  ['later:' + (3_600_000 - 1), 1],
+  ['later:junk', 1],
+] as [string, number][]) {
+  test(`stored advisor answer ${stored}: ${expected ? 'offered' : 'not offered'}`, async ($, on) => {
+    const s = await offerSession($, on, { advisorStored: stored, answer: ADV_NEVER })
+    expect(s.questions.length).toBe(expected)
+  })
+}
+
+test('a dismissed offer leaves no trace, so it can come back next session', async ($, on) => {
+  const s = await offerSession($, on, { answer: 'reject' })
+  expect(s.questions.length).toBe(1)
+  expect(s.advisorWrites).toEqual([])
+  expect(s.commandRuns).toEqual([])
+})
+
+test('if /advisor is refused, the person is told to run it, and the offer does not repeat', async ($, on) => {
+  const s = await offerSession($, on, { answer: ADV_ON, advisorRunFails: true })
+  await pump($, s)
+  expect(s.toasts.some((t) => t.includes('Run /advisor yourself to see why'))).toBe(true)
+  expect(s.advisorWrites).toEqual(['never'])
+})
+
+test('if /advisor succeeds but the setting never appears, the same failure path runs after a few looks', async ($, on) => {
+  const s = await offerSession($, on, { answer: ADV_ON, advisorRunChangesNothing: true })
+  await pump($, s, 4000)
+  expect(s.commandRuns).toEqual([['advisor', 'opus']])
+  expect(s.toasts.some((t) => t.includes('Run /advisor yourself to see why'))).toBe(true)
+  expect(s.toasts.some((t) => t.includes('Advisor set to'))).toBe(false)
+  expect(s.advisorWrites).toEqual(['never'])
+})
+
+test('an interrupted turn does not trigger the offer; the next finished one does', async ($, on) => {
+  const s = harness(on, { advisorOff: true, answer: ADV_NEVER })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await $.prompt.submit({ text: 'go', origin: { kind: 'composer' } })
+  await $.turn.complete({ turnId: 't1', answer: '', durationMs: 1, isAborted: true, reason: 'aborted', usage: null })
+  await settle()
+  expect(s.questions.length).toBe(0)
+  await say($, 'please fix the failing test')
+  expect(s.questions.length).toBe(1)
+})
+
+test('the advisor offer waits while a saver question is open, then comes on the next turn', async ($, on) => {
+  const s = harness(on, { advisorOff: true, answer: 'something else' })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await $.prompt.submit({ text: 'go', origin: { kind: 'composer' } })
+  s.usage = usageOf(FIVE(72))
+  await $.session.measure({ context: s.usage.context, rateLimits: FIVE(72), changed: ['rateLimits'] })
+  await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer', usage: null })
+  await settle()
+  expect(s.questions.length).toBe(1)
+  expect(s.questions[0]).toContain('5-hour limit is 72% used')
+  await say($, 'please fix the failing test')
+  expect(s.questions.length).toBe(2)
+  expect(s.questions[1]).toContain('The advisor is off')
+})
+
+test('a new session offers again unless an answer was remembered', async ($, on) => {
+  const s = await offerSession($, on, { answer: 'reject' })
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { sessionId: 's1' } })
+  await say($, 'please fix the failing test')
+  await settle()
+  expect(s.questions.length).toBe(2)
+})
+
+test('the advisor offer speaks Turkish when the session does', async ($, on) => {
+  const s = harness(on, { advisorOff: true, answer: 'Bir daha sorma', settings: { language: 'turkish' } })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await say($, 'tamam yaz bakalım')
+  await settle()
+  expect(s.questions[0]).toContain('Advisor kapalı. Açıkken Sonnet, zor anlarda')
+  expect(s.questions[0]).toContain('Opus modeline danışır')
+  expect(s.advisorWrites).toEqual(['never'])
 })

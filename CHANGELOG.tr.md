@@ -2,6 +2,11 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.3.1 (2026-10-09)
+- Advisor teklifi: `/advisor` kapalıysa tasarruf modu, ilk biten turdan sonra faydasını bir kez anlatır ve "evet" denirse `/advisor`'ı senin yerine çalıştırır. `CREW_CHIEF_ADVISOR_OFFER=off` kapatır.
+- "Bir hafta sonra hatırlat" ve "hiç" cevaplarını hatırlar; advisor'ı olmayan bulut yollarında sormaz; ana model Opus/Fable ise "ikinci görüş" der.
+- Reddedilen `/advisor` (politika, Fable kullanım kredisi) tekrarlanmaz; toast nedenini görmek için `/advisor` çalıştırmanı söyler.
+
 ## 0.3.0 (2026-10-09)
 - Token tasarrufu (mod, Claude Code 2.1.287+): her yeni session kapalı başlar; 5 saatlik limitin %70/80/90'ında (haftalık %50/75/85/90) effort'u düşürmeden önce sorar. `/saver on|off|status`.
 - Bağlam 150k token'ı geçince ve session 8 saati aşınca toast: limiti en çok yiyen iki şey.

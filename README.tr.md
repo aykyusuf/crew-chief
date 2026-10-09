@@ -59,15 +59,25 @@ Plan limitini en çok uzun session'lar ve şişmiş bağlam yer, sonra Opus'lu s
 - **Ne zaman sorar:** 5 saatlik limit %70, %80, %90'ı; haftalık limit %50, %75, %85, %90'ı geçince, her eşik ve limit penceresi için bir kez. Session eşik geçilmiş halde açılırsa hemen sorar. İki eşik birden geçilirse bir kez sorar.
 - **Cevaplar:** *Tasarruf modunu aç*, *Şimdi değil* (sonraki eşikte tekrar sorar), *Bu session'da bir daha sorma* (İngilizce görünümde: *Turn on saver*, *Not now*, *Don't ask again this session*).
 - **Açıkken ne yapar, sadece subagent'lara:** Opus (ve Fable) en fazla **medium** effort'ta, Sonnet en fazla **high**'da çalışır (`xhigh`/`max` yok). Haiku'ya ve ana session'a dokunmaz. Modeli değil, her subagent isteğinin effort'unu düşürür.
-- **Takılı kalmaz:** her yeni session, `/clear` ve `/resume` saver kapalı başlar. Saver durumu hiçbir yere kaydedilmez; session'lar arasında sadece dil hatırlanır (aşağıda).
+- **Takılı kalmaz:** her yeni session, `/clear` ve `/resume` saver kapalı başlar. Saver durumu hiçbir yere kaydedilmez; session'lar arasında dil ve advisor teklifi cevabı hatırlanır (aşağıda).
 - **`/saver on|off|status`** elle açıp kapatır; limitlerini, sıfırlanma zamanlarını ve bağlam boyutunu gösterir.
 - **Session başına bir kez toast:** bağlam 150k token'ı geçince ve session 8 saatlik olunca.
 
-**Dil.** Sorular, toast'lar, `/saver` ve güncelleme bildirimleri yazdığın dile göre Türkçe ya da İngilizce olur. Öncelik: `CREW_CHIEF_LANG=tr|en`, sonra Claude Code `language` ayarı (`turkish` ya da `english`), sonra son promptların dili (Türkçe harfler ve yaygın Türkçe sözcükler; son beş promptun çoğunluğu, yani tek bir İngilizce cümle bir şey değiştirmez; slash komutları ve kod sayılmaz), sonra en son tespit edilen dil (yeni session'ın ilk sorusu bile o dilde gelir), sonra `LANG` locale, sonra İngilizce. Session'lar arasında tutulan tek şey bu: `tr` ya da `en`, plugin'in deposunda. "Ne yeni" notları sürüm `CHANGELOG.tr.md`'de varsa oradan, yoksa `CHANGELOG.md`'den okunur.
+**Dil.** Sorular, toast'lar, `/saver` ve güncelleme bildirimleri yazdığın dile göre Türkçe ya da İngilizce olur. Öncelik: `CREW_CHIEF_LANG=tr|en`, sonra Claude Code `language` ayarı (`turkish` ya da `english`), sonra son promptların dili (Türkçe harfler ve yaygın Türkçe sözcükler; son beş promptun çoğunluğu, yani tek bir İngilizce cümle bir şey değiştirmez; slash komutları ve kod sayılmaz), sonra en son tespit edilen dil (yeni session'ın ilk sorusu bile o dilde gelir), sonra `LANG` locale, sonra İngilizce. Session'lar arasında plugin'in deposunda tutulanlar: bu `tr`/`en` kelimesi ve [advisor teklifine](#advisor-teklifi) verdiğin cevap. "Ne yeni" notları sürüm `CHANGELOG.tr.md`'de varsa oradan, yoksa `CHANGELOG.md`'den okunur.
 
-Ortam değişkenleri: `CREW_CHIEF_LANG=tr|en` (dili zorla), `CREW_CHIEF_SAVER=off` (soru ve toast yok), `CREW_CHIEF_SAVER_FIVE_HOUR=60,85` ve `CREW_CHIEF_SAVER_SEVEN_DAY=50,90` (kendi eşiklerin).
+Ortam değişkenleri: `CREW_CHIEF_ADVISOR_OFFER=off` (advisor teklifi yok), `CREW_CHIEF_LANG=tr|en` (dili zorla), `CREW_CHIEF_SAVER=off` (saver sorusu ve toast yok; advisor teklifinin kendi anahtarı var), `CREW_CHIEF_SAVER_FIVE_HOUR=60,85` ve `CREW_CHIEF_SAVER_SEVEN_DAY=50,90` (kendi eşiklerin).
 
 **Gereksinim:** Claude Code 2.1.287+ (eskisi modu hiç yüklemez; kurulumdan sonraki ilk mesajda uyarır) ve limit verisi için Pro/Max plan. Sorular interaktif session ister; `claude -p` hiç sormaz. Soru istemeyen sert bir tavan için ayarlarına `"maxEffortLevel": "medium"` yaz.
+
+## Advisor teklifi
+
+`/advisor` (deneysel, sadece Anthropic API) Claude'un zor anlarda (yaklaşım seçmeden önce, takılınca, bitirmeden önce) daha güçlü bir modele danışmasını sağlar. Alt ajanlar da miras alır: Sonnet `implementer` durup `implementer-hard` olarak yeniden koşmak yerine Opus'a danışabilir. Anthropic'in kendi ölçümünde Sonnet ve Opus ikilisi görevleri yaklaşık %12 daha ucuza ve biraz daha iyi bitirdi; her danışma advisor modelinin fiyatından faturalanır.
+
+Advisor kapalıysa mod bunu **bir kez** önerir: session'ın ilk biten turundan sonra (açılışta ve saver sorusunun üstüne asla):
+- **Ana model Sonnet/Haiku:** "zor anlarda Opus'a danışır". **Ana model Opus/Fable:** metin "ikinci bir Opus (Fable) planı gözden geçirir" olur, ek maliyetli bağımsız bir kontrol.
+- **Cevaplar:** *Aç* `/advisor opus` (Fable için `/advisor fable`) komutunu senin yerine çalıştırır; bu, komutu kendin yazmış gibi `advisorModel`'i kullanıcı ayarına kaydeder ve bir toast ile söyler. Ayar görünmezse (bir politika, Fable kullanım kredisinin açık olmaması) toast nedenini görmek için `/advisor` çalıştırmanı söyler ve teklif tekrarlanmaz. *Bir hafta sonra hatırlat* ve *Bir daha sorma* plugin'in deposunda hatırlanır. Diyaloğu kapatırsan hiçbir şey hatırlanmaz.
+- **Hiç sorulmaz:** `advisorModel` zaten ayarlıysa, Bedrock/Vertex/Foundry gibi bulut yollarında, `CLAUDE_CODE_DISABLE_ADVISOR_TOOL` varsa, `/advisor` komutu yoksa, ana model bilinmiyorsa, `claude -p`'de ya da bir kez "Aç" dedikten sonra (sonradan `/advisor off` dersen geri gelmez).
+- `CREW_CHIEF_ADVISOR_OFFER=off` teklifi tamamen kapatır.
 
 ## Kullanım
 | Sen dersin | Olan |
@@ -104,12 +114,12 @@ Yeni oturum öncekini hatırlamaz; projeyi baştan keşfeder: ne çalışıyor, 
 Her şey bu repoda okunabilir shell ve küçük bir JavaScript modu (`hooks/register.js`) olarak duruyor. Ağa hiçbir şey göndermez.
 - `session-policy.sh`: oturum açılırken yaklaşık 2 KB'lık politikayı bağlama ekler. Devir dosyası olmayan bir git reposunda yeni oturumda bir kezlik [devir önerisini](#oturum-devri) de ekler; kendisi dosya yazmaz.
 - `subagent-row.sh`: alt ajanlar çalışırken listedeki her satıra model, efor ve token bilgisini yazar.
-- `register.js` (mod): token saver. Plan limitini ve bağlam boyutunu Claude Code içinden okur, eşikte `ui.ask` ile sorar, açıkken subagent effort'unu düşürür. Saver durumunu sadece bellekte tutar; tek bir şeyi, dili hatırlar.
+- `register.js` (mod): token saver. Plan limitini ve bağlam boyutunu Claude Code içinden okur, eşikte `ui.ask` ile sorar, açıkken subagent effort'unu düşürür. Saver durumunu sadece bellekte tutar; dili ve advisor teklifine verdiğin cevabı hatırlar. Ayrıca `/advisor`'ı bir kez önerir ([Advisor teklifi](#advisor-teklifi)).
 - `mode-guard.sh`: `/crew-chief:crew-mode solo` yazdığında modu o oturum için kaydeder ve solo iken alt ajan açılmasını engeller.
 - `plugin-notices.sh`: güncellemeden sonra yeni sürümün ne getirdiğini gösterir; açık bir oturum eski kopyada kaldıysa bir kez uyarır.
 - `readonly-guard.sh`: Bash çağrılarında çalışır. Sadece `scanner`, `deep-reader`, `reviewer` ve `ui-smoke` için yazma komutlarını engeller, diğer çağrılara dokunmaz.
 
-Saklananlar kendi makinende `~/.claude/plugins/data/<plugin>/` altında kalır ve plugin kaldırılınca Claude Code bu klasörü siler: devir önerisine verdiğin cevaplar (`handoff-offers.tsv`: her cevap için bir satır, proje yolu ve `installed`/`never`/`later`; her projede son satır geçerli), en son hangi sürümü gördüğün (`last-seen-version`), Claude Code sürümünü hangi plugin sürümü için kontrol ettiği (`claude-version-checked`) ve solo modu ile eski-oturum uyarısı için oturum kimliğiyle adlandırılmış küçük işaret dosyaları (`modes/`, `stale-notified/`; iki hafta sonra silinir). Token saver modu limitini, bağlam boyutunu ve promptlarının ilk satırlarını (yalnızca Türkçe ile İngilizceyi ayırt etmek için) Claude Code içinde okur; hiçbirini kaydetmez, sadece tespit ettiği dili (`tr` ya da `en`) plugin'in deposunda tutar. Projene hiçbir şey yazılmaz.
+Saklananlar kendi makinende `~/.claude/plugins/data/<plugin>/` altında kalır ve plugin kaldırılınca Claude Code bu klasörü siler: devir önerisine verdiğin cevaplar (`handoff-offers.tsv`: her cevap için bir satır, proje yolu ve `installed`/`never`/`later`; her projede son satır geçerli), en son hangi sürümü gördüğün (`last-seen-version`), Claude Code sürümünü hangi plugin sürümü için kontrol ettiği (`claude-version-checked`) ve solo modu ile eski-oturum uyarısı için oturum kimliğiyle adlandırılmış küçük işaret dosyaları (`modes/`, `stale-notified/`; iki hafta sonra silinir). Token saver modu limitini, bağlam boyutunu ve promptlarının ilk satırlarını (yalnızca Türkçe ile İngilizceyi ayırt etmek için) Claude Code içinde okur; hiçbirini kaydetmez, sadece tespit ettiği dili (`tr` ya da `en`) ve advisor teklifine verdiğin cevabı (`answered`, `never` ya da bir bekleme zamanı) plugin'in deposunda tutar. Projene hiçbir şey yazılmaz.
 
 Ayrıntılar ve geliştirme komutları için İngilizce README'ye bak.
 

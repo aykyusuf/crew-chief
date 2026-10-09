@@ -2,11 +2,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  ADVISOR_LATER_MS,
   FIVE_HOUR_DEFAULT,
   SEVEN_DAY_DEFAULT,
+  advisorOfferAllowed,
+  advisorPlan,
   capEffort,
   crossing,
   formatDuration,
+  isEnvFlag,
+  modelFamily,
   modelTier,
   parseThresholds,
   tokensLabel,
@@ -102,4 +107,40 @@ test('tokensLabel', () => {
   assert.equal(tokensLabel(999), '999')
   assert.equal(tokensLabel(150_400), '150k')
   assert.equal(tokensLabel(undefined), '?')
+})
+
+test('modelFamily', () => {
+  assert.equal(modelFamily('claude-fable-5-1'), 'fable')
+  assert.equal(modelFamily('claude-opus-5-5'), 'opus')
+  assert.equal(modelFamily('Claude-Sonnet-5-5'), 'sonnet')
+  assert.equal(modelFamily('claude-haiku-5-5'), 'haiku')
+  for (const m of ['', 'gpt-5', undefined, null, 7]) assert.equal(modelFamily(m), 'other', String(m))
+})
+
+test('advisorPlan: Sonnet and Haiku get the usual offer, Opus and Fable the second-opinion one', () => {
+  assert.deepEqual(advisorPlan('claude-sonnet-5-5'), { family: 'sonnet', advisor: 'opus', kind: 'standard' })
+  assert.deepEqual(advisorPlan('claude-haiku-5-5'), { family: 'haiku', advisor: 'opus', kind: 'standard' })
+  assert.deepEqual(advisorPlan('claude-opus-5-5'), { family: 'opus', advisor: 'opus', kind: 'second' })
+  assert.deepEqual(advisorPlan('claude-fable-5-1'), { family: 'fable', advisor: 'fable', kind: 'second' })
+  assert.equal(advisorPlan('some-other-model'), undefined)
+  assert.equal(advisorPlan(undefined), undefined)
+})
+
+test('advisorOfferAllowed', () => {
+  assert.equal(advisorOfferAllowed(undefined, 1000), true)
+  assert.equal(advisorOfferAllowed(null, 1000), true)
+  assert.equal(advisorOfferAllowed('never', 1000), false)
+  assert.equal(advisorOfferAllowed('answered', 1000), false)
+  assert.equal(advisorOfferAllowed('later:5000', 4999), false)
+  assert.equal(advisorOfferAllowed('later:5000', 5000), true)
+  assert.equal(advisorOfferAllowed('later:junk', 1000), true)
+  assert.equal(advisorOfferAllowed('later:' + (1000 + ADVISOR_LATER_MS + 1), 1000), true, 'a pause longer than a week is a clock that moved back')
+  assert.equal(advisorOfferAllowed('later:' + (1000 + ADVISOR_LATER_MS), 1000), false)
+  assert.equal(advisorOfferAllowed('whatever', 1000), true)
+  assert.equal(ADVISOR_LATER_MS, 604_800_000)
+})
+
+test('isEnvFlag', () => {
+  for (const v of ['1', 'true', 'yes', 'TRUE', ' 1 ']) assert.equal(isEnvFlag(v), true, v)
+  for (const v of ['', '0', 'false', 'No', 'off', ' ', undefined, null]) assert.equal(isEnvFlag(v), false, String(v))
 })

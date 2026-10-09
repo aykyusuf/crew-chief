@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 (2026-10-09)
+- Advisor offer: if `/advisor` is off, the saver mod explains the benefit once (after the first finished turn) and, on yes, runs `/advisor` for you. Off with `CREW_CHIEF_ADVISOR_OFFER=off`.
+- Remembers "remind me in a week" and "never"; skips clouds without the advisor; says "second opinion" for Opus and Fable main models.
+- A refused `/advisor` (a policy, Fable usage credits) is not repeated; the toast says to run `/advisor` to see why.
+
 ## 0.3.0 (2026-10-09)
 - Token saver (a mod; Claude Code 2.1.287+): off in every new session; asks at 70/80/90 % of the 5-hour limit (weekly 50/75/85/90) before capping subagent effort. `/saver on|off|status`.
 - Toasts when the context passes 150k tokens and when a session is 8 hours old, the two things that eat most of a plan limit.

@@ -34,6 +34,18 @@ export const MESSAGES = {
     status_no_data: 'no plan limit data (needs a Pro or Max subscription)',
     status_context: 'context {tokens}',
     percent: '{n}%',
+    model_opus: 'Opus',
+    model_fable: 'Fable',
+    model_haiku: 'Haiku',
+    advisor_ask_standard:
+      "The advisor is off. Turned on, {main} asks {advisor} for advice at hard moments (before choosing an approach, when stuck, before finishing). In Anthropic's own benchmarks Sonnet with an Opus advisor finished tasks about 12% cheaper and slightly better than Sonnet alone, and Haiku gained even more. It is experimental, and each consultation is billed at {advisor} rates. Turn it on? (/advisor off switches it off again.)",
+    advisor_ask_second:
+      "The advisor is off. Turned on, a second {advisor} reviews {main}'s plan at hard moments: an independent check, most useful for high-stakes work. It costs extra, since each consultation reads the whole conversation again at {advisor} rates, and it is experimental. Turn it on? (/advisor off switches it off again.)",
+    advisor_answer_on: 'Turn it on',
+    advisor_answer_later: 'Remind me in a week',
+    advisor_answer_never: "Don't ask again",
+    advisor_toast_on: 'Advisor set to {advisor}. /advisor off switches it off.',
+    advisor_toast_failed: 'Could not turn the advisor on from here. Run /advisor yourself to see why or to pick another model.',
   },
   tr: {
     win_five_hour: '5 saatlik',
@@ -65,6 +77,18 @@ export const MESSAGES = {
     status_no_data: 'plan limiti verisi yok (Pro veya Max abonelik gerekir)',
     status_context: 'bağlam {tokens}',
     percent: '%{n}',
+    model_opus: 'Opus',
+    model_fable: 'Fable',
+    model_haiku: 'Haiku',
+    advisor_ask_standard:
+      "Advisor kapalı. Açıkken {main}, zor anlarda (yaklaşım seçmeden önce, takılınca, bitirmeden önce) {advisor} modeline danışır. Anthropic'in kendi ölçümlerinde Opus advisor'lı Sonnet görevleri tek başına Sonnet'ten yaklaşık %12 daha ucuza ve biraz daha iyi bitirdi, Haiku ise daha da çok kazandı. Deneysel; her danışma {advisor} fiyatından faturalanır. Açılsın mı? (Tekrar kapatmak için /advisor off.)",
+    advisor_ask_second:
+      'Advisor kapalı. Açıkken ikinci bir {advisor}, zor anlarda {main} modelinin planını gözden geçirir: bağımsız bir kontrol, en çok yüksek riskli işlerde işe yarar. Ek maliyeti var, çünkü her danışmada bütün konuşma {advisor} fiyatından yeniden okunur; ayrıca deneysel. Açılsın mı? (Tekrar kapatmak için /advisor off.)',
+    advisor_answer_on: 'Aç',
+    advisor_answer_later: 'Bir hafta sonra hatırlat',
+    advisor_answer_never: 'Bir daha sorma',
+    advisor_toast_on: 'Advisor {advisor} olarak ayarlandı. Kapatmak için /advisor off.',
+    advisor_toast_failed: 'Advisor buradan açılamadı. Nedenini görmek ya da başka bir model seçmek için /advisor komutunu kendin çalıştır.',
   },
 }
 
