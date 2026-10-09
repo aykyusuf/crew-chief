@@ -3,3 +3,5 @@ evals/results/
 __pycache__/
 *.pyc
 .test-tmp/
+.claude-plugin/types/
+/tsconfig.json

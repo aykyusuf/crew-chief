@@ -26,3 +26,4 @@ Return, in the caller's language:
 - **What changed:** 3-6 bullets with `path:line`.
 - **Verification:** commands run and their results.
 - **Failed attempts** (if any) and **remaining risks**.
+- If **stopped** or **partial**: what each attempt showed and the next step you would take, so the caller continues instead of starting over.

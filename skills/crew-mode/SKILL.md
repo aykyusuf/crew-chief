@@ -15,4 +15,6 @@ Apply the matching rule for the rest of this session, until the user changes it 
 - **status** or empty: say which mode is active and what it means in one sentence. Change nothing.
 - Anything else: list the three modes in one line each and change nothing.
 
+When the crew-chief plugin is installed, a hook records `solo` for this session and blocks the Agent tool until the user switches back with `auto` or `delegate`; if a spawn is blocked, do the work yourself and do not try to work around it, and do not resume earlier subagents with `SendMessage` either (the hook only covers the Agent tool). Without the plugin (skills installed with `npx skills`) only the rule above applies.
+
 Confirm in one short sentence in the user's language, for example "Mode: solo. I'll do everything myself, no subagents."

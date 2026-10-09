@@ -38,6 +38,14 @@ Ask: did it not try hard enough, or did it not know enough?
 
 For most tasks the model's default effort is right. Lower effort cuts thinking tokens, which bill as output.
 
+## Advisor: a stronger model on call (optional, experimental)
+
+The `/advisor` command (or `advisorModel` in settings, or `claude --advisor opus`) pairs the session's model with a stronger one that Claude consults at decision points: before committing to an approach, when an error keeps recurring, before declaring done. The advisor reads the whole conversation and returns guidance; Claude decides when to ask, and there is no setting to cap or force calls. Source: code.claude.com/docs/en/advisor.
+
+- **Fits crew-chief's tiers:** subagents inherit the configured advisor and the pairing is checked against their own model, so a Sonnet `implementer` with an Opus advisor can get help at the hard step instead of stopping and being re-run as `implementer-hard`. It is the agent-side answer to "this turned out harder than expected", with no restart.
+- **Limits:** Anthropic API only (not Bedrock, Vertex, Foundry); needs feature-flag fetching, so it stays off with `DISABLE_TELEMETRY`; an advisor must rank at or above the main model; each call re-reads the transcript uncached and bills at the advisor's rates. It works best on long multi-step tasks and adds little to short ones.
+- **Not controlled by this plugin:** a plugin cannot set `advisorModel`. The user turns it on. Try it on one real task and compare cost and result before keeping it.
+
 ## Where model and effort come from
 
 - **Session:** `CLAUDE_CODE_EFFORT_LEVEL` / `--effort` / `/effort` > per-model `modelSettings` in user settings > `effortLevel` > model default. Do not write effort into a project's shared settings; it silently overrides each user's own preference.

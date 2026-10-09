@@ -17,6 +17,7 @@ Summarised from the official Claude Code docs (code.claude.com/docs/en: agents, 
 | Need | Use |
 |---|---|
 | A side task whose output would flood your context (search, logs, file dumps) | Subagent; a **fork** if it needs this conversation's context |
+| A cheaper agent may hit one hard decision mid-task | **Advisor** (`/advisor`, experimental, Anthropic API only): it consults a stronger model itself |
 | Several independent long tasks the user checks on later | Background sessions (`claude --bg`, `/bg`, agent view) |
 | Workers that must talk to and challenge each other | Agent team (experimental, off by default) |
 | Dozens to hundreds of agents, a repeatable plan, cross-verified results | Dynamic workflow (`ultracode`, "use a workflow") |

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0 (2026-10-09)
+- Token saver (a mod; Claude Code 2.1.287+): off in every new session; asks at 70/80/90 % of the 5-hour limit (weekly 50/75/85/90) before capping subagent effort. `/saver on|off|status`.
+- Toasts when the context passes 150k tokens and when a session is 8 hours old, the two things that eat most of a plan limit.
+- On the first prompt after an install or update, a one-line warning if Claude Code is older than 2.1.287 (the saver needs it; everything else works).
+- Messages follow the language you write in (English or Turkish): `CREW_CHIEF_LANG`, then Claude Code's `language` setting, then your recent prompts, then the locale. Turkish update notes live in `CHANGELOG.tr.md`.
+- Update notice: your first prompt after an update shows what changed, and `CREW_CHIEF_WHATS_NEW=off` silences it.
+- Stale-session notice: an open session still running a replaced copy is told once to run `/reload-plugins`.
+- `/crew-chief:crew-mode solo` now holds: a hook records the mode per session and blocks the Agent tool until you switch back, instead of relying on the model to comply.
+- Briefs carry the user's constraints ("do not modify X", "no commits") to subagents; the policy and routing skill say so.
+- Difficulty is read from visible signals (scope, check, ambiguity, root cause, blast radius); escalation also triggers on evidence (check not run, files outside the brief, `maxTurns`), with a mid-task protocol: steer, stop, or resume on a stronger model.
+- `implementer` and `implementer-hard` hand over what they tried and learned when stopped or partial.
+- Documented the experimental `/advisor` (a cheaper agent consults a stronger model itself) and how to update the plugin.
+- Four new eval cases (inline edit, reviewer at xhigh, escalation after stopped, constraint in brief) and tests for both new hook scripts.
+
 ## 0.2.3 (2026-10-08)
 - Agent panel rows fit narrow terminals: the model is always shown; effort, tokens, and the description drop out in that order as space runs out; long agent names lose their plugin prefix and are shortened with an ellipsis instead of pushing the model off screen.
 - Rows mark failed (✗) and stopped (■) subagents, strip control characters, show token counts in millions, and skip malformed rows.

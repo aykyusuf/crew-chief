@@ -25,3 +25,4 @@ Return, in the caller's language:
 - **Changed files:** `path` plus one line each.
 - **Verification:** command and result (pass/fail, counts).
 - **Risks / things the caller should check.**
+- If **stopped** or **partial**: what you tried, what each attempt showed, and the next step you would take, so the next tier continues instead of starting over.

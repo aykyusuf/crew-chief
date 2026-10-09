@@ -36,6 +36,14 @@ Multi-agent setups cost several times the tokens of one session, and most coding
 
 If the plugin is not installed but the project has `.claude/agents/` copies from `/crew-chief:crew-setup`, use the bare names (`scanner`, `implementer`, ...).
 
+**Reading the difficulty.** Decide from what you can see, not from a hunch:
+- Scope: one file or several modules? Named up front, or still to be found?
+- Check: is there a command that proves it works? No check means a higher tier or the main session.
+- Ambiguity: does the brief need a design or product decision? Then it is not delegable.
+- Root cause: known, or still unknown? Unknown goes to `implementer-hard`.
+- Blast radius: auth, money, data loss, migrations, concurrency raise the tier and the review depth, whatever the size.
+The first two decide the tier; the last decides how carefully the result is checked.
+
 **Adjust per call.** The Agent tool takes `model` and `effort` (Claude Code 2.1.292+). They override the tier's defaults for that call only:
 - Easier than the tier assumes: lower effort before lowering the model.
 - The agent was careless (skipped files, did not run the check): raise **effort**.
@@ -64,7 +72,8 @@ A subagent does not see this conversation. Every brief states:
 2. **Scope**: files or directories, and what is off limits.
 3. **Definition of done**: the observable result.
 4. **Check**: the exact command or test to run.
-5. **Return format**, if you need something specific.
+5. **Constraints**: anything the user said in this conversation that applies ("do not modify X", "no commits", "answer in Turkish"). A subagent only sees `CLAUDE.md`, not the conversation, and constraints are what gets dropped at this boundary.
+6. **Return format**, if you need something specific.
 
 Vague briefs lead to duplicated work and gaps. Independent briefs go out in one message so they run in parallel. Never run two agents that edit the same files at the same time, or two that share one emulator, device, or local server.
 
@@ -74,13 +83,24 @@ Vague briefs lead to duplicated work and gaps. Independent briefs go out in one 
 - `implementer-hard` says stopped → take it into the main session, or ask the user if it is a product decision.
 - Do not re-run the same tier with the same brief hoping for a different result.
 
+Escalate on evidence, not only on the agent's own "stopped". Treat these as stopped too: the check was not run or still fails, files changed outside the brief, or the run ended at `maxTurns` with partial output. Verify a "done" yourself with the diff and the check before relying on it.
+
+**If you learn mid-task that it is harder than you judged**, act in this order, cheapest first:
+1. The agent has barely started: stop it (`TaskStop`) and spawn the higher tier fresh. Resuming a short history saves almost nothing.
+2. It is on the right track but missing a fact: `SendMessage` the hint; a running subagent treats it as a course correction.
+3. It is deep in and needs more capability: stop it, then `SendMessage` it again with a higher `model`. The per-call `model` applies on resume (Claude Code 2.1.211+) and the history is kept, but the model switch costs one uncached request. Whether `effort` also applies on resume is not documented: test before relying on it.
+4. A subagent the user stopped from `/tasks` does not resume (messages to it are refused); spawn a new one with its report.
+You can only do this when you are awake: you are notified when a subagent finishes, not while it runs. Do not poll for progress; the agent panel shows model, effort, and tokens for the user.
+
+If the advisor tool is on (`/advisor`), a Sonnet or Haiku agent can consult a stronger model by itself at the hard moment, with no restart. See [references/model-and-effort.md](references/model-and-effort.md).
+
 ## 5. User overrides
 
 These last until the user says otherwise:
 
 | User says | You do |
 |---|---|
-| "do it yourself", "no subagents", "everything on Opus" | Solo: no subagents at all |
+| "do it yourself", "no subagents", "everything on Opus" | Solo: no subagents at all (`/crew-chief:crew-mode solo` is also enforced by a hook that blocks the Agent tool) |
 | "use agents", "delegate", "go agentic" | Delegate: hand every independent piece to its tier, in parallel |
 | "do the UI directly with Opus" (any part X) | Keep X in the main session; route the rest normally |
 | "give X to Sonnet/Haiku at medium" | Spawn the fitting tier with that `model` and `effort` |

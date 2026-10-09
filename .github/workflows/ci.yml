@@ -24,7 +24,23 @@ jobs:
           claude plugin validate skills/crew-setup/assets/agents --strict
       - name: Guard tests
         run: python3 tests/test_guard.py
+      - name: Session hook tests
+        run: python3 tests/test_session_policy.py
       - name: Agent panel row tests
         run: python3 tests/test_subagent_row.py
+      - name: Solo mode guard tests
+        run: python3 tests/test_mode_guard.py
+      - name: Update notice tests
+        run: python3 tests/test_plugin_notices.py
+      - name: Saver logic tests
+        run: node --test tests/saver-logic.test.mjs tests/saver-i18n.test.mjs
+      - name: Saver mod tests
+        run: |
+          # Mods can be switched off remotely or by policy; then there is nothing to test here.
+          probe=$(cd "$RUNNER_TEMP" && claude plugin test 2>&1 || true)
+          case "$probe" in
+            *"turned off"*) echo "::warning::mods are turned off in this environment; skipping claude plugin test"; exit 0 ;;
+          esac
+          claude plugin test
       - name: Setup assets in sync
         run: python3 tools/build_assets.py --check

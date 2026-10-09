@@ -1,5 +1,8 @@
 {
-  "description": "crew-chief: routing policy at session start; read-only guard for the scanner, deep-reader, and reviewer agents",
+  "description": "crew-chief: routing policy at session start; read-only guard for the scanner, deep-reader, and reviewer agents; solo mode enforcement; update notices; limit-aware token saver (mod)",
+  "modules": [
+    "./register.js"
+  ],
   "hooks": {
     "SessionStart": [
       {
@@ -12,6 +15,30 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/mode-guard.sh\" record"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/plugin-notices.sh\" prompt"
+          }
+        ]
+      }
+    ],
+    "UserPromptExpansion": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/mode-guard.sh\" record"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -19,6 +46,15 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/readonly-guard.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/mode-guard.sh\" check"
           }
         ]
       }

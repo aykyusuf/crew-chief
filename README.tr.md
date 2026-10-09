@@ -38,14 +38,42 @@ Bu yol ajanları ve hook'ları kurmaz. Claude Code'da her proje için bir kez `/
 Bir makinede tek bir yol seç. Plugin ve `npx` skill'leri birlikte kurarsan her skill iki kez listelenir (`/crew-chief:crew-routing` ve `/crew-routing`); bir şey bozulmaz ama bağlam boşa dolar. `/crew-setup` plugin'i görünce ajanları ve bekçiyi kopyalamaz, plugin'in açılış hook'u da politika zaten `CLAUDE.md`'de varsa tekrar eklemez.
 
 Gereksinimler:
-- Çağrı başına efor için Claude Code 2.1.292 veya üstü. Eski sürümlerde de çalışır, o zaman seviyelerin varsayılan eforları kullanılır.
+- Çağrı başına efor için Claude Code 2.1.292 veya üstü. Eski sürümlerde de çalışır, o zaman seviyelerin varsayılan eforları kullanılır. Token saver için 2.1.287+.
 - Bekçi, `jq` kuruluysa onu, değilse `sed` kullanır; ek bir şey gerekmez.
+
+## Güncelleme
+
+Üçüncü taraf marketplace'ler varsayılan olarak **otomatik güncellenmez**; bir kez aç: `/plugin` → **Marketplaces** → `crew-chief` → **Enable auto-update**. Sonra Claude Code, oturumdaki ilk mesajından kısa süre sonra plugin'i kendisi günceller. Elle güncellemek için: `claude plugin update crew-chief@crew-chief`.
+
+Güncelleme, zaten açık olan oturumu değiştirmez:
+- Otomatik güncellemeden sonra Claude Code `Plugin updated: crew-chief · Run /reload-plugins to apply` yazar. O oturumda yeni sürüme geçmek için `/reload-plugins` çalıştır (yeni oturum zaten yeni sürümle açılır).
+- Terminalde `claude plugin update` yaptıysan, açık kalan diğer oturumlara Claude Code bir şey söylemez. Crew Chief bu boşluğu kapatır: bir sonraki mesajında, oturum başına bir kez, o oturumun eski kopyada çalıştığını ve `/reload-plugins` gerektiğini söyler.
+- Güncellemeden sonraki ilk mesajında kısa bir "ne yeni" çıkar: o sürümün [CHANGELOG](CHANGELOG.md) bölümünün ilk üç maddesi. İlk kurulumda, eski Claude Code uyarısı dışında hiçbir şey göstermez. Kapatmak için `CREW_CHIEF_WHATS_NEW=off`.
+
+İki bildirimi de model değil, UserPromptSubmit hook'u (`systemMessage`) mesaj kutunun altına basar. SessionStart hook'unun `systemMessage`'ını Claude Code 2.1.295 göstermiyor; bildirim bu yüzden ilk mesajı bekler.
+
+## Token tasarrufu (saver)
+
+Plan limitini en çok uzun session'lar ve şişmiş bağlam yer, sonra Opus'lu subagent'lar. Saver, Claude Code'un içinde limitini izleyen küçük bir [mod](https://code.claude.com/docs/en/plugins/mods/overview) (`hooks/register.js`); bir şeyi değiştirmeden önce sorar.
+
+- **Ne zaman sorar:** 5 saatlik limit %70, %80, %90'ı; haftalık limit %50, %75, %85, %90'ı geçince, her eşik ve limit penceresi için bir kez. Session eşik geçilmiş halde açılırsa hemen sorar. İki eşik birden geçilirse bir kez sorar.
+- **Cevaplar:** *Tasarruf modunu aç*, *Şimdi değil* (sonraki eşikte tekrar sorar), *Bu session'da bir daha sorma* (İngilizce görünümde: *Turn on saver*, *Not now*, *Don't ask again this session*).
+- **Açıkken ne yapar, sadece subagent'lara:** Opus (ve Fable) en fazla **medium** effort'ta, Sonnet en fazla **high**'da çalışır (`xhigh`/`max` yok). Haiku'ya ve ana session'a dokunmaz. Modeli değil, her subagent isteğinin effort'unu düşürür.
+- **Takılı kalmaz:** her yeni session, `/clear` ve `/resume` saver kapalı başlar. Saver durumu hiçbir yere kaydedilmez; session'lar arasında sadece dil hatırlanır (aşağıda).
+- **`/saver on|off|status`** elle açıp kapatır; limitlerini, sıfırlanma zamanlarını ve bağlam boyutunu gösterir.
+- **Session başına bir kez toast:** bağlam 150k token'ı geçince ve session 8 saatlik olunca.
+
+**Dil.** Sorular, toast'lar, `/saver` ve güncelleme bildirimleri yazdığın dile göre Türkçe ya da İngilizce olur. Öncelik: `CREW_CHIEF_LANG=tr|en`, sonra Claude Code `language` ayarı (`turkish` ya da `english`), sonra son promptların dili (Türkçe harfler ve yaygın Türkçe sözcükler; son beş promptun çoğunluğu, yani tek bir İngilizce cümle bir şey değiştirmez; slash komutları ve kod sayılmaz), sonra en son tespit edilen dil (yeni session'ın ilk sorusu bile o dilde gelir), sonra `LANG` locale, sonra İngilizce. Session'lar arasında tutulan tek şey bu: `tr` ya da `en`, plugin'in deposunda. "Ne yeni" notları sürüm `CHANGELOG.tr.md`'de varsa oradan, yoksa `CHANGELOG.md`'den okunur.
+
+Ortam değişkenleri: `CREW_CHIEF_LANG=tr|en` (dili zorla), `CREW_CHIEF_SAVER=off` (soru ve toast yok), `CREW_CHIEF_SAVER_FIVE_HOUR=60,85` ve `CREW_CHIEF_SAVER_SEVEN_DAY=50,90` (kendi eşiklerin).
+
+**Gereksinim:** Claude Code 2.1.287+ (eskisi modu hiç yüklemez; kurulumdan sonraki ilk mesajda uyarır) ve limit verisi için Pro/Max plan. Sorular interaktif session ister; `claude -p` hiç sormaz. Soru istemeyen sert bir tavan için ayarlarına `"maxEffortLevel": "medium"` yaz.
 
 ## Kullanım
 | Sen dersin | Olan |
 |---|---|
 | *(hiçbir şey)* | `auto`: zorluğa göre yönlendirme |
-| "tek başına yap", "alt ajan kullanma" | `solo`: her şeyi ana oturum yapar |
+| "tek başına yap", "alt ajan kullanma" | `solo`: her şeyi ana oturum yapar (`/crew-chief:crew-mode solo` ayrıca bir hook ile Agent aracını engeller, sen geri alana kadar) |
 | "ajanları kullan", "dağıt" | `delegate`: bağımsız parçalar paralel olarak seviyelere gider |
 | "UI'ı direkt Opus yapsın" | O kısım ana oturumda kalır, gerisi normal yönlendirilir |
 | "testleri Haiku'ya ver", "bunu Sonnet medium yapsın" | Alt ajan tam o model ve eforla açılır |
@@ -73,12 +101,15 @@ Yeni oturum öncekini hatırlamaz; projeyi baştan keşfeder: ne çalışıyor, 
 **Kurulum ne yapar** (`/crew-chief:crew-handoff` ya da sadece "devir dosyalarını kur"): önce benzer dosyaları arar, varsa yanına ikinci bir set kurmak yerine onları kullanmayı önerir; dosyaları ve depodan doğrulanabilen bilgilerle doldurulmuş önizlemeyi gösterir (doğrulanamayanı "doğrulanmadı" diye işaretler); sadece eksik dosyaları oluşturur, `CLAUDE.md` bloğunu ekler; hiçbir şeyin üzerine yazmaz, adını değiştirmez, commit atmaz. `/crew-chief:crew-setup --handoff` proje kurulumundan sonra aynı adımları çalıştırır.
 
 ## Ne çalıştırır
-Her şey bu repoda okunabilir shell olarak duruyor. Ağa hiçbir şey göndermez.
+Her şey bu repoda okunabilir shell ve küçük bir JavaScript modu (`hooks/register.js`) olarak duruyor. Ağa hiçbir şey göndermez.
 - `session-policy.sh`: oturum açılırken yaklaşık 2 KB'lık politikayı bağlama ekler. Devir dosyası olmayan bir git reposunda yeni oturumda bir kezlik [devir önerisini](#oturum-devri) de ekler; kendisi dosya yazmaz.
 - `subagent-row.sh`: alt ajanlar çalışırken listedeki her satıra model, efor ve token bilgisini yazar.
+- `register.js` (mod): token saver. Plan limitini ve bağlam boyutunu Claude Code içinden okur, eşikte `ui.ask` ile sorar, açıkken subagent effort'unu düşürür. Saver durumunu sadece bellekte tutar; tek bir şeyi, dili hatırlar.
+- `mode-guard.sh`: `/crew-chief:crew-mode solo` yazdığında modu o oturum için kaydeder ve solo iken alt ajan açılmasını engeller.
+- `plugin-notices.sh`: güncellemeden sonra yeni sürümün ne getirdiğini gösterir; açık bir oturum eski kopyada kaldıysa bir kez uyarır.
 - `readonly-guard.sh`: Bash çağrılarında çalışır. Sadece `scanner`, `deep-reader`, `reviewer` ve `ui-smoke` için yazma komutlarını engeller, diğer çağrılara dokunmaz.
 
-Saklanan tek şey devir önerisine verdiğin cevaplar: her cevap için bir satır (proje yolu ve `installed`/`never`/`later`; her projede son satır geçerli), kendi makinende `~/.claude/plugins/data/<plugin>/handoff-offers.tsv` içinde. Plugin kaldırılınca Claude Code bu klasörü siler.
+Saklananlar kendi makinende `~/.claude/plugins/data/<plugin>/` altında kalır ve plugin kaldırılınca Claude Code bu klasörü siler: devir önerisine verdiğin cevaplar (`handoff-offers.tsv`: her cevap için bir satır, proje yolu ve `installed`/`never`/`later`; her projede son satır geçerli), en son hangi sürümü gördüğün (`last-seen-version`), Claude Code sürümünü hangi plugin sürümü için kontrol ettiği (`claude-version-checked`) ve solo modu ile eski-oturum uyarısı için oturum kimliğiyle adlandırılmış küçük işaret dosyaları (`modes/`, `stale-notified/`; iki hafta sonra silinir). Token saver modu limitini, bağlam boyutunu ve promptlarının ilk satırlarını (yalnızca Türkçe ile İngilizceyi ayırt etmek için) Claude Code içinde okur; hiçbirini kaydetmez, sadece tespit ettiği dili (`tr` ya da `en`) plugin'in deposunda tutar. Projene hiçbir şey yazılmaz.
 
 Ayrıntılar ve geliştirme komutları için İngilizce README'ye bak.
 
