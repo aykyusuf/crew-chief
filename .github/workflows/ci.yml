@@ -28,6 +28,8 @@ jobs:
         run: python3 tests/test_session_policy.py
       - name: Agent panel row tests
         run: python3 tests/test_subagent_row.py
+      - name: Panel row installer tests
+        run: python3 tests/test_row_install.py
       - name: Solo mode guard tests
         run: python3 tests/test_mode_guard.py
       - name: Update notice tests

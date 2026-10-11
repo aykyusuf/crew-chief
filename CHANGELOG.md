@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.3 (2026-10-11)
+- Agent panel row fixed: Claude Code reads a `subagentStatusLine` from a plugin's `settings.json` but does not apply it to the panel (the same command works from the user's `settings.json`). On the first session after install or update, `scripts/install-row.sh` copies the row script to `~/.claude/` and adds the key to your `settings.json`. It never touches a `subagentStatusLine` that is not its own, installs once (a key you delete is not added back), keeps a backup, and needs `jq`. `CREW_CHIEF_ROW=off` turns it off.
+
 ## 0.3.2 (2026-10-11)
 - `deep-reader` can now search and fetch the web (WebSearch, WebFetch), so one agent can read code together with current vendor docs, package pages, or design guidelines. It stays read-only: it returns the report as text and the caller saves it.
 - Turn limits: `implementer-hard` 80 -> 120, `reviewer` 60 -> 80. Agents now count their own tool calls (they cannot see the remaining turns), stop opening new threads at about 70 % of the limit, and report. The reviewer keeps a running findings list and marks what it did not reach as `not reviewed`, so it no longer stops without a report.

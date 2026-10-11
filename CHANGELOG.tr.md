@@ -2,6 +2,9 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.3.3 (2026-10-11)
+- Panel satırı düzeltildi: Claude Code, plugin `settings.json`'ındaki `subagentStatusLine`'ı okuyor ama panele uygulamıyor (aynı komut kullanıcının `settings.json`'ından çalışıyor). Kurulum ya da güncellemeden sonraki ilk session'da `scripts/install-row.sh` satır script'ini `~/.claude/` altına kopyalar ve anahtarı senin `settings.json` dosyana ekler. Kendi `subagentStatusLine`'ına dokunmaz, bir kez kurar (sildiğin anahtarı geri eklemez), yedek alır, `jq` gerekir. `CREW_CHIEF_ROW=off` kapatır.
+
 ## 0.3.2 (2026-10-11)
 - `deep-reader` artık web'de arama yapıp sayfa çekebiliyor (WebSearch, WebFetch); tek ajan kodu güncel vendor dokümanları, paket sayfaları ya da tasarım rehberleriyle birlikte okuyabilir. Hâlâ read-only: raporu metin olarak döndürür, dosyaya çağıran yazar.
 - Turn limitleri: `implementer-hard` 80 -> 120, `reviewer` 60 -> 80. Ajanlar kalan turn'ü göremedikleri için kendi tool çağrılarını sayar, limitin yaklaşık %70'inde yeni iş açmayıp raporlar. Reviewer bulguları biriktirir ve ulaşamadığı yeri `not reviewed` diye işaretler; artık raporsuz durmaz.
