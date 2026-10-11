@@ -11,7 +11,7 @@ Mode: auto (the user can switch with /crew-mode or by saying so).
 Tiers (agents in .claude/agents, default model/effort):
 - main session: back-and-forth with the user, design or product decisions, planning, tightly coupled work, quick fixes.
 - scanner (haiku/low): mechanical lookups, filtering long logs or test output.
-- deep-reader (sonnet/medium): read-only analysis across several files, root cause from code.
+- deep-reader (sonnet/medium): read-only analysis across several files, root cause from code, code plus web research (returns text, never writes files).
 - implementer (sonnet/medium): changes where files, change, and check are all specified.
 - implementer-hard (opus/high): multi-module, algorithmic, or unknown-root-cause work.
 - ui-smoke (haiku/low): quick read-only check that a page or screen is up, shows given text, or logs errors; no screenshots.

@@ -27,7 +27,7 @@ Multi-agent setups cost several times the tokens of one session, and most coding
 | Work | Agent type | Default |
 |---|---|---|
 | Where is X, which files use Y, filter a long log, run tests and return failures | `crew-chief:scanner` | haiku / low |
-| Understand several files together, trace a flow, find a root cause, map impact | `crew-chief:deep-reader` | sonnet / medium |
+| Understand several files together, trace a flow, find a root cause, map impact, or read code plus current web sources (report returned as text; the caller saves it) | `crew-chief:deep-reader` | sonnet / medium |
 | Change with named files, a clear change, and a check to run | `crew-chief:implementer` | sonnet / medium |
 | Multi-module change, algorithms, concurrency, unknown root cause, a task `implementer` stopped on | `crew-chief:implementer-hard` | opus / high |
 | Quick read-only check that a page or screen is up, shows text X, or logs errors | `crew-chief:ui-smoke` | haiku / low |
@@ -43,6 +43,8 @@ If the plugin is not installed but the project has `.claude/agents/` copies from
 - Root cause: known, or still unknown? Unknown goes to `implementer-hard`.
 - Blast radius: auth, money, data loss, migrations, concurrency raise the tier and the review depth, whatever the size.
 The first two decide the tier; the last decides how carefully the result is checked.
+
+**Size the brief.** Agents stop at a turn limit (implementer 80, implementer-hard 120, reviewer 80, deep-reader and ui-tester 60). Split a large multi-file task into 2-3 independent pieces with their own definition of done instead of one long call; for a long piece, name a progress file the agent can checkpoint to. A stopped agent returns partial output: continue it with SendMessage rather than starting over. When two or more implementers run in parallel, give them disjoint file sets; if they could touch the same files, run them one after the other. Worktree isolation is a last resort: a worktree starts from the default branch, so it does not see uncommitted work and has no installed dependencies.
 
 **Adjust per call.** The Agent tool takes `model` and `effort` (Claude Code 2.1.292+). They override the tier's defaults for that call only:
 - Easier than the tier assumes: lower effort before lowering the model.

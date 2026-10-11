@@ -77,7 +77,7 @@ printf '%s\n' \
   'Tiers (agent type, default model/effort):' \
   '- main session: back-and-forth with the user, design or product decisions, planning, tightly coupled work, quick fixes.' \
   '- crew-chief:scanner (haiku/low): mechanical lookups, filtering long logs or test output.' \
-  '- crew-chief:deep-reader (sonnet/medium): read-only analysis across several files, root cause from code.' \
+  '- crew-chief:deep-reader (sonnet/medium): read-only analysis across several files, root cause from code, code plus web research (returns text, never writes files).' \
   '- crew-chief:implementer (sonnet/medium): changes where files, change, and check are all specified.' \
   '- crew-chief:implementer-hard (opus/high): multi-module, algorithmic, or unknown-root-cause work.' \
   '- crew-chief:ui-smoke (haiku/low): quick read-only check that a page or screen is up, shows given text, or logs errors; no screenshots.' \

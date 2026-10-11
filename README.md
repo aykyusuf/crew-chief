@@ -7,7 +7,7 @@
 ```
 you ──▶ main session (your model/effort) ──┬─ does interactive, coupled, quick work itself
                                            ├─▶ scanner          haiku  / low     lookups, noisy logs
-                                           ├─▶ deep-reader      sonnet / medium  multi-file analysis
+                                           ├─▶ deep-reader      sonnet / medium  multi-file analysis, web research
                                            ├─▶ implementer      sonnet / medium  well-specified edits
                                            ├─▶ implementer-hard opus   / high    hard, multi-module work
                                            ├─▶ ui-smoke         haiku  / low     quick read-only UI check

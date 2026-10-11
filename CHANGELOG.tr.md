@@ -2,6 +2,13 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.3.2 (2026-10-11)
+- `deep-reader` artık web'de arama yapıp sayfa çekebiliyor (WebSearch, WebFetch); tek ajan kodu güncel vendor dokümanları, paket sayfaları ya da tasarım rehberleriyle birlikte okuyabilir. Hâlâ read-only: raporu metin olarak döndürür, dosyaya çağıran yazar.
+- Turn limitleri: `implementer-hard` 80 -> 120, `reviewer` 60 -> 80. Ajanlar kalan turn'ü göremedikleri için kendi tool çağrılarını sayar, limitin yaklaşık %70'inde yeni iş açmayıp raporlar. Reviewer bulguları biriktirir ve ulaşamadığı yeri `not reviewed` diye işaretler; artık raporsuz durmaz.
+- Implementer'lar arka plandaki test koşusunu beklemek yerine build/test'i ön planda, sınırlı çıktıyla çalıştırır; `implementer-hard`, brief ilerleme dosyası belirtirse oraya checkpoint yazar.
+- Reviewer: Important yalnızca doğruluk hataları ve karşılanmayan gereksinimler için; sağlam bir değişiklik şişirilmiş bulgular yerine `No blocking issues` alır.
+- Routing: paralel implementer'lara ayrık dosyalar verilir (worktree yalnızca son çare); büyük çok-dosyalı iş 2-3 bağımsız parçaya bölünür; duran (partial) ajan baştan başlatılmaz, SendMessage ile devam ettirilir.
+
 ## 0.3.1 (2026-10-09)
 - Advisor teklifi: `/advisor` kapalıysa tasarruf modu, ilk biten turdan sonra faydasını bir kez anlatır ve "evet" denirse `/advisor`'ı senin yerine çalıştırır. `CREW_CHIEF_ADVISOR_OFFER=off` kapatır.
 - "Bir hafta sonra hatırlat" ve "hiç" cevaplarını hatırlar; advisor'ı olmayan bulut yollarında sormaz; ana model Opus/Fable ise "ikinci görüş" der.

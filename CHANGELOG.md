@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 (2026-10-11)
+- `deep-reader` can now search and fetch the web (WebSearch, WebFetch), so one agent can read code together with current vendor docs, package pages, or design guidelines. It stays read-only: it returns the report as text and the caller saves it.
+- Turn limits: `implementer-hard` 80 -> 120, `reviewer` 60 -> 80. Agents now count their own tool calls (they cannot see the remaining turns), stop opening new threads at about 70 % of the limit, and report. The reviewer keeps a running findings list and marks what it did not reach as `not reviewed`, so it no longer stops without a report.
+- Implementers run builds and tests in the foreground with bounded output instead of waiting on a background run; `implementer-hard` writes checkpoints to a progress file when the brief names one.
+- Reviewer: Important is reserved for correctness bugs and missed requirements, so a sound change gets `No blocking issues` instead of padded findings.
+- Routing: split a large multi-file task into 2-3 independent pieces, give parallel implementers disjoint files (worktrees only as a last resort), and continue a stopped (partial) agent with SendMessage instead of starting over.
+
 ## 0.3.1 (2026-10-09)
 - Advisor offer: if `/advisor` is off, the saver mod explains the benefit once (after the first finished turn) and, on yes, runs `/advisor` for you. Off with `CREW_CHIEF_ADVISOR_OFFER=off`.
 - Remembers "remind me in a week" and "never"; skips clouds without the advisor; says "second opinion" for Opus and Fable main models.

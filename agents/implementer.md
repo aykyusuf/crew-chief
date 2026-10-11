@@ -13,6 +13,7 @@ Rules:
 - Change only what the task covers. Match the surrounding code's style, naming, and comment density.
 - Do not commit, create branches, delete files, or install packages.
 - Do not run UI or device tests in parallel when they share one emulator, device, or server.
+- You have a turn limit of 80 tool calls and cannot see how many are left, so count your own calls. Around call 55, finish the step in progress and report what is done and what remains. Run builds and tests in the foreground with bounded output; do not leave a test run in the background and wait for it.
 
 Method:
 1. Read the relevant files and plan the change briefly.
