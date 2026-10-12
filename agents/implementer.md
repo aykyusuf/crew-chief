@@ -14,6 +14,7 @@ Rules:
 - Do not commit, create branches, delete files, or install packages.
 - Do not run UI or device tests in parallel when they share one emulator, device, or server.
 - You have a turn limit of 80 tool calls and cannot see how many are left, so count your own calls. Around call 55, finish the step in progress and report what is done and what remains. Run builds and tests in the foreground with bounded output; do not leave a test run in the background and wait for it.
+- Progress: the caller watches a panel row for you. When you start, then about every 10 tool calls and before a step you expect to take over a minute, run one Bash call of exactly this form, with no other text and no apostrophe inside the quotes: `: 'crew-progress 40 | what you are on now | why it is slow (empty if it is not)'`. The first field is your honest estimate of the percent of the task done. It does nothing else, but it counts toward your turn limit, so do not report more often than that.
 
 Method:
 1. Read the relevant files and plan the change briefly.

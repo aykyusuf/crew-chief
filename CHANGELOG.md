@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 (2026-10-12)
+- Agent panel row shows elapsed time (`· 4m12s`) for running subagents and, when the agent reports it, an approximate percent, the step it is on, and why it is slow: `implementer-hard  opus-5.5 · high · 232k · 4m12s · ~40%  Reading the auth module ⚠ slow test suite`.
+- New PostToolUse hook `scripts/progress-hook.sh` keeps one small progress file per subagent in `${TMPDIR:-/tmp}/crew-chief-progress/` (pruned after 12 hours). `deep-reader`, `implementer`, `implementer-hard`, `reviewer`, and `ui-tester` now send a one-line `: 'crew-progress 40 | step | delay'` report about every 10 tool calls (a no-op Bash call that counts toward the turn limit). The percent is the agent's own estimate. A tool call of 45 s or more adds a delay note by itself. Needs `jq`.
+- Read-only guard allows the progress report for the read-only agents.
+- Checked on Claude Code 2.1.296: the panel row's task `id` is the hook's `agent_id`, and the row refreshes every few seconds.
+
 ## 0.3.3 (2026-10-11)
 - Agent panel row fixed: Claude Code reads a `subagentStatusLine` from a plugin's `settings.json` but does not apply it to the panel (the same command works from the user's `settings.json`). On the first session after install or update, `scripts/install-row.sh` copies the row script to `~/.claude/` and adds the key to your `settings.json`. It never touches a `subagentStatusLine` that is not its own, installs once (a key you delete is not added back), keeps a backup, and needs `jq`. `CREW_CHIEF_ROW=off` turns it off.
 

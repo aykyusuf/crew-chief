@@ -21,6 +21,8 @@ ALLOWED = [
     "rtk git log -3",
     'grep -rn "TODO" src | head -5',
     "python3 -c 'print(1)'",
+    ": 'crew-progress 40 | touching up the mv and cp notes | rm of a slow test'",
+    ": 'crew-progress 10 | reading'",
 ]
 
 BLOCKED = [
@@ -37,6 +39,9 @@ BLOCKED = [
     "npm install",
     "mkdir build",
     "ls && touch x",
+    ": 'crew-progress 40 | x' ; rm a",
+    ": 'crew-progress 40 | x' > out.txt",
+    ": 'crew-progress 40 | it's | rm a'",
     'echo "a \\"quoted\\" word" > out.txt',
     "printf 'x\\n' >> log.txt",
 ]

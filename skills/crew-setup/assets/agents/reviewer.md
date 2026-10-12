@@ -19,6 +19,7 @@ Method:
 3. **Check the tests themselves.** Do they measure the right behaviour? Watch for references that share the bug, circular verification, timing-dependent checks, and branches that never run.
 
 Budget: you have a turn limit of 80 tool calls and cannot see how many are left, so count your own calls. Keep a running list of verified findings as you go. Around call 55, stop looking for new candidates and write the report; a short report that arrives is worth more than a thorough one that does not. Mark anything you did not get to as `not reviewed`.
+Progress: the caller watches a panel row for you. When you start, then about every 10 tool calls and before a step you expect to take over a minute, run one Bash call of exactly this form, with no other text and no apostrophe inside the quotes: `: 'crew-progress 40 | what you are on now | why it is slow (empty if it is not)'`. The first field is your honest estimate of the percent of the task done. It does nothing else, but it counts toward your turn limit, so do not report more often than that.
 
 Severity (same scheme as Claude Code's own review):
 - **Important**: a bug that should be fixed before merging. Use it only for something that breaks correctness or misses a stated requirement; a reviewer asked to find gaps will report some even when the work is sound, so do not promote preferences to Important.

@@ -144,7 +144,8 @@ Everything is plain, readable shell in this repo. Nothing is sent over the netwo
 |---|---|---|
 | `scripts/session-policy.sh` | SessionStart (startup, resume, clear, compact) | Prints the ~2 KB routing policy into the session context. On a fresh start in a git repository without handoff files, also adds the one-time [handoff offer](#session-handoff); it never writes files itself |
 | `scripts/install-row.sh` | SessionStart (startup only) | Adds `subagentStatusLine` to `~/.claude/settings.json` once, see [the row installer](#panel-row-installer) |
-| `scripts/subagent-row.sh` | Agent panel refresh, while subagents run | Reads the panel's row data (agent type, model, effort, tokens) and prints the row text. Needs `jq`; without it the default rows stay |
+| `scripts/subagent-row.sh` | Agent panel refresh, while subagents run | Reads the panel's row data (agent type, model, effort, tokens, start time) and prints the row text: elapsed time, and the reported percent, step and delay reason when the agent sent one (see [Progress in the panel](#progress-in-the-panel)). Needs `jq`; without it the default rows stay |
+| `scripts/progress-hook.sh` | PostToolUse (subagent calls only) | Keeps one small file per subagent in `${TMPDIR:-/tmp}/crew-chief-progress/` (tool count, last tool, a slow-call note, and the agent's own `crew-progress` report); files older than 12 hours are removed. Needs `jq` |
 | `hooks/register.js` (a mod) | Session events | The [token saver](#token-saver): reads `$.session.usage()` for your plan limits and context size, asks with `$.ui.ask`, and lowers subagent effort in `turn.step` while the saver is on. Keeps saver state in memory only; remembers the language and your answer to the advisor offer. Also offers `/advisor` once (see [Advisor offer](#advisor-offer)) |
 | `scripts/mode-guard.sh` | UserPromptSubmit and UserPromptExpansion; PreToolUse on Agent | `record`: when your prompt is `/crew-chief:crew-mode <mode>`, remembers the mode for this session. `check`: while that mode is `solo`, blocks subagent spawns (exit 2). No recorded mode means everything passes |
 | `scripts/plugin-notices.sh` | UserPromptSubmit | On the first prompt after an update, shows the version change and the first lines of its CHANGELOG section. In a session that still runs a replaced copy, says so once instead. Both print a `systemMessage` for you |
@@ -153,6 +154,19 @@ Everything is plain, readable shell in this repo. Nothing is sent over the netwo
 With `/crew-setup` (no plugin), the same guard is copied to `.claude/hooks/crew-chief-guard.sh` and wired through `.claude/settings.json` with `--project`, matching the bare agent names. It is not put in the agents' frontmatter on purpose: Claude Code skips frontmatter hooks of project agents until the folder's trust dialog is accepted, and never runs them in `-p` sessions.
 
 The guard is a pattern check, not a sandbox: it blocks the common ways to write and errs on the side of blocking (for example a `>` inside a quoted awk expression). It does not try to catch deliberately obfuscated commands.
+
+## Progress in the panel
+
+The agent panel row shows how long each subagent has been running and, when the agent reports it, how far along it is and why it is slow:
+
+```
+implementer-hard  opus-5.5 · high · 232k · 4m12s · ~40%  Reading the auth module ⚠ slow test suite
+```
+
+- Elapsed time comes from the task's `startTime`; it needs nothing from the agent.
+- `deep-reader`, `implementer`, `implementer-hard`, `reviewer`, and `ui-tester` are told to send a one-line report about every 10 tool calls: a no-op Bash call `: 'crew-progress 40 | what I am on | why it is slow'`. `scripts/progress-hook.sh` (PostToolUse) picks it up by the agent's id, the row script reads it. The percent is the agent's own estimate, so the row marks it with `~`; it is not a measured value. The call counts toward the agent's turn limit, which is why it is rare.
+- Without a report the row shows the usual label and no percent. A single tool call of 45 s or more adds `⚠ Bash took 61s` on its own.
+- The read-only guard lets the report through, even for the read-only agents.
 
 ## Panel row installer
 

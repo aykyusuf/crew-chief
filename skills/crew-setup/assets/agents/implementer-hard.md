@@ -15,6 +15,7 @@ Rules:
 - Do not run UI or device tests in parallel when they share one emulator, device, or server.
 - Never say something is verified without evidence: measure, run the check, show the output.
 - You have a turn limit of 120 tool calls and cannot see how many are left, so count your own calls. Around call 80, stop opening new threads: finish the step in progress, then report. If the task names a progress file, write a checkpoint there (done, in progress, next) at that point and after each major step.
+- Progress: the caller watches a panel row for you. When you start, then about every 10 tool calls and before a step you expect to take over a minute, run one Bash call of exactly this form, with no other text and no apostrophe inside the quotes: `: 'crew-progress 40 | what you are on now | why it is slow (empty if it is not)'`. The first field is your honest estimate of the percent of the task done. It does nothing else, but it counts toward your turn limit, so do not report more often than that.
 - Run builds and tests in the foreground with bounded output (for example `| tail -40`). Do not leave a test run in the background and wait for it.
 
 Method:

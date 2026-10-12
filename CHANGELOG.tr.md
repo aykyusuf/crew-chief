@@ -2,6 +2,12 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.4.0 (2026-10-12)
+- Panel satırı çalışan alt ajanlar için geçen süreyi (`· 4m12s`) gösterir; ajan rapor verdiyse yaklaşık yüzdeyi, o an yaptığı işi ve neden yavaş olduğunu da ekler: `implementer-hard  opus-5.5 · high · 232k · 4m12s · ~40%  Reading the auth module ⚠ slow test suite`.
+- Yeni PostToolUse hook'u `scripts/progress-hook.sh` her alt ajan için `${TMPDIR:-/tmp}/crew-chief-progress/` altında küçük bir ilerleme dosyası tutar (12 saat sonra silinir). `deep-reader`, `implementer`, `implementer-hard`, `reviewer` ve `ui-tester` yaklaşık her 10 tool çağrısında `: 'crew-progress 40 | adım | gecikme'` diye tek satırlık rapor verir (turn limitine sayılan, etkisiz bir Bash çağrısı). Yüzde ajanın kendi tahminidir. 45 sn ve üstü süren tool çağrısı gecikme notunu kendisi ekler. `jq` gerekir.
+- Read-only guard, read-only ajanların ilerleme raporuna izin verir.
+- Claude Code 2.1.296'da doğrulandı: panel satırındaki task `id`, hook'taki `agent_id` ile aynı; satır birkaç saniyede bir yenileniyor.
+
 ## 0.3.3 (2026-10-11)
 - Panel satırı düzeltildi: Claude Code, plugin `settings.json`'ındaki `subagentStatusLine`'ı okuyor ama panele uygulamıyor (aynı komut kullanıcının `settings.json`'ından çalışıyor). Kurulum ya da güncellemeden sonraki ilk session'da `scripts/install-row.sh` satır script'ini `~/.claude/` altına kopyalar ve anahtarı senin `settings.json` dosyana ekler. Kendi `subagentStatusLine`'ına dokunmaz, bir kez kurar (sildiğin anahtarı geri eklemez), yedek alır, `jq` gerekir. `CREW_CHIEF_ROW=off` kapatır.
 

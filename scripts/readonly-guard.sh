@@ -51,6 +51,9 @@ cmd=$(field tool_input.command)
 [ -z "$cmd" ] && exit 0
 cmd=${cmd#rtk }
 
+# The progress report (a no-op the progress hook reads) is allowed whatever words its text holds.
+printf '%s' "$cmd" | grep -qE "^:[[:space:]]+'crew-progress [^']*'[[:space:]]*\$" && exit 0
+
 block() {
   echo "Blocked by crew-chief: this agent is read-only ($1). Report what you needed to the caller instead of working around it." >&2
   exit 2

@@ -22,9 +22,10 @@ def task(i, **kw):
     return base
 
 
-def rows(tasks, columns=80):
+def rows(tasks, columns=80, env=None):
     payload = {"columns": columns, "tasks": tasks} if columns is not None else {"tasks": tasks}
-    out = subprocess.run([SCRIPT], input=json.dumps(payload), capture_output=True, text=True, check=True).stdout
+    out = subprocess.run([SCRIPT], input=json.dumps(payload), capture_output=True, text=True, check=True,
+                         env=env).stdout
     return {r["id"]: r["content"] for r in map(json.loads, out.splitlines())}
 
 
@@ -74,6 +75,47 @@ check(len(r) == 5, "task without id skipped")
 check(rows([task("z", model="claude-sonnet-5-5")], columns=None).get("z"), "missing columns uses a default")
 check(subprocess.run([SCRIPT], input="{}", capture_output=True, text=True).stdout == "", "no tasks, no output")
 check(subprocess.run([SCRIPT], input="not json", capture_output=True, text=True).stdout == "", "bad input, no output")
+
+# Elapsed time (running tasks only) and progress from the per-agent progress files.
+import tempfile, time
+scratch = tempfile.mkdtemp(prefix="row-test-")
+env = dict(os.environ, TMPDIR=scratch)
+now_ms = int(time.time() * 1000)
+r = rows([
+    task("e1", model="claude-sonnet-5-5", effort="medium", startTime=now_ms - 252_000, label="Checking the login flow"),
+    task("e2", model="claude-sonnet-5-5", effort="medium", startTime=now_ms - 3_900_000),
+    task("e3", model="claude-sonnet-5-5", effort="medium", startTime=now_ms - 20_000),
+    task("e4", model="claude-sonnet-5-5", effort="medium", startTime=now_ms - 252_000, status="completed"),
+    task("e5", model="claude-sonnet-5-5", effort="medium", startTime=None),
+], columns=120, env=env)
+check("4m12s" in visible(r["e1"]) or "4m11s" in visible(r["e1"]), "elapsed minutes and seconds", r["e1"])
+check("1h05m" in visible(r["e2"]), "elapsed hours and minutes", r["e2"])
+check(re.search(r"· (19|20|21)s", visible(r["e3"])), "elapsed seconds", r["e3"])
+check("m" not in visible(r["e4"]).split("  ")[1].replace("sonnet-5.5", "").replace("medium", ""), "no elapsed for a finished task", r["e4"])
+check("sonnet-5.5 · medium · 1.2k" in visible(r["e5"]), "no startTime, no elapsed", r["e5"])
+
+pd = os.path.join(scratch, "crew-chief-progress")
+os.makedirs(pd)
+with open(os.path.join(pd, "p1.json"), "w") as f:
+    json.dump({"id": "p1", "pct": 40, "step": "Reading the auth module", "delay": "slow test suite", "slow": "Bash took 61s"}, f)
+with open(os.path.join(pd, "p2.json"), "w") as f:
+    json.dump({"id": "p2", "slow": "Bash took 61s", "tools": 3}, f)
+with open(os.path.join(pd, "broken.json"), "w") as f:
+    f.write("{not json")
+r = rows([
+    task("p1", model="claude-sonnet-5-5", effort="medium", startTime=now_ms - 60_000, label="Checking the login flow"),
+    task("p2", model="claude-sonnet-5-5", effort="medium", startTime=now_ms - 60_000, label="Checking the login flow"),
+    task("p3", model="claude-sonnet-5-5", effort="medium", startTime=now_ms - 60_000, label="Checking the login flow"),
+], columns=160, env=env)
+check("~40%" in visible(r["p1"]) and "Reading the auth module ⚠ slow test suite" in visible(r["p1"]),
+      "reported percent, step and delay shown; step replaces the label", r["p1"])
+check("Checking the login flow ⚠ Bash took 61s" in visible(r["p2"]) and "%" not in visible(r["p2"]),
+      "automatic slow note without a percent keeps the label", r["p2"])
+check("Checking the login flow" in visible(r["p3"]) and "%" not in visible(r["p3"]) and "⚠" not in visible(r["p3"]),
+      "no progress file: plain label", r["p3"])
+r = rows([task("p1", model="claude-sonnet-5-5", effort="medium", startTime=now_ms - 60_000)], columns=40, env=env)
+check(len(visible(r["p1"])) <= 38 and "~40%" in visible(r["p1"]), "percent survives a narrow panel", r["p1"])
+shutil.rmtree(scratch, ignore_errors=True)
 
 failed = [(n, d) for ok, n, d in checks if not ok]
 for n, d in failed:

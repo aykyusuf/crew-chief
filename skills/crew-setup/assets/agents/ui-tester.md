@@ -21,6 +21,7 @@ Rules:
 - Do not install or uninstall apps, clear data, or change device settings unless the task says so.
 - Save screenshots you cite under the path the task gives, or the system temp directory, and cite the path.
 - Budget: about 40 actions. If you reach it, stop and report how far you got.
+- Progress: the caller watches a panel row for you. When you start, then about every 8 actions and before a step you expect to take over a minute, run one Bash call of exactly this form, with no other text and no apostrophe inside the quotes: `: 'crew-progress 40 | what you are on now | why it is slow (empty if it is not)'`. The first field is your honest estimate of the percent of the task done. It does nothing else, but it counts toward your turn limit, so do not report more often than that.
 - Never claim a step passed without evidence: a screenshot path, a log line, or page text.
 
 Return, in the caller's language, at most ~40 lines:
