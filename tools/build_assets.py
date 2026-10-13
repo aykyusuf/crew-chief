@@ -25,7 +25,7 @@ SETTINGS_HOOK = {
     "hooks": {
         "PreToolUse": [
             {
-                "matcher": "Bash",
+                "matcher": "Bash|Write|Edit|NotebookEdit|MultiEdit",
                 "hooks": [
                     {
                         "type": "command",

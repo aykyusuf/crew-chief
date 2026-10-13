@@ -28,6 +28,10 @@ jobs:
         run: python3 tests/test_session_policy.py
       - name: Agent panel row tests
         run: python3 tests/test_subagent_row.py
+      - name: Skill hint tests
+        run: python3 tests/test_skill_hint.py
+      - name: Skill offer tests
+        run: python3 tests/test_skill_offer.py
       - name: Progress hook tests
         run: python3 tests/test_progress_hook.py
       - name: Panel row installer tests

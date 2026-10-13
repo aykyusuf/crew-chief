@@ -1,5 +1,5 @@
 {
-  "description": "crew-chief: routing policy at session start; read-only guard for the scanner, deep-reader, and reviewer agents; solo mode enforcement; update notices; agent panel row installer; per-subagent progress for the panel row; limit-aware token saver (mod)",
+  "description": "crew-chief: routing policy at session start; read-only guard for the scanner, deep-reader, and reviewer agents; solo mode enforcement; update notices; agent panel row installer; skill hints and a one-time skill offer; per-subagent progress for the panel row; limit-aware token saver (mod)",
   "modules": [
     "./register.js"
   ],
@@ -20,6 +20,10 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/install-row.sh\""
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/skill-offer.sh\""
           }
         ]
       }
@@ -34,6 +38,10 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/plugin-notices.sh\" prompt"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/skill-hint.sh\""
           }
         ]
       }
@@ -50,7 +58,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Write|Edit|NotebookEdit|MultiEdit",
         "hooks": [
           {
             "type": "command",

@@ -35,7 +35,7 @@ printf '%s' "$old" | jq -e 'type == "object"' >/dev/null 2>&1 || old='{}'
 new=$(printf '%s' "$fields" | jq -c --argjson old "$old" --arg q "'" '
   def clean: tostring | gsub("[\u0000-\u001f\u007f]"; " ") | gsub("  +"; " ") | ltrimstr(" ") | rtrimstr(" ");
   . as $in
-  | ($in.cmd | capture("^:[[:space:]]+" + $q + "crew-progress (?<body>[^" + $q + "]*)" + $q + "[[:space:]]*$")? // null) as $rep
+  | ($in.cmd | capture("\\A:[[:space:]]+" + $q + "crew-progress (?<body>[^" + $q + "]*)" + $q + "[[:space:]]*\\z")? // null) as $rep
   | ($old + {id: $in.id})
   | if $rep != null then
       ($rep.body | split("|") | map(clean)) as $p

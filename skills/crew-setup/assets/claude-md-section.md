@@ -11,7 +11,7 @@ Mode: auto (the user can switch with /crew-mode or by saying so).
 Tiers (agents in .claude/agents, default model/effort):
 - main session: back-and-forth with the user, design or product decisions, planning, tightly coupled work, quick fixes.
 - scanner (haiku/low): mechanical lookups, filtering long logs or test output.
-- deep-reader (sonnet/medium): read-only analysis across several files, root cause from code, code plus web research (returns text, never writes files).
+- deep-reader (sonnet/medium): read-only analysis across several files, root cause from code, code plus web research (read-only; a long report goes to a file in the crew-chief reports folder and a short summary comes back).
 - implementer (sonnet/medium): changes where files, change, and check are all specified.
 - implementer-hard (opus/high): multi-module, algorithmic, or unknown-root-cause work.
 - ui-smoke (haiku/low): quick read-only check that a page or screen is up, shows given text, or logs errors; no screenshots.
@@ -24,5 +24,6 @@ Rules:
 - If a tier reports "stopped", escalate one step: implementer -> implementer-hard -> main session.
 - The Agent tool's model and effort parameters override a tier's defaults for one call; use them when the user names a model or effort ("give this to Sonnet at medium").
 - User overrides win and last until they say otherwise: "do it yourself" = solo; "use agents" = delegate; "X directly with Opus" = X stays in the main session.
+- Subagents cannot see your skill list. When a task needs a skill, name it in the brief; every tier except scanner and ui-smoke can load it with the Skill tool. For skill-heavy work you may use general-purpose, but pass model explicitly, because it otherwise inherits the main model.
 - For polling, waiting, scheduling, workflows, or agent teams, load the crew-routing skill first if it is installed.
 <!-- crew-chief:end -->

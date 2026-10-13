@@ -1,0 +1,295 @@
+{
+  "verified": "2026-10-13",
+  "note": "Hand-checked list. 'prefer' = skill names that count as installed and are hinted; 'recommend' = what the install offer shows. Riskier skills (they fetch instructions at run time or run scripts) are in 'prefer' only, never offered. A keyword ending in * matches as a word prefix (arayüz* also matches arayüzü); any other keyword must be a whole word.",
+  "categories": [
+    {
+      "id": "flutter",
+      "label": "Flutter / Dart",
+      "detect": [
+        {
+          "file": "pubspec.yaml",
+          "grep": "flutter"
+        }
+      ],
+      "keywords": [
+        "flutter*",
+        "dart",
+        "widget*",
+        "bloc",
+        "cubit",
+        "pubspec",
+        "riverpod",
+        "gorouter",
+        "go_router"
+      ],
+      "prefer": [
+        "flutter",
+        "flutter-ui",
+        "flutter-apply-architecture-best-practices",
+        "flutter-fix-layout-issues"
+      ],
+      "recommend": [
+        {
+          "name": "dart-flutter (the Flutter team's own skills: architecture, layout, tests, routing, l10n)",
+          "source": "flutter/agent-plugins (BSD-3-Clause, updated 2026-10)",
+          "why": "official Flutter and Dart skills from the Flutter team.",
+          "risk": "the plugin also adds a Dart MCP server; read it before saying yes.",
+          "install": "claude plugin marketplace add flutter/agent-plugins && claude plugin install dart-flutter@dart-flutter"
+        }
+      ]
+    },
+    {
+      "id": "flutter-qa",
+      "label": "Flutter QA",
+      "keywords": [
+        "qa audit",
+        "ekranları gez",
+        "tüm ekranları",
+        "ui/ux kontrol",
+        "simulator test",
+        "emulator test",
+        "simülatör",
+        "emülatör",
+        "ekranlari gez",
+        "tüm ekranlari"
+      ],
+      "prefer": [
+        "flutter-qa-audit"
+      ]
+    },
+    {
+      "id": "react-next",
+      "label": "React / Next.js",
+      "detect": [
+        {
+          "file": "package.json",
+          "grep": "\"(next|react)\""
+        }
+      ],
+      "keywords": [
+        "react",
+        "next.js",
+        "nextjs*",
+        "jsx",
+        "tsx",
+        "useeffect",
+        "usestate",
+        "app router",
+        "server component"
+      ],
+      "prefer": [
+        "vercel-react-best-practices",
+        "react-best-practices",
+        "vercel-composition-patterns",
+        "composition-patterns"
+      ],
+      "recommend": [
+        {
+          "name": "vercel-react-best-practices",
+          "source": "vercel-labs/agent-skills (MIT, updated 2026-04)",
+          "why": "40+ React and Next.js performance rules from Vercel engineering.",
+          "risk": "installed through the third-party `npx skills` CLI, which downloads the package when it runs; `-g` makes it user level.",
+          "install": "npx skills add vercel-labs/agent-skills --skill vercel-react-best-practices -g -a claude-code -y"
+        }
+      ]
+    },
+    {
+      "id": "swiftui",
+      "label": "SwiftUI / iOS",
+      "detect": [
+        {
+          "file": "Package.swift",
+          "grep": "swift"
+        },
+        {
+          "file": "*.xcodeproj"
+        },
+        {
+          "file": "*.xcworkspace"
+        }
+      ],
+      "keywords": [
+        "swiftui*",
+        "swift ui",
+        "xcode*",
+        "uikit",
+        "swiftdata",
+        "@state",
+        "@observable"
+      ],
+      "prefer": [
+        "swiftui-pro",
+        "swiftui-expert-skill"
+      ],
+      "recommend": [
+        {
+          "name": "swiftui-pro",
+          "source": "twostraws/SwiftUI-Agent-Skill (MIT, updated 2026-10)",
+          "why": "steers Claude to modern SwiftUI APIs and away from the usual outdated patterns (state, accessibility, performance).",
+          "risk": "",
+          "install": "claude plugin marketplace add twostraws/SwiftUI-Agent-Skill && claude plugin install swiftui-pro@swiftui-agent-skill"
+        }
+      ]
+    },
+    {
+      "id": "ui-build",
+      "label": "UI / frontend design",
+      "detect": [
+        {
+          "file": "package.json",
+          "grep": "\"(next|react|vue|svelte|astro|vite|nuxt)\""
+        },
+        {
+          "file": "index.html"
+        },
+        {
+          "file": "tailwind.config.*"
+        }
+      ],
+      "keywords": [
+        "landing page",
+        "arayüz*",
+        "arayuz*",
+        "ui tasarım",
+        "ui tasarim",
+        "ui design",
+        "dashboard*",
+        "panel tasarım",
+        "frontend*",
+        "ön yüz",
+        "on yuz",
+        "tasarla*",
+        "web sitesi",
+        "component design",
+        "ekran tasarım",
+        "mockup",
+        "panel tasarim",
+        "ekran tasarim"
+      ],
+      "prefer": [
+        "frontend-design",
+        "design-taste-frontend",
+        "frontend-prime",
+        "ui-ux-pro-max"
+      ],
+      "recommend": [
+        {
+          "name": "frontend-design",
+          "source": "anthropics/claude-plugins-official (Apache-2.0, updated 2026-09)",
+          "why": "Anthropic's own skill for distinctive, non-generic interfaces (typography, palette, layout).",
+          "risk": "",
+          "install": "claude plugin install frontend-design@claude-plugins-official"
+        }
+      ]
+    },
+    {
+      "id": "ui-redesign",
+      "label": "UI redesign",
+      "keywords": [
+        "redesign*",
+        "yeniden tasarla*",
+        "modernize*",
+        "arayüzü yenile",
+        "tasarımı yenile",
+        "facelift",
+        "güzelleştir*",
+        "tasarimi yenile"
+      ],
+      "prefer": [
+        "redesign-existing-projects",
+        "frontend-design",
+        "design-taste-frontend"
+      ]
+    },
+    {
+      "id": "ui-review",
+      "label": "UI review and accessibility",
+      "keywords": [
+        "accessibility",
+        "erişilebilir*",
+        "a11y",
+        "wcag",
+        "ux review",
+        "ui review",
+        "tasarım denetim",
+        "ux denetim",
+        "audit the ui",
+        "contrast",
+        "kontrast*",
+        "tasarim denetim"
+      ],
+      "prefer": [
+        "web-design-guidelines",
+        "accessibility-review",
+        "design-critique"
+      ]
+    },
+    {
+      "id": "supabase",
+      "label": "Supabase / Postgres",
+      "detect": [
+        {
+          "file": "supabase/config.toml"
+        },
+        {
+          "file": "package.json",
+          "grep": "supabase"
+        },
+        {
+          "file": "pubspec.yaml",
+          "grep": "supabase"
+        }
+      ],
+      "keywords": [
+        "supabase*",
+        "postgres*",
+        "rls",
+        "row level security",
+        "edge function"
+      ],
+      "prefer": [
+        "supabase-postgres-best-practices",
+        "supabase",
+        "postgres-best-practices"
+      ],
+      "recommend": [
+        {
+          "name": "supabase-postgres-best-practices",
+          "source": "supabase/agent-skills (MIT, updated 2026-10)",
+          "why": "Postgres query, schema and RLS best practices from Supabase.",
+          "risk": "",
+          "install": "claude plugin marketplace add supabase/agent-skills && claude plugin install postgres-best-practices@supabase-agent-skills"
+        }
+      ]
+    },
+    {
+      "id": "python-backend",
+      "label": "Python backend",
+      "keywords": [
+        "fastapi*",
+        "pydantic",
+        "django*",
+        "uvicorn",
+        "sqlalchemy",
+        "alembic"
+      ],
+      "prefer": [
+        "fastapi"
+      ]
+    },
+    {
+      "id": "node-api",
+      "label": "Node / TypeScript API",
+      "keywords": [
+        "fastify",
+        "node 22",
+        "type stripping"
+      ],
+      "prefer": [
+        "fastify-best-practices",
+        "node",
+        "typescript-magician"
+      ]
+    }
+  ]
+}
