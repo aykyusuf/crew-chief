@@ -26,29 +26,21 @@ import {
   statsRows,
 } from './report-logic.mjs'
 
-function fresh() {
+function freshStats() {
   return { stats: newStats(), lastCost: undefined, lastMainEndAt: undefined, lastMainContext: 0, stepGap: undefined, hint: undefined, warnedFor: undefined }
 }
 
-let st = fresh()
-
-async function safe(fn, fallback) {
-  try {
-    return await fn()
-  } catch (err) {
-    return fallback
-  }
-}
+let sf = freshStats()
 
 async function loadHint($) {
-  if (st.hint !== undefined) return st.hint
+  if (sf.hint !== undefined) return sf.hint
   const text = await safe(() => $.store.get('cache_hint'), undefined)
-  st.hint = typeof text === 'string' ? parseHint(text) : {}
-  return st.hint
+  sf.hint = typeof text === 'string' ? parseHint(text) : {}
+  return sf.hint
 }
 
 export async function statsSessionStart($) {
-  st = fresh()
+  sf = freshStats()
   try {
     await $.command.register({
       name: 'crew-report',
@@ -61,21 +53,21 @@ export async function statsSessionStart($) {
 }
 
 export function statsReset() {
-  st = fresh()
+  sf = freshStats()
 }
 
 // A compaction (or any change of conversation) guarantees a cache miss on the next request: that gap
 // must not be mistaken for the cache's lifetime.
 export function statsNoteBoundary() {
-  st.lastMainEndAt = undefined
-  st.stepGap = undefined
+  sf.lastMainEndAt = undefined
+  sf.stepGap = undefined
 }
 
 // Before a request goes out: how long the main conversation sat idle since its last one.
 export async function statsStepStart($, e) {
   if (e.agentId !== undefined) return
   const now = await $.clock.now()
-  st.stepGap = st.lastMainEndAt === undefined ? undefined : now - st.lastMainEndAt
+  sf.stepGap = sf.lastMainEndAt === undefined ? undefined : now - sf.lastMainEndAt
 }
 
 // After a request: add it to the tallies, and learn from it how long the cache lives.
@@ -87,27 +79,27 @@ export async function statsStepEnd($, e, result) {
     const now = await $.clock.now()
     const cost = await safe(() => $.session.usage(), undefined)
     const usd = cost?.cost?.usd
-    // The total starts at 0 and falls back to 0 after /clear: a drop means a fresh total, all of it new.
+    // The total starts at 0 and falls back to 0 after /clear: a drop means a freshStats total, all of it new.
     let grew
     if (typeof usd === 'number') {
-      const base = st.lastCost ?? 0
+      const base = sf.lastCost ?? 0
       grew = usd >= base ? usd - base : usd
-      st.lastCost = usd
+      sf.lastCost = usd
     }
-    addStep(st.stats, { role: main ? 'main' : 'subagent', family, usage, usd: grew })
+    addStep(sf.stats, { role: main ? 'main' : 'subagent', family, usage, usd: grew })
     if (main && usage) {
       const input = Number(usage.input_tokens) || 0
       const cacheRead = Number(usage.cache_read_input_tokens) || 0
       const cacheWrite = Number(usage.cache_creation_input_tokens) || 0
-      const verdict = classifyGap({ gapMs: st.stepGap, input, cacheRead, cacheWrite })
+      const verdict = classifyGap({ gapMs: sf.stepGap, input, cacheRead, cacheWrite })
       if (verdict !== undefined) {
-        const hint = nextHint(await loadHint($), st.stepGap, verdict)
-        st.hint = hint
+        const hint = nextHint(await loadHint($), sf.stepGap, verdict)
+        sf.hint = hint
         await safe(() => $.store.set('cache_hint', JSON.stringify(hint)), undefined)
       }
-      st.lastMainContext = input + cacheRead + cacheWrite
+      sf.lastMainContext = input + cacheRead + cacheWrite
     }
-    if (main) st.lastMainEndAt = now
+    if (main) sf.lastMainEndAt = now
   } catch (err) {
     // The tallies are a convenience; never get in the way of a request.
   }
@@ -117,21 +109,21 @@ export async function statsStepEnd($, e, result) {
 export async function cacheOnPrompt($) {
   try {
     if ((await safe(() => $.env.get('CREW_CHIEF_CACHE_HINT'), undefined)) === 'off') return
-    if (st.lastMainEndAt === undefined || st.warnedFor === st.lastMainEndAt) return
+    if (sf.lastMainEndAt === undefined || sf.warnedFor === sf.lastMainEndAt) return
     const now = await $.clock.now()
-    const gap = now - st.lastMainEndAt
-    if (!shouldWarnCold(await loadHint($), gap, st.lastMainContext)) return
-    st.warnedFor = st.lastMainEndAt
+    const gap = now - sf.lastMainEndAt
+    if (!shouldWarnCold(await loadHint($), gap, sf.lastMainContext)) return
+    sf.warnedFor = sf.lastMainEndAt
     const lang = await resolveLang($)
-    $.ui.toast(t(lang, 'cache_cold', { idle: formatDuration(gap, unitsFor(lang)), tokens: fmtTokens(st.lastMainContext) }), { timeoutMs: 12000 })
+    $.ui.toast(t(lang, 'cache_cold', { idle: formatDuration(gap, unitsFor(lang)), tokens: fmtTokens(sf.lastMainContext) }), { timeoutMs: 12000 })
   } catch (err) {
     // A missing hint is better than a broken prompt.
   }
 }
 
-async function buildReport($) {
+async function buildStatsReport($) {
   const lang = await resolveLang($)
-  const rows = statsRows(st.stats)
+  const rows = statsRows(sf.stats)
   if (rows.length === 0) return t(lang, 'report_none')
   const out = [t(lang, 'report_title')]
   for (const r of rows) {
@@ -158,5 +150,5 @@ async function buildReport($) {
 }
 
 export function registerStats(on) {
-  on('command.run', { command: 'crew-report' }, async ($) => ({ text: await buildReport($) }))
+  on('command.run', { command: 'crew-report' }, async ($) => ({ text: await buildStatsReport($) }))
 }

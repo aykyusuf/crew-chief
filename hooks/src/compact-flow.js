@@ -50,7 +50,7 @@ const TOOL_DESCRIPTION =
   'Propose compacting the conversation. Call it once, and only when a note from crew-chief says the context is large AND you have just finished a phase (a task done, tests passing, before an unrelated area). Never call it in the middle of work. It asks the user; if they decline, do not call it again.'
 
 const UPDATE_TEXT =
-  'Update the handoff files of this project now, for those that exist: STATUS.md (Now, Next, Constraints = every rule the user gave, copied verbatim, Decisions, Failed attempts), tasks.json (only status and evidence change), PROGRESS.md (one dated line). If STATUS.md has no Constraints section, do not invent one; say so in your reply. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
+  'Update the handoff files of this project now, for those that exist: STATUS.md (Now, Next, Constraints = every rule the user gave, copied verbatim; keep the lines already there and only add new ones, Decisions, Failed attempts), tasks.json (only status and evidence change), PROGRESS.md (one dated line). If STATUS.md has no Constraints section, do not invent one; say so in your reply. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
 
 // A project with no handoff files has nowhere to pin the user's rules, so the person is offered them first
 // (the crew-handoff skill shows a preview and creates only what is missing; it needs a yes of its own).
@@ -69,7 +69,7 @@ const RESULTS = {
   busy: 'A compaction is already being arranged. Nothing more to do about it.',
 }
 
-function fresh(toolReady = false) {
+function freshCompact(toolReady = false) {
   return {
     armed: false,
     nudged: false,
@@ -83,32 +83,24 @@ function fresh(toolReady = false) {
   }
 }
 
-let st = fresh()
+let ck = freshCompact()
 
 // session.start does not fire after /clear, so the tool registered at the start is still there: keep
 // toolReady across a reset, and let compactSessionStart (a real start) decide it afresh.
 export function resetCompact() {
-  st = fresh(st.toolReady)
+  ck = freshCompact(ck.toolReady)
   open.compact = false
 }
 
-// Each compaction starts a fresh cycle: arm again at the arm size, note again, ask again, and no plan
+// Each compaction starts a freshCompact cycle: arm again at the arm size, note again, ask again, and no plan
 // left over from before it.
 function cycleDone() {
-  st.armed = false
-  st.nudged = false
-  st.askedFallback = false
-  st.rearmAt = 0
-  st.plan = null
+  ck.armed = false
+  ck.nudged = false
+  ck.askedFallback = false
+  ck.rearmAt = 0
+  ck.plan = null
   statsNoteBoundary()
-}
-
-async function safe(fn, fallback) {
-  try {
-    return await fn()
-  } catch (err) {
-    return fallback
-  }
 }
 
 // A mod must spell environment variable names as literals in $.env.get, so each switch is written out.
@@ -151,20 +143,20 @@ async function limits($, usage) {
 export async function compactUpdate($, usage) {
   if (await disabled($)) return
   const tokens = usage?.context?.tokens
-  if (typeof tokens !== 'number' || st.never || st.plan || st.compacting) return
+  if (typeof tokens !== 'number' || ck.never || ck.plan || ck.compacting) return
   const lim = await limits($, usage)
-  if (!st.armed && tokens >= Math.max(lim.arm, st.rearmAt)) {
-    st.armed = true
-    st.nudged = false
-    st.askedFallback = false
+  if (!ck.armed && tokens >= Math.max(lim.arm, ck.rearmAt)) {
+    ck.armed = true
+    ck.nudged = false
+    ck.askedFallback = false
   }
 }
 
 // The text added (once per arming) to the next prompt, or undefined.
 export async function compactNudge($) {
-  if (!st.armed || st.nudged || st.never || st.plan || st.compacting || !st.toolReady) return undefined
+  if (!ck.armed || ck.nudged || ck.never || ck.plan || ck.compacting || !ck.toolReady) return undefined
   if (await disabled($)) return undefined
-  st.nudged = true
+  ck.nudged = true
   const usage = await safe(() => $.session.usage(), undefined)
   const tokens = usage?.context?.tokens
   const name = `mcp__${$.plugin.name}__${TOOL_NAME}`
@@ -174,8 +166,8 @@ export async function compactNudge($) {
 // ---- asking and planning --------------------------------------------------------------------
 
 async function askAndPlan($, why) {
-  if (st.asking || open.saver || open.reset) return 'busy'
-  st.asking = true
+  if (ck.asking || open.saver || open.reset) return 'busy'
+  ck.asking = true
   open.compact = true
   try {
     const lang = await resolveLang($)
@@ -190,18 +182,18 @@ async function askAndPlan($, why) {
       return 'unavailable'
     }
     if (answer === answers[0]) {
-      st.plan = { approvedAt: await $.clock.now(), retries: 0 }
+      ck.plan = { approvedAt: await $.clock.now(), retries: 0 }
       return 'approved'
     }
     if (answer === answers[2]) {
-      st.never = true
+      ck.never = true
       return 'never'
     }
-    st.armed = false
-    st.rearmAt = (typeof tokens === 'number' ? tokens : 0) + REARM_GROWTH_TOKENS
+    ck.armed = false
+    ck.rearmAt = (typeof tokens === 'number' ? tokens : 0) + REARM_GROWTH_TOKENS
     return 'declined'
   } finally {
-    st.asking = false
+    ck.asking = false
     open.compact = false
   }
 }
@@ -215,19 +207,19 @@ async function requestStateUpdate($) {
 async function askFallback($) {
   const outcome = await askAndPlan($, {})
   if (outcome === 'approved') requestStateUpdate($)
-  else if (outcome === 'busy') st.askedFallback = false
+  else if (outcome === 'busy') ck.askedFallback = false
 }
 
 async function advancePlan($) {
-  const plan = st.plan
-  if (!plan || st.asking || open.saver || open.reset) return
+  const plan = ck.plan
+  if (!plan || ck.asking || open.saver || open.reset) return
   if (await gateSatisfied($, plan)) {
     scheduleCompaction($)
     return
   }
   const lang = await resolveLang($)
   const answers = [t(lang, 'ck_gate_anyway'), t(lang, 'ck_gate_retry'), t(lang, 'ck_gate_cancel')]
-  st.asking = true
+  ck.asking = true
   open.compact = true
   let answer
   try {
@@ -235,7 +227,7 @@ async function advancePlan($) {
   } catch (err) {
     answer = answers[2]
   } finally {
-    st.asking = false
+    ck.asking = false
     open.compact = false
   }
   if (answer === answers[0]) {
@@ -246,9 +238,9 @@ async function advancePlan($) {
   } else {
     const usage = await safe(() => $.session.usage(), undefined)
     const tokens = usage?.context?.tokens
-    st.plan = null
-    st.armed = false
-    st.rearmAt = (typeof tokens === 'number' ? tokens : 0) + REARM_GROWTH_TOKENS
+    ck.plan = null
+    ck.armed = false
+    ck.rearmAt = (typeof tokens === 'number' ? tokens : 0) + REARM_GROWTH_TOKENS
   }
 }
 
@@ -256,16 +248,16 @@ async function advancePlan($) {
 export async function compactTurnComplete($, usage, aborted) {
   if (await disabled($)) return
   await compactUpdate($, usage)
-  if (st.plan) {
+  if (ck.plan) {
     // An interrupted turn (Esc) may have stopped halfway through the update: wait for a finished one.
     if (!aborted) await advancePlan($)
     return
   }
   const tokens = usage?.context?.tokens
-  if (!st.armed || st.never || st.compacting || st.asking || st.askedFallback || typeof tokens !== 'number') return
+  if (!ck.armed || ck.never || ck.compacting || ck.asking || ck.askedFallback || typeof tokens !== 'number') return
   const lim = await limits($, usage)
   if (tokens >= lim.ask) {
-    st.askedFallback = true
+    ck.askedFallback = true
     askFallback($) // not awaited: the hook must not wait for the person
   }
 }
@@ -273,8 +265,8 @@ export async function compactTurnComplete($, usage, aborted) {
 // ---- running the compaction -----------------------------------------------------------------
 
 function scheduleCompaction($) {
-  st.plan = null
-  st.compacting = true
+  ck.plan = null
+  ck.compacting = true
   $.clock.after(COMPACT_DELAY_MS, () => runCompaction($, 0))
 }
 
@@ -301,7 +293,7 @@ async function runCompaction($, attempt) {
       await failed($, message)
     }
   } finally {
-    if (!retry) st.compacting = false
+    if (!retry) ck.compacting = false
   }
 }
 
@@ -414,7 +406,7 @@ async function afterCompaction($, result, linesBefore) {
 // Called from the mod's session.start hook (a module may register each event only once).
 export async function compactSessionStart($) {
   resetCompact()
-  st.toolReady = false
+  ck.toolReady = false
   if (await disabled($)) return
   try {
     await $.tool.register({
@@ -429,7 +421,7 @@ export async function compactSessionStart($) {
       },
       isDeferred: false,
     })
-    st.toolReady = true
+    ck.toolReady = true
   } catch (err) {
     // An older Claude Code, or the name is taken: the fallback question still works.
   }
@@ -449,8 +441,8 @@ const clip = (s) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().slice
 export function registerCompact(on) {
   on('tool.call', { tool: TOOL_MATCH }, async ($, e) => {
     if (e.agentId !== undefined) return { deny: 'Only the main conversation can propose a compaction.' }
-    if (!st.armed || st.never) return { result: RESULTS.notNeeded }
-    if (st.plan || st.compacting) return { result: RESULTS.busy }
+    if (!ck.armed || ck.never) return { result: RESULTS.notNeeded }
+    if (ck.plan || ck.compacting) return { result: RESULTS.busy }
     const outcome = await askAndPlan($, { phase: clip(e.phase) })
     if (outcome === 'approved') return { result: 'The user approved compaction. ' + (await updateText($)) }
     return { result: RESULTS[outcome] ?? RESULTS.busy }
@@ -476,8 +468,8 @@ export function registerCompact(on) {
   on('command.run', { command: 'crew-compact' }, async ($) => {
     const lang = await resolveLang($)
     if (await disabled($)) return { text: t(lang, 'cmd_compact_off') }
-    if (st.plan || st.compacting || st.asking) return { text: t(lang, 'cmd_compact_busy') }
-    st.never = false
+    if (ck.plan || ck.compacting || ck.asking) return { text: t(lang, 'cmd_compact_busy') }
+    ck.never = false
     // A command must not hold the turn while the person answers; ask when the loop is free.
     $.clock.after(300, async () => {
       const outcome = await askAndPlan($, {})

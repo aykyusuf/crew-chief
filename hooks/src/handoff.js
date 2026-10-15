@@ -3,6 +3,7 @@
 // directory, then at the repository root, then one level down. A mod's analyser follows `$` only into
 // function declarations, so this is one, shared by the files that need it.
 
+// Shared by every part of the bundle: a call that may throw, with a fallback value.
 async function safe(fn, fallback) {
   try {
     return await fn()

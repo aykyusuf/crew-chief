@@ -2,6 +2,10 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.6.2 (2026-10-15)
+- Mod yine tek dosya: plugin'leri inceleyen dizin `$` ve `on`'u yalnızca aynı dosyada tanımlı bir fonksiyona geçirildiğinde kabul ediyor; bu yüzden `$` kullanan parçalar artık `hooks/src/` altında ve `tools/build_mod.py` bunları okunabilir `hooks/register.js` dosyasında birleştiriyor (CI güncel olduğunu ve `$`'ın başka dosyadaki bir fonksiyona geçirilmediğini kontrol eder). Davranış değişmedi.
+- README'ye "Mod makinende ne yapar" bölümü eklendi: ne okuyor, çalıştırıyor, gönderiyor ve yazıyor, neden.
+
 ## 0.6.1 (2026-10-15)
 - Devir dosyası olmayan projede compact akışı: evet dedikten sonra Claude önce bunları kurmayı teklif eder (`crew-handoff` skill'i, kendi önizleme ve onayıyla) ve konuşmada verdiğin kuralları Kısıtlar altına yazar; böylece compact'ten sonra geri basılabilirler. Reddedersen eskisi gibi dosyasız compact edilir.
 

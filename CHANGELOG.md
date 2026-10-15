@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.2 (2026-10-15)
+- The mod is one file again: the directory that reviews plugins accepts `$` and `on` only when they are passed to a function declared in the same file, so the parts that touch `$` now live in `hooks/src/` and `tools/build_mod.py` joins them into the readable `hooks/register.js` (CI checks it is current, and that `$` is never passed to a function from another file). No behavior change.
+- README gains "What the mod does with your machine": what it reads, runs, submits and writes, and why.
+
 ## 0.6.1 (2026-10-15)
 - Compact flow in a project with no handoff files: after your yes, Claude first offers to set them up (the `crew-handoff` skill, with its own preview and confirmation) and puts the rules you gave in the conversation under Constraints, so they can be put back after the compaction. Decline and it compacts without them, as before.
 

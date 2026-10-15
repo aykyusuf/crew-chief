@@ -97,6 +97,20 @@ Uzun bir konuşma her istekte daha pahalıya gelir ve daha kötü cevap verir. `
 
 `/crew-report`, ana/alt ajan ve model bazında token (kesin) ve maliyet (yaklaşık) gösterir; çıktının ne kadarının alt ajanlardan, Sonnet ya da Haiku'dan geldiğini de. Claude Code tek bir session toplamı verir, bu yüzden her isteğe önceki istek bittiğinden beri toplamın artışı yazılır. Boşta kalma sırasında prompt cache büyük ihtimalle soğuduysa sonraki prompt'unda bir toast da uyarır (cache ömrü kullanım sayılarından öğrenilir; bir kez süre dolması görülmeden hiçbir şey uyarılmaz; `CREW_CHIEF_CACHE_HINT=off`).
 
+## Mod makinende ne yapar
+
+İncelemeciler ve sen için. Aşağıdakilerin hepsi senin makinende Claude Code'un içinde olur; modun ağ erişimi yoktur ve hiçbir yere bir şey göndermez.
+
+- **Dosya okur:** projenin `STATUS.md`, `tasks.json`, `PROGRESS.md` dosyaları; Claude Code'un yüklediği talimat ve hafıza dosyaları (yalnızca `/crew-tidy` için); compact kapısı için dosya zamanları. Özeti sabitlediğin kurallara ve açık görevlere karşı kontrol etmek, bağlamı denetlemek ve `STATUS.md` güncellenene kadar beklemek için.
+- **Ayar okur:** yalnızca `language` ve `advisorModel` anahtarları. API anahtarı, token ya da herhangi bir kimlik bilgisini asla okumaz.
+- **Ortam okur:** `HOME`, `TMPDIR`, `LANG`, `CREW_CHIEF_*` anahtarları ve birkaç `CLAUDE_CODE_USE_*` bayrağı.
+- **Program çalıştırır:** `wc -l <transcript>` (compact öncesi ve sonrası satır sayısı), `chmod 600 <dosya>` (kendi yedeklerini özel yapar), `rm -f <eski yedek>` (yalnızca kendi yedeklerinden en yeni 5 ya da 3'ün ötesindekileri), `mkdir -p`, `cp -p <transcript> <yedek>` (yalnızca bir compact transcript satırı kaybettirdiyse). Argümanlar modun hesapladığı yollardır, konuşmadan gelen metin değildir.
+- **Slash komutu çalıştırır:** yalnızca `/advisor`, [advisor teklifine](#advisor-teklifi) evet dedikten sonra bir kez.
+- **Prompt gönderir:** crew-chief'ten geldiği belli olan iki sabit metin (asla senin kendi sözün gibi değil): onayladığın compact sonrası "devir dosyalarını güncelle" ve onayladığın limit sıfırlanmasında "kaldığın yerden devam et". Dosya içeriği ya da konuşma metni taşımazlar.
+- **Dosya yazar:** kendi veri klasörüne (`compact-summaries/`); ve yalnızca `/crew-tidy archive`'ı onayladığında `PROGRESS.md` (kısaltılmış) ile `PROGRESS-archive.md` (eski girdiler). Talimat dosyalarını, ayarlarını ya da build dosyalarını asla yazmaz.
+- **Araç kaydeder:** `crew_compact_checkpoint`; yalnızca compact edip etmeyeceğini sana sorar ve Claude'a talimat döner.
+- **Compact hook'u:** compact'e özetleyici talimatı ekler (`session.compact`) ve compact'i yalnızca senin evetinden sonra başlatır.
+
 ## Advisor teklifi
 
 `/advisor` (deneysel, sadece Anthropic API) Claude'un zor anlarda (yaklaşım seçmeden önce, takılınca, bitirmeden önce) daha güçlü bir modele danışmasını sağlar. Alt ajanlar da miras alır: Sonnet `implementer` durup `implementer-hard` olarak yeniden koşmak yerine Opus'a danışabilir. Anthropic'in kendi ölçümünde Sonnet ve Opus ikilisi görevleri yaklaşık %12 daha ucuza ve biraz daha iyi bitirdi; her danışma advisor modelinin fiyatından faturalanır.
@@ -149,7 +163,7 @@ Her şey bu repoda okunabilir shell ve küçük bir JavaScript modu (`hooks/regi
 - `progress-hook.sh`: PostToolUse'ta (yalnızca alt ajan çağrıları) her ajan için `${TMPDIR:-/tmp}/crew-chief-progress/` altında küçük bir dosya tutar. Ajan yaklaşık her 10 tool çağrısında `: 'crew-progress 40 | ne yapıyorum | neden yavaş'` diye etkisiz bir Bash çağrısıyla rapor verir (`deep-reader`, `implementer`, `implementer-hard`, `reviewer`, `ui-tester`). Yüzde ajanın kendi tahminidir (satırda `~` ile), ölçüm değildir; çağrı turn limitine sayılır. Rapor yoksa satırda eski etiket kalır; tek bir tool çağrısı 45 sn'yi geçerse `⚠ Bash took 61s` otomatik eklenir. `jq` gerekir; 12 saatten eski dosyalar silinir.
 - `install-row.sh`: Claude Code plugin'in `subagentStatusLine` ayarını panele uygulamadığı için, ilk session'da bu satırı senin `~/.claude/settings.json` dosyana bir kez ekler (kendi ayarını ezmez, silersen geri eklemez, yedek alır). Kapatmak için `CREW_CHIEF_ROW=off`.
 - `register.js` (mod): token saver. Plan limitini ve bağlam boyutunu Claude Code içinden okur, eşikte `ui.ask` ile sorar, açıkken subagent effort'unu düşürür. Saver durumunu sadece bellekte tutar; dili ve advisor teklifine verdiğin cevabı hatırlar. Ayrıca `/advisor`'ı bir kez önerir ([Advisor teklifi](#advisor-teklifi)).
-- `compact-flow.mjs`, `reset-flow.mjs`, `tidy-flow.mjs`, `stats-flow.mjs` (modun parçaları): [compact akışı](#compact-akışı), [limit sıfırlanması](#limit-sıfırlanması), [`/crew-tidy` ve `/crew-report`](#context-denetimi-ve-rapor). Saf yardımcılar `compact-logic.mjs`, `tidy-logic.mjs`, `report-logic.mjs` içinde; ortak kod `lang.mjs`, `coord.mjs`, `handoff.mjs` içinde.
+- `hooks/src/*.js` (modun parçaları, `hooks/register.js` içinde birleştirilir): [compact akışı](#compact-akışı), [limit sıfırlanması](#limit-sıfırlanması), [`/crew-tidy` ve `/crew-report`](#context-denetimi-ve-rapor). Plugin'leri inceleyen dizin mod dosyasını tek başına okuduğu için `$` kullanan her şey `tools/build_mod.py` ile tek okunabilir `hooks/register.js` dosyasında birleştirilir (`hooks/src/` düzenlenir, sonra script çalıştırılır; CI güncel olup olmadığını kontrol eder). `$` görmeyen saf yardımcılar ayrı kalır.
 - `compact-restore.sh`: SessionStart (compact) hook'u. Compact'ten sonra projenin devir dosyalarından kullanıcının sabitlediği Kısıtlar'ı, Şu an'ı, Sıradaki'ni, Kararlar'ı, son başarısız denemeleri ve açık görevleri (en fazla yaklaşık 8000 karakter) ve transcript yolunu basar. Sadece okur; `CREW_CHIEF_RESTORE=off` kapatır.
 - `mode-guard.sh`: `/crew-chief:crew-mode solo` yazdığında modu o oturum için kaydeder ve solo iken alt ajan açılmasını engeller.
 - `plugin-notices.sh`: güncellemeden sonra yeni sürümün ne getirdiğini gösterir; açık bir oturum eski kopyada kaldıysa bir kez uyarır.

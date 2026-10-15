@@ -121,6 +121,22 @@ A long conversation costs more with every request and answers worse. `/compact` 
 
 `/crew-report` shows tokens (exact) and cost (approximate) by main or subagent and model, and how much of the output came from subagents and from Sonnet or Haiku. Claude Code reports one session total, so each request is credited with what the total grew by since the previous one ended. A toast on your next prompt also warns when the prompt cache has probably gone cold during an idle gap (the cache lifetime is learned from the usage numbers; nothing is warned until an expiry has been seen; `CREW_CHIEF_CACHE_HINT=off`).
 
+## What the mod does with your machine
+
+For reviewers and for you. Everything below happens inside Claude Code on your machine; the mod has no network access and sends nothing anywhere.
+
+| What | Where | Why |
+|---|---|---|
+| **Reads files** (`$.fs.read`, `exists`, `list`, `stat`) | The project's `STATUS.md`, `tasks.json`, `PROGRESS.md`; the instruction and memory files Claude Code loaded (the list `/context` shows), only for `/crew-tidy`; file times for the compact gate | To check the summary against your pinned rules and open tasks, to audit context, to wait until `STATUS.md` was updated |
+| **Reads settings** (`$.settings.read`) | Only the `language` and `advisorModel` keys | To speak your language and to know whether the advisor offer applies. It never reads API keys, tokens or any credential |
+| **Reads environment** (`$.env.get`) | `HOME`, `TMPDIR`, `LANG`, the `CREW_CHIEF_*` switches, and a few `CLAUDE_CODE_USE_*` flags | Paths, language, switches, and whether a cloud provider route is in use |
+| **Runs programs** (`$.process.run`) | `wc -l <transcript>` (count lines before and after a compaction); `chmod 600 <file>` (make its own backups private); `rm -f <old backup>` (delete only its own backups beyond the newest 5 or 3); `mkdir -p`, `cp -p <transcript> <backup>` (only if a compaction ever lost transcript lines). The arguments are paths the mod computes, not text from the conversation | Backups and the transcript check |
+| **Runs a slash command** | `/advisor`, once, only after you said yes to the [advisor offer](#advisor-offer) | To turn the advisor on for you |
+| **Submits prompts** (`$.prompt.submit`) | Two fixed texts, framed as coming from crew-chief (never as your own words): "update the handoff files" after you approved a compaction, and "continue where you left off" at a limit reset you approved. They contain no file contents and no conversation text | To carry out what you approved |
+| **Writes files** (`$.fs.write`) | Its own data folder (`compact-summaries/`); and, only when you confirm `/crew-tidy archive`, `PROGRESS.md` (shortened) and `PROGRESS-archive.md` (the old entries). It never writes your instruction files, settings, or build files | Backups; the archive you asked for |
+| **Registers a tool** | `crew_compact_checkpoint`, which only asks you whether to compact and returns instructions to Claude | The phase-boundary proposal |
+| **Compaction hooks** | Adds a summarizer brief to a compaction (`session.compact`), and starts a compaction only after your yes | Nothing important lost |
+
 ## Advisor offer
 
 `/advisor` (experimental, Anthropic API only) lets Claude ask a stronger model for advice at hard moments: before choosing an approach, when stuck, before finishing. Subagents inherit it, so a Sonnet `implementer` can consult Opus instead of stopping and being re-run as `implementer-hard`. In Anthropic's own benchmark a Sonnet and Opus pair finished tasks about 12% cheaper and slightly better; each consultation is billed at the advisor's rates.
@@ -179,7 +195,7 @@ Everything is plain, readable shell in this repo. Nothing is sent over the netwo
 | `scripts/skill-lib.sh` | (sourced) | Lists the installed skills for the two scripts above |
 | `scripts/progress-hook.sh` | PostToolUse (subagent calls only) | Keeps one small file per subagent in `${TMPDIR:-/tmp}/crew-chief-progress/` (tool count, last tool, a slow-call note, and the agent's own `crew-progress` report); files older than 12 hours are removed. Needs `jq` |
 | `hooks/register.js` (a mod) | Session events | The [token saver](#token-saver): reads `$.session.usage()` for your plan limits and context size, asks with `$.ui.ask`, and lowers subagent effort in `turn.step` while the saver is on. Keeps saver state in memory only; remembers the language and your answer to the advisor offer. Also offers `/advisor` once (see [Advisor offer](#advisor-offer)) |
-| `hooks/compact-flow.mjs`, `reset-flow.mjs`, `tidy-flow.mjs`, `stats-flow.mjs` (parts of the mod) | Session events | The [compact flow](#compact-flow), [limit resets](#limit-resets), and [`/crew-tidy` and `/crew-report`](#context-audit-and-report). Pure helpers live in `compact-logic.mjs`, `tidy-logic.mjs`, `report-logic.mjs`; shared code in `lang.mjs`, `coord.mjs`, `handoff.mjs` |
+| `hooks/src/*.js` (the mod's parts, joined into `hooks/register.js`) | Session events | The [compact flow](#compact-flow), [limit resets](#limit-resets), and [`/crew-tidy` and `/crew-report`](#context-audit-and-report). The directory that reviews plugins reads the mod file by itself, so everything that touches `$` is joined into the one readable `hooks/register.js` by `tools/build_mod.py` (edit `hooks/src/`, then run it; CI checks it is current). Pure helpers that never see `$` stay separate: `compact-logic.mjs`, `tidy-logic.mjs`, `report-logic.mjs`, `saver-logic.mjs`, `saver-i18n.mjs`, `coord.mjs` |
 | `scripts/compact-restore.sh` | SessionStart (compact) | After a compaction, prints the user's pinned Constraints, Now, Next, Decisions, the latest failed attempts and the open tasks from the project's handoff files (about 8000 characters at most) and the transcript path. Reads only; `CREW_CHIEF_RESTORE=off` turns it off |
 | `scripts/mode-guard.sh` | UserPromptSubmit and UserPromptExpansion; PreToolUse on Agent | `record`: when your prompt is `/crew-chief:crew-mode <mode>`, remembers the mode for this session. `check`: while that mode is `solo`, blocks subagent spawns (exit 2). No recorded mode means everything passes |
 | `scripts/plugin-notices.sh` | UserPromptSubmit | On the first prompt after an update, shows the version change and the first lines of its CHANGELOG section. In a session that still runs a replaced copy, says so once instead. Both print a `systemMessage` for you |
@@ -240,6 +256,7 @@ python3 tests/test_guard.py                # guard tests, with and without jq
 python3 tests/test_session_policy.py       # session hook: policy and when the handoff offer appears
 python3 tests/test_mode_guard.py           # solo mode: record and block
 python3 tests/test_plugin_notices.py       # what's-new, Claude Code version, and stale-session notices
+python3 tools/build_mod.py                 # rebuild hooks/register.js from hooks/src/ after editing the mod (add --check to verify)
 python3 tests/test_compact_restore.py     # what is put back after a compaction (sh and dash)
 node --test tests/*.test.mjs               # saver, compact, tidy and report logic, messages, language detection (plain Node)
 claude plugin test                         # the mod's hooks (saver, compact, resets, tidy, report), with stubs (no session, no network)

@@ -26,22 +26,22 @@ const CONTINUE_TEXT =
 
 let generation = 0
 
-function fresh() {
+function freshReset() {
   return { scheduled: new Set(), planned: new Set(), never: false, asking: false, lastPromptAt: 0 }
 }
 
-let st = fresh()
+let rf = freshReset()
 
 // A timer set before /clear or a new session must not act in the next one: each carries the generation
 // it was set in.
 export function resetResetFlow() {
-  st = fresh()
+  rf = freshReset()
   generation += 1
   open.reset = false
 }
 
 export function resetNotePrompt(now) {
-  st.lastPromptAt = now
+  rf.lastPromptAt = now
 }
 
 async function off($) {
@@ -68,8 +68,8 @@ export async function resetOnUsage($, usage) {
     if (at === undefined || w.percentUsed < NEAR_FULL_PERCENT) continue
     const wait = at - now
     const key = w.kind + '|' + at
-    if (wait <= 0 || wait > TOAST_HORIZON_MS || st.scheduled.has(key)) continue
-    st.scheduled.add(key)
+    if (wait <= 0 || wait > TOAST_HORIZON_MS || rf.scheduled.has(key)) continue
+    rf.scheduled.add(key)
     const born = generation
     $.clock.after(wait + BUFFER_MS, () => (born === generation ? announceReset($, w.kind) : undefined))
   }
@@ -93,15 +93,15 @@ function blockingWindow(usage, now) {
 }
 
 async function offerContinue($) {
-  if (st.asking || open.saver || open.compact || open.reset) return
+  if (rf.asking || open.saver || open.compact || open.reset) return
   const now = await $.clock.now()
   const usage = await $.session.usage()
   const hit = blockingWindow(usage, now)
   if (!hit) return
   const wait = hit.at - now
   const key = hit.window.kind + '|' + hit.at
-  if (wait > CONTINUE_HORIZON_MS || st.planned.has(key) || st.never) return
-  st.asking = true
+  if (wait > CONTINUE_HORIZON_MS || rf.planned.has(key) || rf.never) return
+  rf.asking = true
   open.reset = true
   try {
     const lang = await resolveLang($)
@@ -116,22 +116,22 @@ async function offerContinue($) {
       return
     }
     if (answer === answers[2]) {
-      st.never = true
+      rf.never = true
     } else if (answer === answers[0]) {
-      st.planned.add(key)
+      rf.planned.add(key)
       const askedAt = now
       const born = generation
       $.clock.after(wait + BUFFER_MS, () => (born === generation ? sendContinue($, askedAt, hit.window.kind) : undefined))
     }
   } finally {
-    st.asking = false
+    rf.asking = false
     open.reset = false
   }
 }
 
 async function sendContinue($, askedAt, kind) {
   if (await off($)) return
-  if (st.lastPromptAt > askedAt) return // the person is back and typing: leave it to them
+  if (rf.lastPromptAt > askedAt) return // the person is back and typing: leave it to them
   try {
     $.prompt.submit({ text: CONTINUE_TEXT }).catch(() => {})
     const lang = await resolveLang($)

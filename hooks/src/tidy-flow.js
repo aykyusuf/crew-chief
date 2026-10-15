@@ -30,14 +30,6 @@ import {
 
 const NAMES_SHOWN = 5
 
-async function safe(fn, fallback) {
-  try {
-    return await fn()
-  } catch (err) {
-    return fallback
-  }
-}
-
 function dirOf(path) {
   const at = path.lastIndexOf('/')
   return at > 0 ? path.slice(0, at) : '/'
@@ -77,7 +69,7 @@ async function pathExists($, ref, root, cwd) {
   return false
 }
 
-async function buildReport($) {
+async function buildTidyReport($) {
   const lang = await resolveLang($)
   const home = await safe(() => $.env.get('HOME'), '')
   const cwd = (await safe(() => $.session.cwd(), '')) || ''
@@ -208,6 +200,6 @@ export function registerTidy(on) {
   on('command.run', { command: 'crew-tidy' }, async ($, e) => {
     const word = String(e.args || '').trim().toLowerCase()
     if (word === 'archive' || word === 'arşiv' || word === 'arsiv') return { text: await archiveProgress($) }
-    return { text: await buildReport($) }
+    return { text: await buildTidyReport($) }
   })
 }

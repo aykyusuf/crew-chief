@@ -52,5 +52,7 @@ jobs:
             *"turned off"*) echo "::warning::mods are turned off in this environment; skipping claude plugin test"; exit 0 ;;
           esac
           claude plugin test
+      - name: Mod file in sync
+        run: python3 tools/build_mod.py --check
       - name: Setup assets in sync
         run: python3 tools/build_assets.py --check
