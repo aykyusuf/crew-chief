@@ -52,8 +52,16 @@ const TOOL_DESCRIPTION =
 const UPDATE_TEXT =
   'Update the handoff files of this project now, for those that exist: STATUS.md (Now, Next, Constraints = every rule the user gave, copied verbatim, Decisions, Failed attempts), tasks.json (only status and evidence change), PROGRESS.md (one dated line). If STATUS.md has no Constraints section, do not invent one; say so in your reply. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
 
+// A project with no handoff files has nowhere to pin the user's rules, so the person is offered them first
+// (the crew-handoff skill shows a preview and creates only what is missing; it needs a yes of its own).
+const SETUP_TEXT =
+  'This project has no handoff files (STATUS.md, tasks.json, PROGRESS.md), so nothing would put the user\'s rules back after the compaction. Before it runs, ask the user once (AskUserQuestion) whether to set them up now: run the crew-chief:crew-handoff skill, which shows a preview and creates only what is missing. If they agree, run it, then copy every rule the user gave in this conversation, verbatim, under Constraints in STATUS.md. If they decline, do nothing more about it. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
+
+async function updateText($) {
+  return (await findHandoff($)) ? UPDATE_TEXT : SETUP_TEXT
+}
+
 const RESULTS = {
-  approved: 'The user approved compaction. ' + UPDATE_TEXT,
   declined: 'The user declined for now. Carry on with the work and do not call this tool again until you are told the context has grown.',
   never: 'The user does not want compaction proposals for the rest of this session. Carry on and do not call this tool again.',
   unavailable: 'The user cannot be asked right now. Carry on with the work.',
@@ -199,8 +207,9 @@ async function askAndPlan($, why) {
 }
 
 // Asks Claude, in a new turn, to update the handoff files (the path with no tool call to answer).
-function requestStateUpdate($) {
-  $.prompt.submit({ text: 'crew-chief: the user approved compacting this conversation. ' + UPDATE_TEXT }).catch(() => {})
+async function requestStateUpdate($) {
+  const text = 'crew-chief: the user approved compacting this conversation. ' + (await updateText($))
+  $.prompt.submit({ text }).catch(() => {})
 }
 
 async function askFallback($) {
@@ -442,7 +451,9 @@ export function registerCompact(on) {
     if (e.agentId !== undefined) return { deny: 'Only the main conversation can propose a compaction.' }
     if (!st.armed || st.never) return { result: RESULTS.notNeeded }
     if (st.plan || st.compacting) return { result: RESULTS.busy }
-    return { result: RESULTS[await askAndPlan($, { phase: clip(e.phase) })] ?? RESULTS.busy }
+    const outcome = await askAndPlan($, { phase: clip(e.phase) })
+    if (outcome === 'approved') return { result: 'The user approved compaction. ' + (await updateText($)) }
+    return { result: RESULTS[outcome] ?? RESULTS.busy }
   })
 
   // Every compaction a person, the engine or another plugin starts passes here. (One this plugin starts

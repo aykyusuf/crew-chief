@@ -258,10 +258,13 @@ test('the gate: retry submits the update request', async ($, on) => {
   expect(s.compactCalls.length).toBe(0)
 })
 
-test('a project without handoff files has nothing to wait for', async ($, on) => {
+test('a project without handoff files is offered them first, and the compaction does not wait for them', async ($, on) => {
   const s = harness(on, { answers: [YES] })
   await start($)
-  await approvedPlan($, s)
+  const result = await approvedPlan($, s)
+  expect(JSON.stringify(result)).toContain('no handoff files')
+  expect(JSON.stringify(result)).toContain('crew-chief:crew-handoff')
+  expect(JSON.stringify(result)).toContain('under Constraints')
   await finishTurn($, s)
   await runClock(s, 1500)
   expect(s.compactCalls.length).toBe(1)
@@ -324,6 +327,7 @@ test('fallback: Claude never calls the tool; past 400k the person is asked betwe
   expect(s.questions.length).toBe(1)
   expect(s.submitted.length).toBe(1) // the request to update the handoff files
   expect(s.submitted[0]).toContain('approved compacting')
+  expect(s.submitted[0]).toContain('Update the handoff files') // this project has them
   // Claude updates STATUS.md in that turn; the next finished turn starts the compaction. No second question.
   s.mtimes['/work/STATUS.md'] = 9_000_000
   await finishTurn($, s)
@@ -482,4 +486,22 @@ test('an interrupted turn does not start the compaction; a finished one does', a
   await finishTurn($, s)
   await runClock(s, 1500)
   expect(s.compactCalls.length).toBe(1)
+})
+
+test('fallback path without handoff files: the update request offers to set them up', async ($, on) => {
+  const s = harness(on, { answers: [YES] })
+  await start($)
+  await setTokens($, s, 410_000)
+  await finishTurn($, s)
+  expect(s.submitted.length).toBe(1)
+  expect(s.submitted[0]).toContain('no handoff files')
+  expect(s.submitted[0]).toContain('crew-chief:crew-handoff')
+})
+
+test('files that exist keep the plain update request', async ($, on) => {
+  const s = harness(on, { answers: [YES], files: FILES, mtimes: { '/work/STATUS.md': 1_000 } })
+  await start($)
+  const result = await approvedPlan($, s)
+  expect(JSON.stringify(result)).toContain('Update the handoff files')
+  expect(JSON.stringify(result)).not.toContain('no handoff files')
 })

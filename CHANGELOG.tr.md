@@ -2,6 +2,9 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.6.1 (2026-10-15)
+- Devir dosyası olmayan projede compact akışı: evet dedikten sonra Claude önce bunları kurmayı teklif eder (`crew-handoff` skill'i, kendi önizleme ve onayıyla) ve konuşmada verdiğin kuralları Kısıtlar altına yazar; böylece compact'ten sonra geri basılabilirler. Reddedersen eskisi gibi dosyasız compact edilir.
+
 ## 0.6.0 (2026-10-15)
 - Compact akışı: 250k token'ı geçince Claude'a doğal bir faz sınırında compact önermesi söylenir; araç sana sorar (400k'dan sonra turn aralarında yedek bir soru). Evet dersen Claude STATUS.md, tasks.json ve PROGRESS.md'yi günceller, compact STATUS.md değişene kadar bekler, sonra turn aralarında özetleyiciye ayrıntılı bir talimatla çalışır. Evet demeden hiçbir şey compact edilmez. `/crew-compact` elle başlatır; `CREW_CHIEF_COMPACT=off` kapatır.
 - Önemli hiçbir şey kaybolmaz: talimat varsayılan başlıkların hepsini sayar, kurallarını kelimesi kelimesine kopyalar, başarısız ya da öldürülen süreçlerin çıktısını `UNCONFIRMED` işaretler; `/compact`'e ve otomatik compact'e de eklenir. Her compact'ten sonra yeni bir SessionStart hook'u (`scripts/compact-restore.sh`) sabitlediğin Kısıtlar'ı, Şu an'ı, Sıradaki'ni, Kararlar'ı, son başarısız denemeleri ve açık görevleri devir dosyalarından transcript yoluyla birlikte geri basar; ham özet kaydedilir ve sabitlediğin satırlara karşı kontrol edilir.

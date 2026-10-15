@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.1 (2026-10-15)
+- Compact flow in a project with no handoff files: after your yes, Claude first offers to set them up (the `crew-handoff` skill, with its own preview and confirmation) and puts the rules you gave in the conversation under Constraints, so they can be put back after the compaction. Decline and it compacts without them, as before.
+
 ## 0.6.0 (2026-10-15)
 - Compact flow: past 250k tokens Claude is told to propose a compaction at a natural phase boundary; the tool asks you (a fallback asks between turns past 400k). On yes Claude updates STATUS.md, tasks.json and PROGRESS.md, compaction waits until STATUS.md changed, then runs between turns with a detailed brief for the summarizer. Nothing is compacted without a yes. `/crew-compact` starts it by hand; `CREW_CHIEF_COMPACT=off` turns it off.
 - Nothing important lost: the brief names every default section, copies your rules verbatim and marks output of failed or killed processes `UNCONFIRMED`; it is also added to `/compact` and automatic compactions. After any compaction a new SessionStart hook (`scripts/compact-restore.sh`) puts your pinned Constraints, Now, Next, Decisions, latest failed attempts and open tasks back from the handoff files, with the transcript path; the raw summary is saved and checked against your pinned lines.
