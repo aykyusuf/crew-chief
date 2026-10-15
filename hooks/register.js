@@ -6,21 +6,35 @@
 //     and /resume always start with the saver off.
 //   - While the saver is on, subagent requests are capped: Opus (and Fable) at medium effort,
 //     Sonnet at high (no xhigh or max). Haiku and the main session are never touched.
-//   - One toast when the context passes 150k tokens, one when the session is 8 hours old.
+//   - One toast when the session is 8 hours old.
+//   - The compact flow (hooks/compact-flow.mjs): at a phase boundary past 250k tokens it proposes a compaction,
+//     asks first, has the handoff files updated, and compacts with a detailed brief so nothing is lost.
 //   - /saver [on|off|status]
 //   - Once, after the first finished turn of a session where the advisor is off: offers to turn on
 //     /advisor (a stronger model Claude can ask at hard moments). It asks first, remembers "not now"
 //     for a week and "never" for good, and runs /advisor only after a yes.
 // Environment: CREW_CHIEF_SAVER=off silences the saver questions and toasts (not the advisor offer);
 // CREW_CHIEF_SAVER_FIVE_HOUR and CREW_CHIEF_SAVER_SEVEN_DAY set the thresholds ("70,80,90");
-// CREW_CHIEF_ADVISOR_OFFER=off never offers the advisor;
+// CREW_CHIEF_ADVISOR_OFFER=off never offers the advisor; CREW_CHIEF_COMPACT=off turns the compact flow off;
 // CREW_CHIEF_LANG=tr|en forces the language of the messages (otherwise: Claude Code's `language`
 // setting, then what you have been writing, then the last language seen, then the locale).
 // Kept between sessions, in the plugin's store: the language ("tr" or "en") and the answer to the
 // advisor offer ("never", "answered", or "later:<time>"). Nothing leaves the machine.
-import { classifyText, pickLanguage, t, unitsFor, windowName } from './saver-i18n.mjs'
+import { classifyText, t, unitsFor, windowName } from './saver-i18n.mjs'
+import { open } from './coord.mjs'
+import { registerReset, resetNotePrompt, resetOnUsage, resetResetFlow } from './reset-flow.mjs'
+import { registerStats, cacheOnPrompt, statsReset, statsSessionStart, statsStepEnd, statsStepStart } from './stats-flow.mjs'
+import { registerTidy, tidySessionStart } from './tidy-flow.mjs'
+import { addLanguageVote, resetLang, resolveLang } from './lang.mjs'
 import {
-  CONTEXT_TOAST_TOKENS,
+  compactNudge,
+  compactSessionStart,
+  compactTurnComplete,
+  compactUpdate,
+  registerCompact,
+  resetCompact,
+} from './compact-flow.mjs'
+import {
   FIVE_HOUR_DEFAULT,
   SEVEN_DAY_DEFAULT,
   SESSION_AGE_TOAST_MS,
@@ -35,48 +49,39 @@ import {
   tokensLabel,
 } from './saver-logic.mjs'
 
-const VOTES_KEPT = 5
 const TURN_STALE_MS = 10 * 60 * 1000
 const STEP_STALE_MS = 5 * 60 * 1000
 
 // Per-session state; resetState() puts it back when the session ends, /clear, or /resume.
 let saver = false
 let snoozed = false
-let asking = false
 let pending = null
 let lastPromptAt = 0
 let lastCompleteAt = 0
 let lastStepAt = 0
 let registered = false
 let quiet = false
-let contextToasted = false
 let ageToasted = false
 let capToasted = false
 let advisorChecked = false
-let settingPromise
-let storedPromise
-let storedLang
-const votes = []
 const seen = new Set()
 
 function resetState() {
   saver = false
   snoozed = false
-  asking = false
+  open.saver = false
   pending = null
   lastPromptAt = 0
   lastCompleteAt = 0
   lastStepAt = 0
   registered = false
   quiet = false
-  contextToasted = false
   ageToasted = false
   capToasted = false
   advisorChecked = false
-  settingPromise = undefined
-  storedPromise = undefined
-  storedLang = undefined
-  votes.length = 0
+  resetLang()
+  resetResetFlow()
+  statsReset()
   seen.clear()
 }
 
@@ -85,49 +90,6 @@ async function readConfig($) {
   const five = parseThresholds(await $.env.get('CREW_CHIEF_SAVER_FIVE_HOUR'), FIVE_HOUR_DEFAULT)
   const week = parseThresholds(await $.env.get('CREW_CHIEF_SAVER_SEVEN_DAY'), SEVEN_DAY_DEFAULT)
   return { off, five, week }
-}
-
-async function loadLanguageSetting($) {
-  try {
-    const settings = await $.settings.read()
-    return typeof settings.language === 'string' ? settings.language : undefined
-  } catch (err) {
-    // No settings to read: the other signals still decide.
-    return undefined
-  }
-}
-
-async function loadStoredLanguage($) {
-  try {
-    const value = await $.store.get('lang')
-    return value === 'tr' || value === 'en' ? value : undefined
-  } catch (err) {
-    // No store: the language is simply not remembered.
-    return undefined
-  }
-}
-
-// The language of the messages. Cheap to call: the settings and the stored language are read once
-// per session (the promises are kept, so two overlapping calls share one read), and a language
-// read off the prompts is remembered (that one word, "tr" or "en") so the next session can ask its
-// first question in it, before any prompt has been typed.
-async function resolveLang($) {
-  const override = await $.env.get('CREW_CHIEF_LANG')
-  const locale = await $.env.get('LANG')
-  if (settingPromise === undefined) settingPromise = loadLanguageSetting($)
-  if (storedPromise === undefined) storedPromise = loadStoredLanguage($)
-  const setting = await settingPromise
-  if (storedLang === undefined) storedLang = await storedPromise
-  const pick = pickLanguage({ override, setting, votes, stored: storedLang, locale })
-  if (pick.source === 'prompts' && pick.lang !== storedLang) {
-    storedLang = pick.lang
-    try {
-      await $.store.set('lang', pick.lang)
-    } catch (err) {
-      // Not remembered; it is detected again next time.
-    }
-  }
-  return pick.lang
 }
 
 // The window that most needs a question, or undefined. Every threshold at or below the current
@@ -146,13 +108,7 @@ function findHit(rateLimits, cfg) {
   return hit
 }
 
-async function contextNotices($, usage) {
-  const tokens = usage.context ? usage.context.tokens : undefined
-  if (!contextToasted && typeof tokens === 'number' && tokens >= CONTEXT_TOAST_TOKENS) {
-    contextToasted = true
-    const lang = await resolveLang($)
-    $.ui.toast(t(lang, 'toast_context', { tokens: tokensLabel(tokens) }), { timeoutMs: 12000 })
-  }
+async function ageNotice($, usage) {
   const now = await $.clock.now()
   if (!ageToasted && typeof usage.startedAt === 'number' && now - usage.startedAt >= SESSION_AGE_TOAST_MS) {
     ageToasted = true
@@ -162,7 +118,7 @@ async function contextNotices($, usage) {
 }
 
 async function askUser($, hit) {
-  asking = true
+  open.saver = true
   try {
     const lang = await resolveLang($)
     const answers = [t(lang, 'answer_on'), t(lang, 'answer_not_now'), t(lang, 'answer_never')]
@@ -182,15 +138,15 @@ async function askUser($, hit) {
   } catch (err) {
     // Dismissed, or a run with nobody to ask: treat it as "not now".
   } finally {
-    asking = false
+    open.saver = false
   }
 }
 
 // Not awaited on purpose: the hook that calls this must not wait for the person to answer.
 function launchAsk($) {
   const hit = pending
-  pending = null
-  if (hit !== null && !asking) {
+  if (hit !== null && !open.saver && !open.compact && !open.reset) {
+    pending = null
     askUser($, hit)
   }
 }
@@ -200,8 +156,8 @@ async function evaluate($) {
   quiet = cfg.off
   if (cfg.off) return
   const usage = await $.session.usage()
-  await contextNotices($, usage)
-  if (saver || snoozed || asking) return
+  await ageNotice($, usage)
+  if (saver || snoozed || open.saver) return
   const hit = findHit(usage.rateLimits, cfg)
   if (hit !== undefined) pending = hit
 }
@@ -254,8 +210,8 @@ async function enableAdvisor($, advisor, lang) {
 // Offers the advisor once. Every gate that says "not for this person or this setup" returns
 // quietly; a dismissed dialog (or a run with nobody to ask) leaves no trace, so it can come back.
 async function offerAdvisor($) {
-  if (asking) return
-  asking = true
+  if (open.saver || open.compact || open.reset) return
+  open.saver = true
   try {
     if ((await $.env.get('CREW_CHIEF_ADVISOR_OFFER')) === 'off') return
     if (isEnvFlag(await $.env.get('CLAUDE_CODE_DISABLE_ADVISOR_TOOL'))) return
@@ -294,7 +250,7 @@ async function offerAdvisor($) {
   } catch (err) {
     // Anything unexpected: stay quiet rather than get in the way.
   } finally {
-    asking = false
+    open.saver = false
   }
 }
 
@@ -339,11 +295,15 @@ export function register(on) {
       // The name is taken (a built-in or another plugin's command): leave that command alone.
       // The saver still works through the questions.
     }
+    await compactSessionStart($)
+    await tidySessionStart($)
+    await statsSessionStart($)
     return result
   })
 
   on('session.end', async ($, e, next) => {
     resetState()
+    resetCompact()
     return next(e)
   })
 
@@ -354,13 +314,19 @@ export function register(on) {
     const kind = e.origin ? e.origin.kind : undefined
     const verdict = kind === undefined || kind === 'composer' || kind === 'bridge' ? classifyText(e.text) : undefined
     if (verdict !== undefined) {
-      votes.push(verdict)
-      if (votes.length > VOTES_KEPT) votes.shift()
+      addLanguageVote(verdict)
     }
-    return next(e)
+    if (kind === undefined || kind === 'composer' || kind === 'bridge') {
+      resetNotePrompt(lastPromptAt)
+      await cacheOnPrompt($)
+    }
+    const nudge = await compactNudge($)
+    return next(nudge === undefined ? e : { ...e, context: [...(e.context ?? []), nudge] })
   })
 
   on('session.measure', async ($, e, next) => {
+    await compactUpdate($, e)
+    await resetOnUsage($, e)
     await evaluate($)
     if (pending !== null && !(await turnInFlight($))) launchAsk($)
     return next(e)
@@ -371,9 +337,12 @@ export function register(on) {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
       lastCompleteAt = await $.clock.now()
+      const usage = await $.session.usage()
+      await compactTurnComplete($, usage, e.isAborted === true)
+      await resetOnUsage($, usage)
       await evaluate($)
       launchAsk($)
-      if (e.reason === 'answer' && !advisorChecked && pending === null && !asking) {
+      if (e.reason === 'answer' && !advisorChecked && pending === null && !open.saver) {
         advisorChecked = true
         offerAdvisor($)
       }
@@ -383,6 +352,8 @@ export function register(on) {
 
   on('turn.step', async function* ($, e, next) {
     if (e.agentId === undefined) lastStepAt = await $.clock.now()
+    await statsStepStart($, e)
+    let request = e
     if (saver && e.agentId !== undefined) {
       const cap = capEffort(e.model, e.effort)
       if (cap.capped) {
@@ -393,10 +364,12 @@ export function register(on) {
           $.ui.toast(t(lang, 'toast_cap', { model, from: cap.from, to: cap.effort }), { timeoutMs: 6000 })
         }
         $.ui.log('saver: subagent ' + e.agentId + ' on ' + e.model + ' effort ' + cap.from + ' -> ' + cap.effort, { to: 'debug' })
-        return yield* next({ ...e, effort: cap.effort })
+        request = { ...e, effort: cap.effort }
       }
     }
-    return yield* next(e)
+    const result = yield* next(request)
+    await statsStepEnd($, e, result)
+    return result
   })
 
   on('command.run', { command: 'saver' }, async ($, e, next) => {
@@ -416,4 +389,9 @@ export function register(on) {
     if (word === '' || word === 'status') return { text: await statusText($) }
     return { text: t(lang, 'cmd_usage') }
   })
+
+  registerCompact(on)
+  registerReset(on)
+  registerTidy(on)
+  registerStats(on)
 }

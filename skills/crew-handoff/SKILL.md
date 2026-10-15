@@ -14,7 +14,7 @@ Target directory: the argument if given, otherwise `git rev-parse --show-topleve
 
 Search the target and one level below for handoff-like files under any name or language, for example `STATUS.md`, `PROGRESS.md`, `HANDOFF.md`, `tasks.json`, `feature_list.json`, `claude-progress.txt`, `durum.md`, `ilerleme.md`, and for a session start/end routine in `CLAUDE.md` (a `crew-chief:handoff` block, or headings such as "Session start" or their translation).
 
-- **Something equivalent exists:** do not create a parallel set. Show what you found and ask whether to keep using it (default), add only the missing pieces next to it, or stop. Never rename or rewrite the user's files. If they keep using it, record `installed` (step 4) so the offer does not return.
+- **Something equivalent exists:** do not create a parallel set. Show what you found and ask whether to keep using it (default), add only the missing pieces next to it, or stop. Never rename or rewrite the user's files. If they keep using it, record `installed` (step 4) so the offer does not return. If their `STATUS.md` has no Constraints section (a heading named Constraints or Kısıtlar), say what it is for (the compact flow puts those lines back verbatim after every compaction) and ask whether to add the empty section; add it only after a yes.
 - **Nothing exists:** continue.
 
 ## 2. Show the plan and a preview, then confirm
@@ -29,7 +29,7 @@ Wait for confirmation. If the user declines, record `never` or `later` as in ste
 ## 3. Write
 
 Using `${CLAUDE_SKILL_DIR}/assets/` as templates:
-- `STATUS.md`: now, environment (start, stop, build, test commands you actually found), next, open questions, failed attempts, decisions.
+- `STATUS.md`: now, constraints (rules the user gave, verbatim; start empty, never invent one), environment (start, stop, build, test commands you actually found), next, open questions, failed attempts, decisions.
 - `tasks.json`: keep the `_rule` text as is. Add tasks only from what the user said or the repository states (open TODOs, README roadmap); otherwise leave one example task for the user to replace. Every task needs a measurable `done_when`.
 - `PROGRESS.md`: one dated line saying the files were set up.
 - `CLAUDE.md`: append `${CLAUDE_SKILL_DIR}/assets/claude-md-routine.md` if no `crew-chief:handoff` block exists (create `CLAUDE.md` if missing). If the block exists, leave it alone.

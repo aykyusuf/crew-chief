@@ -252,13 +252,13 @@ test('a subagent turn ending does not trigger the question', async ($, on) => {
   expect(s.questions.length).toBe(0)
 })
 
-test('context and age toasts come once each', async ($, on) => {
+test('the age toast comes once; the old 150k context toast is gone (the compact flow replaced it)', async ($, on) => {
   const s = harness(on)
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
   const big = { context: { window: 1_000_000, tokens: 160_000, percent: 16 } }
   await measure($, s, [], big)
   await measure($, s, [], big)
-  expect(s.toasts.filter((t) => t.includes('160k')).length).toBe(1)
+  expect(s.toasts.filter((t) => t.includes('160k')).length).toBe(0)
   await measure($, s, [], { startedAt: -8 * 3_600_000 })
   await measure($, s, [], { startedAt: -9 * 3_600_000 })
   expect(s.toasts.filter((t) => t.includes('opened')).length).toBe(1)

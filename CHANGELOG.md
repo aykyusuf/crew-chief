@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 (2026-10-15)
+- Compact flow: past 250k tokens Claude is told to propose a compaction at a natural phase boundary; the tool asks you (a fallback asks between turns past 400k). On yes Claude updates STATUS.md, tasks.json and PROGRESS.md, compaction waits until STATUS.md changed, then runs between turns with a detailed brief for the summarizer. Nothing is compacted without a yes. `/crew-compact` starts it by hand; `CREW_CHIEF_COMPACT=off` turns it off.
+- Nothing important lost: the brief names every default section, copies your rules verbatim and marks output of failed or killed processes `UNCONFIRMED`; it is also added to `/compact` and automatic compactions. After any compaction a new SessionStart hook (`scripts/compact-restore.sh`) puts your pinned Constraints, Now, Next, Decisions, latest failed attempts and open tasks back from the handoff files, with the transcript path; the raw summary is saved and checked against your pinned lines.
+- Handoff files gain a Constraints section (your rules, verbatim). The 150k-token toast is replaced by the compact flow.
+- Limit resets: a toast when a window you were close to resets, and an offer to send "continue" at the reset when a limit really stops Claude. `CREW_CHIEF_RESET=off`.
+- `/crew-tidy`: a read-only audit of what Claude Code loaded (oversized CLAUDE.md and MEMORY.md, stale paths, repeats, big STATUS.md, MCP cost); `/crew-tidy archive` moves PROGRESS.md entries older than 60 days to an archive after asking. `/crew-report`: tokens and cost by model and role, plus a learned prompt-cache-cooling hint.
+- Checked live on Claude Code 2.1.300: session.compact instructions add to the default prompt; classic compact hooks fire for a plugin-started compaction; SessionStart output reaches the model; the transcript keeps pre-compaction lines. A plugin cannot compact in `claude -p`. Needs Claude Code 2.1.287+ (the shell hook works on its own).
+
 ## 0.5.0 (2026-10-13)
 - Skills in subagents: `deep-reader`, `implementer`, `implementer-hard`, `reviewer`, and `ui-tester` can now load skills (`Skill` tool). Subagents do not see your skill list, so the policy tells the main session to name the skill in the brief, and to pass `model` explicitly when it uses `general-purpose` (it otherwise inherits the main model).
 - Reports in files: `deep-reader` and `reviewer` get `Write`, but the read-only guard lets them write only into `${TMPDIR:-/tmp}/crew-chief-reports/`. A report over about 40 lines is written there and a summary of at most 15 lines plus the path comes back, so the main context stays small. Everything else is still blocked: other paths, `Edit`, relative paths, `..`, symlinks out of the folder (the guard now also covers Write/Edit/NotebookEdit calls).

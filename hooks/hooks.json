@@ -1,5 +1,5 @@
 {
-  "description": "crew-chief: routing policy at session start; read-only guard for the scanner, deep-reader, and reviewer agents; solo mode enforcement; update notices; agent panel row installer; skill hints and a one-time skill offer; per-subagent progress for the panel row; limit-aware token saver (mod)",
+  "description": "crew-chief: routing policy at session start; read-only guard for the scanner, deep-reader, and reviewer agents; solo mode enforcement; update notices; agent panel row installer; skill hints and a one-time skill offer; per-subagent progress for the panel row; limit-aware token saver and compact flow (mod); after a compaction, the pinned constraints and open tasks are put back from the handoff files",
   "modules": [
     "./register.js"
   ],
@@ -11,6 +11,15 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/session-policy.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/compact-restore.sh\""
           }
         ]
       },

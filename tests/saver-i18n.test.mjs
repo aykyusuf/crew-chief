@@ -38,7 +38,7 @@ test('the three answer labels differ within each language (they are matched by t
 })
 
 test('t fills placeholders and falls back to English', () => {
-  assert.equal(t('tr', 'toast_context', { tokens: '160k' }).includes('160k'), true)
+  assert.equal(t('tr', 'toast_compact_done', { path: '/x/y.md' }).includes('/x/y.md'), true)
   assert.equal(t('xx', 'answer_on'), 'Turn on saver')
   assert.equal(t('tr', 'no_such_key'), 'no_such_key')
   assert.equal(t('en', 'reset_in', {}), ' It resets in {duration}.')

@@ -3,7 +3,6 @@
 
 export const FIVE_HOUR_DEFAULT = [70, 80, 90]
 export const SEVEN_DAY_DEFAULT = [50, 75, 85, 90]
-export const CONTEXT_TOAST_TOKENS = 150_000
 export const SESSION_AGE_TOAST_MS = 8 * 60 * 60 * 1000
 
 const EFFORT_RANK = { low: 0, medium: 1, high: 2, xhigh: 3, max: 4 }

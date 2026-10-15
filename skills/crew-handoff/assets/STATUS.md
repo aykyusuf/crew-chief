@@ -7,6 +7,9 @@ Last updated: YYYY-MM-DD. This file describes the present. History lives in PROG
 - Verified: ... (how)
 - Not verified: ...
 
+## Constraints (rules the user set)
+- <a rule the user gave, copied word for word: do not modify X, no commits until told, ask before Y>
+
 ## Environment
 - Start: `...`  Stop: `...`  Build: `...`  Test: `...`
 

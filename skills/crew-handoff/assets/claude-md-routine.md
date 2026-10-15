@@ -1,9 +1,12 @@
 <!-- crew-chief:handoff:start (added by crew-handoff; edit freely, it is not rewritten) -->
 ## Session start (every time, in this order)
 1. `git log --oneline -15` to see recent changes.
-2. Read the working project's `STATUS.md`.
+2. Read the working project's `STATUS.md`. Its Constraints are the user's rules: follow them.
 3. Pick the first high-priority `"status": "todo"` task in `tasks.json`, unless the user asked for something else.
 4. Start the environment if needed and run the basic check before changing anything.
+
+## During the session
+When the user gives a rule meant to last (do not touch X, no commits, ask before Y), copy it word for word under Constraints in `STATUS.md` right away.
 
 ## Session end (when work is done or before the context fills up)
 1. In `tasks.json`, update only `status` and `evidence` (see its `_rule`; `done` needs every part of `done_when`, sign-offs included).

@@ -40,9 +40,11 @@ jobs:
         run: python3 tests/test_mode_guard.py
       - name: Update notice tests
         run: python3 tests/test_plugin_notices.py
-      - name: Saver logic tests
-        run: node --test tests/saver-logic.test.mjs tests/saver-i18n.test.mjs
-      - name: Saver mod tests
+      - name: Compact restore tests
+        run: python3 tests/test_compact_restore.py
+      - name: Saver and compact logic tests
+        run: node --test tests/*.test.mjs
+      - name: Saver and compact mod tests
         run: |
           # Mods can be switched off remotely or by policy; then there is nothing to test here.
           probe=$(cd "$RUNNER_TEMP" && claude plugin test 2>&1 || true)
