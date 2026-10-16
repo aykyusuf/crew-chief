@@ -58,10 +58,19 @@ export const FOCUS_BLOCK = [
 
 // The person's own /compact text (if any) stays first and untouched; the brief follows it. Adding it
 // twice is a no-op, so a second hook or a retry cannot double it.
-export function withFocus(userText) {
+export function withFocus(userText, extra = '') {
   const own = typeof userText === 'string' ? userText.trim() : ''
   if (own.includes(FOCUS_MARKER)) return own
-  return own === '' ? FOCUS_BLOCK : own + '\n\n' + FOCUS_BLOCK
+  const block = extra === '' ? FOCUS_BLOCK : FOCUS_BLOCK + '\n' + extra
+  return own === '' ? block : own + '\n\n' + block
+}
+
+// What a process list says to the summarizer: dev servers and watchers keep running through a compaction,
+// and the only risk is that nobody remembers them and starts a second one.
+export function backgroundNote(tasks) {
+  const list = (Array.isArray(tasks) ? tasks : []).slice(0, 5).map((t) => String(t).slice(0, 100))
+  if (list.length === 0) return ''
+  return 'Background processes running right now (dev servers, watchers, long jobs): ' + list.join('; ') + '. Say in the summary that they are running, with their ids and commands, so nobody starts them a second time.'
 }
 
 // ---- STATUS.md and tasks.json ---------------------------------------------------------------

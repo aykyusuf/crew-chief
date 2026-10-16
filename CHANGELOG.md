@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.3 (2026-10-16)
+- Compact proposals now wait for a real pause: nothing is proposed, and an approved compaction does not start, while a subagent is running; only a turn that ended with an answer counts as a phase boundary (not an interrupt, error or refusal). A dev server or watcher left open in the background is not waited for (neither is a subagent `waiting` on a server it started): the question shows it, and the summarizer is told to keep its task id and command, since after a compaction Claude forgets the handles of background tasks (anthropics/claude-code#29193).
+- The compact question now says what is going on (`Now: subagents running: 0, background processes: 2 (npm run dev, ...), uncommitted files: 3`). `/crew-compact` while subagents run says to ask again later.
+
 ## 0.6.2 (2026-10-15)
 - The mod is one file again: the directory that reviews plugins accepts `$` and `on` only when they are passed to a function declared in the same file, so the parts that touch `$` now live in `hooks/src/` and `tools/build_mod.py` joins them into the readable `hooks/register.js` (CI checks it is current, and that `$` is never passed to a function from another file). No behavior change.
 - README gains "What the mod does with your machine": what it reads, runs, submits and writes, and why.

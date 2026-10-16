@@ -338,7 +338,7 @@ export function register(on) {
     if (e.agentId === undefined) {
       lastCompleteAt = await $.clock.now()
       const usage = await $.session.usage()
-      await compactTurnComplete($, usage, e.isAborted === true)
+      await compactTurnComplete($, usage, e.reason)
       await resetOnUsage($, usage)
       await evaluate($)
       launchAsk($)

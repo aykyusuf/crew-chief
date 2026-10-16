@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   ARM_TOKENS,
+  backgroundNote,
   ASK_TOKENS,
   FOCUS_BLOCK,
   FOCUS_MARKER,
@@ -219,4 +220,17 @@ test('backup names sort by time and old ones are pruned', () => {
   assert.deepEqual(backupsToPrune([c, a, b, 'other-1.md'], 'compact', 2), [a])
   assert.deepEqual(backupsToPrune([a, b], 'compact', 5), [])
   assert.equal(backupName('../evil', 0), 'evil-19700101T000000Z.md')
+})
+
+test('withFocus: an extra line follows the brief; backgroundNote names the processes, at most five', () => {
+  const merged = withFocus('mine', 'EXTRA LINE')
+  assert.ok(merged.startsWith('mine\n\n' + FOCUS_MARKER))
+  assert.ok(merged.endsWith('\nEXTRA LINE'))
+  assert.equal(withFocus(merged, 'EXTRA LINE'), merged)
+  assert.equal(backgroundNote([]), '')
+  assert.equal(backgroundNote(undefined), '')
+  const note = backgroundNote(['npm run dev', 'uvicorn app:app', 'a', 'b', 'c', 'd'])
+  assert.ok(note.includes('npm run dev; uvicorn app:app'))
+  assert.ok(!note.includes('; d'))
+  assert.ok(note.includes('with their ids and commands, so nobody starts them a second time'))
 })

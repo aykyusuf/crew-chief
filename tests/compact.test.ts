@@ -18,6 +18,7 @@ type Opts = {
   files?: Record<string, string> // path -> text; a path in this map exists
   mtimes?: Record<string, number>
   lines?: number[] // `wc -l` answers, in order
+  dirty?: number // files `git status --porcelain` lists
   summary?: string
   compactFails?: string[] // rejection reasons of the first compaction calls
   store?: Record<string, unknown>
@@ -39,6 +40,7 @@ function harness(on: any, opts: Opts = {}) {
     answerAt: 0,
     wcAt: 0,
     failuresLeft: [...(opts.compactFails ?? [])],
+    agents: [] as string[], // statuses of the session's subagents
     files: { ...(opts.files ?? {}) } as Record<string, string>,
     mtimes: { ...(opts.mtimes ?? {}) } as Record<string, number>,
   }
@@ -50,6 +52,8 @@ function harness(on: any, opts: Opts = {}) {
     value: { startedAt: 3_000_000, context: { window: state.window, tokens: state.tokens, percent: Math.round((state.tokens / state.window) * 100) }, rateLimits: [] },
   }))
   mock.session(on)
+  on('agent.list', () => ({ value: state.agents.map((status, i) => ({ id: 'a' + i, description: 'x', type: 't', status })) }))
+  on('classic.Stop', () => ({}))
   on('session.cwd', () => ({ value: '/work' }))
   on('session.root', () => ({ value: '/work' }))
   on('session.id', () => ({ value: 'sess1' }))
@@ -76,6 +80,10 @@ function harness(on: any, opts: Opts = {}) {
   })
   on('process.run', ($: any, e: any) => {
     state.ran.push(e.argv)
+    if (e.argv[0] === 'git') {
+      const n = opts.dirty ?? 0
+      return { value: { exitCode: 0, stdout: Array.from({ length: n }, (_, i) => ` M file${i}.txt\n`).join(''), stderr: '' } }
+    }
     if (e.argv[0] === 'wc') {
       const lines = opts.lines ?? []
       const n = lines[Math.min(state.wcAt, lines.length - 1)] ?? 10
@@ -504,4 +512,126 @@ test('files that exist keep the plain update request', async ($, on) => {
   const result = await approvedPlan($, s)
   expect(JSON.stringify(result)).toContain('Update the handoff files')
   expect(JSON.stringify(result)).not.toContain('no handoff files')
+})
+
+const STOP = (tasks: unknown[]) => ({ session_id: 's', transcript_path: '/t', cwd: '/work', hook_event_name: 'Stop', stop_hook_active: false, background_tasks: tasks })
+
+test('the question shows what is running and what is uncommitted', async ($, on) => {
+  const s = harness(on, { answers: [LATER], dirty: 3 })
+  await start($)
+  await setTokens($, s, 260_000)
+  await $.tool.call({ tool: TOOL, phase: 'login done' })
+  expect(s.questions[0]).toContain('subagents running: 0')
+  expect(s.questions[0]).toContain('uncommitted files: 3')
+})
+
+test('subagents running: the tool is told to wait and nobody is asked', async ($, on) => {
+  const s = harness(on)
+  s.agents = ['running']
+  await start($)
+  await setTokens($, s, 260_000)
+  const result = await $.tool.call({ tool: TOOL, phase: 'x' })
+  expect(JSON.stringify(result)).toContain('Subagents are still running')
+  expect(s.questions.length).toBe(0)
+  s.agents = ['completed', 'idle']
+  expect(JSON.stringify(await $.tool.call({ tool: TOOL, phase: 'x' }))).toContain('approved compaction')
+  expect(s.questions.length).toBe(1)
+})
+
+test('the fallback question waits for subagents and comes at the next finished turn', async ($, on) => {
+  const s = harness(on, { answers: [LATER] })
+  s.agents = ['running']
+  await start($)
+  await setTokens($, s, 410_000)
+  await finishTurn($, s)
+  expect(s.questions.length).toBe(0)
+  s.agents = []
+  await finishTurn($, s)
+  expect(s.questions.length).toBe(1)
+})
+
+test('only a turn that ended with an answer is a phase boundary', async ($, on) => {
+  const s = harness(on, { answers: [LATER] })
+  await start($)
+  await setTokens($, s, 410_000)
+  for (const reason of ['error', 'aborted', 'refusal']) {
+    await $.turn.complete({ turnId: 'x' + reason, answer: '', durationMs: 1, isAborted: reason === 'aborted', reason, usage: null, ...(reason === 'refusal' ? { refusal: { category: null, explanation: null } } : {}) })
+    await settle()
+  }
+  expect(s.questions.length).toBe(0)
+  await finishTurn($, s)
+  expect(s.questions.length).toBe(1)
+})
+
+test('an approved compaction waits for subagents that started in the meantime', async ($, on) => {
+  const s = harness(on, { answers: [YES] })
+  await start($)
+  await approvedPlan($, s)
+  s.agents = ['running']
+  await finishTurn($, s)
+  await runClock(s, 20_000)
+  expect(s.compactCalls.length).toBe(0)
+  s.agents = []
+  await runClock(s, 6000)
+  expect(s.compactCalls.length).toBe(1)
+})
+
+test('subagents that never finish: it says so after a while and gives up', async ($, on) => {
+  const s = harness(on, { answers: [YES] })
+  await start($)
+  await approvedPlan($, s)
+  s.agents = ['running']
+  await finishTurn($, s)
+  await s.clock.advance(200_000) // one jump: the waiting is timers, not real time
+  await settle()
+  expect(s.compactCalls.length).toBe(0)
+  expect(s.toasts.some((t) => t.startsWith('Compaction did not run:') && t.includes('still running'))).toBe(true)
+})
+
+test('a dev server left open is shown, never waited for, and named to the summarizer', async ($, on) => {
+  const s = harness(on, { answers: [YES] })
+  await start($)
+  await $.classic.Stop(STOP([
+    { id: 'b1', type: 'shell', status: 'running', description: 'backend', command: 'uvicorn app:app --port 8000' },
+    { id: 'b2', type: 'shell', status: 'running', description: 'frontend', command: 'npm run dev' },
+    { id: 'g1', type: 'agent', status: 'running', description: 'an agent', agent_type: 'implementer' },
+  ]))
+  await setTokens($, s, 260_000)
+  await $.tool.call({ tool: TOOL, phase: 'p' })
+  expect(s.questions[0]).toContain('background processes: 2 (uvicorn app:app --port 8000, npm run dev)')
+  await finishTurn($, s)
+  await runClock(s, 1500)
+  expect(s.compactCalls.length).toBe(1) // the servers did not hold it back
+  expect(s.compactCalls[0].instructions).toContain('Background processes running right now')
+  expect(s.compactCalls[0].instructions).toContain('b1: uvicorn app:app --port 8000') // with the task id
+})
+
+test('no background processes: nothing extra in the brief', async ($, on) => {
+  const s = harness(on)
+  await start($)
+  await compactOnce($, s)
+  expect(s.compactCalls[0].instructions).not.toContain('Background processes')
+})
+
+test('/crew-compact while subagents run says to ask again later', async ($, on) => {
+  const s = harness(on)
+  s.agents = ['pending']
+  await start($)
+  await $.command.run({ command: 'crew-compact', args: '' })
+  await runClock(s, 500)
+  expect(s.questions.length).toBe(0)
+  expect(s.toasts.some((t) => t.includes('Subagents are still running'))).toBe(true)
+})
+
+test('a subagent waiting on a server it started does not hold anything back, and is shown', async ($, on) => {
+  const s = harness(on, { answers: [YES] })
+  s.agents = ['waiting', 'idle', 'completed']
+  await start($)
+  await approvedPlan($, s)
+  expect(s.questions.length).toBe(1)
+  expect(s.questions[0]).toContain('subagents running: 0')
+  expect(s.questions[0]).toContain('waiting on background work or approval: 1')
+  await finishTurn($, s)
+  await runClock(s, 1500)
+  expect(s.compactCalls.length).toBe(1)
 })

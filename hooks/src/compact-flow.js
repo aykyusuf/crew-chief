@@ -24,6 +24,7 @@ import { resolveLang } from './lang.mjs'
 import { t } from './saver-i18n.mjs'
 import { tokensLabel } from './saver-logic.mjs'
 import {
+  backgroundNote,
   backupName,
   backupsToPrune,
   checkSummary,
@@ -45,6 +46,12 @@ const MAX_RETRIES = 3
 const SUMMARIES_KEPT = 5
 const TRANSCRIPTS_KEPT = 3
 const MAX_UPDATE_RETRIES = 2
+const AGENT_WAIT_MS = 5000
+const MAX_AGENT_WAITS = 36
+// `waiting` is a subagent held on background work it owns (a server it started), on a plan's approval or
+// on another agent: none of these is work that a compaction would cut in half, and a subagent that left a
+// dev server running stays `waiting` for as long as the server lives, so it must never hold a compaction back.
+const RUNNING_STATES = ['pending', 'running']
 
 const TOOL_DESCRIPTION =
   'Propose compacting the conversation. Call it once, and only when a note from crew-chief says the context is large AND you have just finished a phase (a task done, tests passing, before an unrelated area). Never call it in the middle of work. It asks the user; if they decline, do not call it again.'
@@ -66,6 +73,7 @@ const RESULTS = {
   never: 'The user does not want compaction proposals for the rest of this session. Carry on and do not call this tool again.',
   unavailable: 'The user cannot be asked right now. Carry on with the work.',
   notNeeded: 'Not needed yet. Keep working; crew-chief will say when to propose a compaction.',
+  subagents: 'Subagents are still running. Call this tool again after they have finished and their results are in.',
   busy: 'A compaction is already being arranged. Nothing more to do about it.',
 }
 
@@ -80,6 +88,7 @@ function freshCompact(toolReady = false) {
     plan: null,
     compacting: false,
     toolReady,
+    bgTasks: [],
   }
 }
 
@@ -165,8 +174,53 @@ export async function compactNudge($) {
 
 // ---- asking and planning --------------------------------------------------------------------
 
+// ---- what is running right now ---------------------------------------------------------------
+// Subagents always end and bring a result back, so a compaction waits for them. A dev server or watcher
+// left open in the background never ends and compaction does not touch it, so those only get shown (and
+// named to the summarizer), never waited for. The processes come from the Stop event's background_tasks.
+
+async function agentCounts($) {
+  const list = await safe(() => $.agent.list(), [])
+  return {
+    running: list.filter((a) => RUNNING_STATES.includes(a.status)).length,
+    waiting: list.filter((a) => a.status === 'waiting').length,
+  }
+}
+
+async function runningAgents($) {
+  return (await agentCounts($)).running
+}
+
+async function dirtyFiles($) {
+  const r = await safe(() => $.process.run(['git', 'status', '--porcelain']), undefined)
+  if (!r || r.exitCode !== 0) return undefined
+  return r.stdout.split('\n').filter((line) => line.trim() !== '').length
+}
+
+function processNames() {
+  return ck.bgTasks.map((task) => task.command || task.description || task.id).filter(Boolean)
+}
+
+// With the task id: after a compaction Claude no longer remembers the handles of background tasks it started
+// (anthropics/claude-code#29193), so the summary should keep them.
+function processHandles() {
+  return ck.bgTasks.map((task) => (task.id ? task.id + ': ' : '') + (task.command || task.description || '')).filter(Boolean)
+}
+
+async function stateLine($, lang, agents, waiting) {
+  const parts = [t(lang, 'ck_state_agents', { n: agents })]
+  if (waiting > 0) parts.push(t(lang, 'ck_state_waiting', { n: waiting }))
+  const names = processNames()
+  if (names.length > 0) parts.push(t(lang, 'ck_state_shells', { n: names.length, list: names.slice(0, 3).map((n) => n.slice(0, 40)).join(', ') }))
+  const dirty = await dirtyFiles($)
+  if (dirty !== undefined) parts.push(t(lang, 'ck_state_dirty', { n: dirty }))
+  return t(lang, 'ck_state', { parts: parts.join(', ') })
+}
+
 async function askAndPlan($, why) {
   if (ck.asking || open.saver || open.reset) return 'busy'
+  const { running: agents, waiting } = await agentCounts($)
+  if (agents > 0) return 'subagents'
   ck.asking = true
   open.compact = true
   try {
@@ -175,9 +229,10 @@ async function askAndPlan($, why) {
     const tokens = usage?.context?.tokens
     const answers = [t(lang, 'ck_yes'), t(lang, 'ck_later'), t(lang, 'ck_never')]
     const phase = why.phase ? t(lang, 'ck_phase', { phase: why.phase }) : ''
+    const state = await stateLine($, lang, agents, waiting)
     let answer
     try {
-      answer = await $.ui.ask(t(lang, 'ck_ask', { tokens: tokensLabel(tokens), phase }), answers)
+      answer = await $.ui.ask(t(lang, 'ck_ask', { tokens: tokensLabel(tokens), phase, state }), answers)
     } catch (err) {
       return 'unavailable'
     }
@@ -207,7 +262,7 @@ async function requestStateUpdate($) {
 async function askFallback($) {
   const outcome = await askAndPlan($, {})
   if (outcome === 'approved') requestStateUpdate($)
-  else if (outcome === 'busy') ck.askedFallback = false
+  else if (outcome === 'busy' || outcome === 'subagents') ck.askedFallback = false
 }
 
 async function advancePlan($) {
@@ -245,14 +300,17 @@ async function advancePlan($) {
 }
 
 // Called after each finished main turn.
-export async function compactTurnComplete($, usage, aborted) {
+// `reason` is how the turn ended. Only a turn that ended with an answer counts as a phase boundary: after an
+// interrupt (Esc) the update may be half done, and after an error or a refusal nothing was finished.
+export async function compactTurnComplete($, usage, reason) {
   if (await disabled($)) return
   await compactUpdate($, usage)
+  const clean = reason === undefined || reason === 'answer'
   if (ck.plan) {
-    // An interrupted turn (Esc) may have stopped halfway through the update: wait for a finished one.
-    if (!aborted) await advancePlan($)
+    if (clean) await advancePlan($)
     return
   }
+  if (!clean) return
   const tokens = usage?.context?.tokens
   if (!ck.armed || ck.never || ck.compacting || ck.asking || ck.askedFallback || typeof tokens !== 'number') return
   const lim = await limits($, usage)
@@ -270,12 +328,22 @@ function scheduleCompaction($) {
   $.clock.after(COMPACT_DELAY_MS, () => runCompaction($, 0))
 }
 
-async function runCompaction($, attempt) {
+async function runCompaction($, attempt, waited = 0) {
   let retry = false
+  // Subagents started since the approval would lose their place in a summary: wait until they are done.
+  if ((await runningAgents($)) > 0) {
+    if (waited < MAX_AGENT_WAITS) {
+      $.clock.after(AGENT_WAIT_MS, () => runCompaction($, attempt, waited + 1))
+    } else {
+      ck.compacting = false
+      await failed($, t(await resolveLang($), 'ck_agents_still'))
+    }
+    return
+  }
   try {
     const before = await transcriptLines($)
     await copyTranscriptIfNeeded($)
-    const args = (await focusOff($)) ? {} : { instructions: withFocus('') }
+    const args = (await focusOff($)) ? {} : { instructions: withFocus('', backgroundNote(processHandles())) }
     const result = await $.session.compact(args)
     if (result && result.skip) {
       await failed($, String(result.skip))
@@ -439,6 +507,15 @@ export async function compactSessionStart($) {
 const clip = (s) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().slice(0, 200) : '')
 
 export function registerCompact(on) {
+  // The Stop event carries the session's background tasks; the processes among them are remembered for the
+  // question and for the summarizer. (Settings-hook events do not reach a mod where an organization manages
+  // Claude Code; the list then stays empty and only subagents are waited for.)
+  on('classic.Stop', async ($, e, next) => {
+    const tasks = Array.isArray(e.background_tasks) ? e.background_tasks : []
+    ck.bgTasks = tasks.filter((task) => task && typeof task.command === 'string' && task.command !== '' && !task.agent_type)
+    return next(e)
+  })
+
   on('tool.call', { tool: TOOL_MATCH }, async ($, e) => {
     if (e.agentId !== undefined) return { deny: 'Only the main conversation can propose a compaction.' }
     if (!ck.armed || ck.never) return { result: RESULTS.notNeeded }
@@ -457,7 +534,7 @@ export function registerCompact(on) {
     if (e.trigger !== 'precompute') await copyTranscriptIfNeeded($)
     // The engine always sends the transcript with the event; a call without it is passed on without one.
     const input = e.messages === undefined ? (({ messages, ...rest }) => rest)(e) : e
-    const result = await next({ ...input, instructions: withFocus(e.instructions) })
+    const result = await next({ ...input, instructions: withFocus(e.instructions, backgroundNote(processHandles())) })
     if (e.trigger !== 'precompute' && result && result.messages) {
       cycleDone()
       await afterCompaction($, result, before)
@@ -474,6 +551,7 @@ export function registerCompact(on) {
     $.clock.after(300, async () => {
       const outcome = await askAndPlan($, {})
       if (outcome === 'approved') requestStateUpdate($)
+      else if (outcome === 'subagents') $.ui.toast(t(await resolveLang($), 'ck_wait_agents'), { timeoutMs: 10000 })
     })
     return { text: t(lang, 'cmd_compact_ok') }
   })
