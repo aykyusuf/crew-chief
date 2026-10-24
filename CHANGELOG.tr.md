@@ -2,6 +2,9 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.6.4 (2026-10-24)
+- `/saver` birçok session'da "registered /saver but no command.run hook answered" hatası veriyordu; `/clear`, `/resume` ya da plugin yenilemesinden sonra mod komutu kendisine ait saymayıp susuyordu. Artık reddetmeden önce komut listesine bakıyor.
+
 ## 0.6.3 (2026-10-16)
 - Compact önerileri artık gerçek bir molayı bekler: bir alt ajan çalışırken hiçbir şey önerilmez ve onaylanmış compact başlamaz; yalnızca cevapla biten turn faz sınırı sayılır (iptal, hata, ret sayılmaz). Arka planda açık bırakılan dev server ya da watcher beklenmez (başlattığı sunucuyu bekleyen `waiting` alt ajan da): soru onu gösterir ve özetleyiciye görev kimliğini ve komutunu koruması söylenir, çünkü compact'ten sonra Claude arka plan görevlerinin tutamaçlarını unutuyor (anthropics/claude-code#29193).
 - Compact sorusu artık ne olduğunu söyler (`Şu an: çalışan alt ajan: 0, arka plan süreci: 2 (npm run dev, ...), commit'lenmemiş dosya: 3`). Alt ajanlar çalışırken `/crew-compact` bitince tekrar sormanı söyler.

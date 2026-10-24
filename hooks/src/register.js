@@ -280,6 +280,18 @@ async function statusText($) {
   return parts.join(' · ')
 }
 
+// True when /saver is a registered command and is not a built-in. The host only routes command.run to
+// the plugin that registered the name, so a listed /saver that this module did not register itself
+// is ours from an earlier registration.
+async function ownsSaver($) {
+  try {
+    const commands = await $.command.list()
+    return commands.some((c) => c.name === 'saver' && c.source !== 'builtin')
+  } catch (err) {
+    return false
+  }
+}
+
 export function register(on) {
   on('session.start', async ($, e, next) => {
     resetState()
@@ -292,8 +304,9 @@ export function register(on) {
       })
       registered = true
     } catch (err) {
-      // The name is taken (a built-in or another plugin's command): leave that command alone.
-      // The saver still works through the questions.
+      // The name is taken: by a built-in or another plugin's command (leave it alone), or by this
+      // plugin's own earlier registration (/clear, /resume run session.start again), see ownsSaver.
+      registered = await ownsSaver($)
     }
     await compactSessionStart($)
     await tidySessionStart($)
@@ -373,6 +386,9 @@ export function register(on) {
   })
 
   on('command.run', { command: 'saver' }, async ($, e, next) => {
+    // The module can be loaded again (/reload-plugins, an update) without a new session.start, which
+    // leaves `registered` false while the host still has our command: look it up before refusing.
+    if (!registered) registered = await ownsSaver($)
     if (!registered) return next(e)
     const word = String(e.args || '').trim().toLowerCase()
     const lang = await resolveLang($)
