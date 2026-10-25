@@ -2,6 +2,9 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.6.5 (2026-10-25)
+- Saver için tanılama: her alt ajan isteği debug log'a bir satır yazıyor (`saver: step agent=... model=... effort=... saver=...`, `claude --debug-file <yol>` ile görünür). Saver açıkken bir alt ajanın neden hâlâ `high` koşabildiğini bulmak için. Davranış değişmedi.
+
 ## 0.6.4 (2026-10-24)
 - `/saver` birçok session'da "registered /saver but no command.run hook answered" hatası veriyordu; `/clear`, `/resume` ya da plugin yenilemesinden sonra mod komutu kendisine ait saymayıp susuyordu. Artık reddetmeden önce komut listesine bakıyor.
 

@@ -1548,6 +1548,10 @@ export function register(on) {
   on('turn.step', async function* ($, e, next) {
     if (e.agentId === undefined) lastStepAt = await $.clock.now()
     await statsStepStart($, e)
+    // Debug log only (claude --debug-file): what the host hands this hook for a subagent request.
+    if (e.agentId !== undefined) {
+      $.ui.log('saver: step agent=' + e.agentId + ' model=' + e.model + ' effort=' + String(e.effort) + ' saver=' + saver, { to: 'debug' })
+    }
     let request = e
     if (saver && e.agentId !== undefined) {
       const cap = capEffort(e.model, e.effort)

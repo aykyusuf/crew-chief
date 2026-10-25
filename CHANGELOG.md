@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.5 (2026-10-25)
+- Diagnostics for the saver: every subagent request now writes one debug-log line (`saver: step agent=... model=... effort=... saver=...`, visible with `claude --debug-file <path>`), to find out why a subagent can still run at `high` while the saver is on. No behavior change.
+
 ## 0.6.4 (2026-10-24)
 - Fixed `/saver` answering "registered /saver but no command.run hook answered" in many sessions: after `/clear`, `/resume` or a plugin reload the module thought the command was not its own and stayed silent. It now checks the command list before refusing.
 
