@@ -41,6 +41,7 @@ import {
   ADVISOR_LATER_MS,
   advisorOfferAllowed,
   advisorPlan,
+  agentCallEffort,
   capEffort,
   crossing,
   formatDuration,
@@ -387,6 +388,22 @@ export function register(on) {
     const result = yield* next(request)
     await statsStepEnd($, e, result)
     return result
+  })
+
+  // While the saver is on, an Agent call for one of the Opus agents carries effort medium. The
+  // turn.step cap below stays as the second line. Any failure here leaves the call as it was.
+  on('tool.call', async ($, e, next) => {
+    let request = e
+    try {
+      const effort = saver && e.tool === 'Agent' ? agentCallEffort(e) : undefined
+      if (effort !== undefined) {
+        $.ui.log('saver: Agent call ' + String(e.subagent_type) + ' effort ' + String(e.effort) + ' -> ' + effort, { to: 'debug' })
+        request = { ...e, effort }
+      }
+    } catch (err) {
+      request = e
+    }
+    return next(request)
   })
 
   on('command.run', { command: 'saver' }, async ($, e, next) => {

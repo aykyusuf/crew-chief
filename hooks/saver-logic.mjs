@@ -54,6 +54,27 @@ export function capEffort(model, effort) {
   return { effort: ceiling, capped: true, from: effort, tier }
 }
 
+// crew-chief's own Opus agents. Their model comes from the agent definition, which a tool call does
+// not show, so they are named here; any other agent counts only when the call names an Opus or
+// Fable model itself.
+const HEAVY_AGENT = /(^|:)(implementer-hard|reviewer)$/
+
+// The effort the saver puts on an Agent tool call, or undefined to leave the call alone. The
+// subagent's own `effort:` in its definition beats a rewrite made later at turn.step (seen with
+// Claude Code 2.1.310: the hook wrote high -> medium and /tasks still showed high), but an effort
+// passed with the call is the more specific one. Only Opus and Fable agents, only downwards:
+// an explicit low or medium stays, and a call naming Sonnet or Haiku is never touched.
+export function agentCallEffort(input) {
+  if (input === null || typeof input !== 'object') return undefined
+  const model = typeof input.model === 'string' ? input.model : undefined
+  const type = typeof input.subagent_type === 'string' ? input.subagent_type : ''
+  const heavy = model !== undefined ? modelTier(model) === 'heavy' : HEAVY_AGENT.test(type)
+  if (!heavy) return undefined
+  const rank = EFFORT_RANK[input.effort]
+  if (input.effort !== undefined && (rank === undefined || rank <= EFFORT_RANK.medium)) return undefined
+  return 'medium'
+}
+
 // 6_300_000 -> "1h 45m", 90_000 -> "2m" (rounded up), 1 ms -> "1m", zero or invalid -> "<1m".
 // `units` renames the letters (see unitsFor in saver-i18n.mjs).
 export function formatDuration(ms, units = { d: 'd', h: 'h', m: 'm', lt: '<1m' }) {

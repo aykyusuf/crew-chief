@@ -2,6 +2,9 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.6.6 (2026-10-25)
+- Saver'ın alt ajan effort'unu düşürmemesi düzeltildi: `turn.step` rewrite'ı (`high -> medium`) log'a yazılıyordu ama `/tasks` Opus ajanları hâlâ `high` gösteriyordu, çünkü ajanın kendi tanımındaki effort ondan güçlü (Claude Code 2.1.310'da görüldü). Saver açıkken `implementer-hard`, `reviewer` ya da Opus/Fable modeliyle çağrılan herhangi bir ajan için `Agent` çağrısı artık kendisi `effort: medium` taşıyor, yalnızca aşağı yönde (`low`/`medium` kalır, Sonnet ve Haiku ajanlarına dokunulmaz). `turn.step` tavanı ikinci hat olarak duruyor. Rewrite başarısız olursa çağrı olduğu gibi geçer.
+
 ## 0.6.5 (2026-10-25)
 - Saver için tanılama: her alt ajan isteği debug log'a bir satır yazıyor (`saver: step agent=... model=... effort=... saver=...`, `claude --debug-file <yol>` ile görünür). Saver açıkken bir alt ajanın neden hâlâ `high` koşabildiğini bulmak için. Davranış değişmedi.
 

@@ -7,6 +7,7 @@ import {
   SEVEN_DAY_DEFAULT,
   advisorOfferAllowed,
   advisorPlan,
+  agentCallEffort,
   capEffort,
   crossing,
   formatDuration,
@@ -143,4 +144,23 @@ test('advisorOfferAllowed', () => {
 test('isEnvFlag', () => {
   for (const v of ['1', 'true', 'yes', 'TRUE', ' 1 ']) assert.equal(isEnvFlag(v), true, v)
   for (const v of ['', '0', 'false', 'No', 'off', ' ', undefined, null]) assert.equal(isEnvFlag(v), false, String(v))
+})
+
+test('agentCallEffort: Opus agents of the plugin get medium, nothing else is touched', () => {
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:implementer-hard' }), 'medium')
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:reviewer', effort: 'xhigh' }), 'medium')
+  assert.equal(agentCallEffort({ subagent_type: 'implementer-hard', effort: 'high' }), 'medium')
+  assert.equal(agentCallEffort({ subagent_type: 'general-purpose', model: 'opus' }), 'medium')
+  assert.equal(agentCallEffort({ subagent_type: 'general-purpose', model: 'fable', effort: 'max' }), 'medium')
+  // already at or below medium, a lower effort is never raised
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:reviewer', effort: 'medium' }), undefined)
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:reviewer', effort: 'low' }), undefined)
+  // not Opus: Sonnet and Haiku agents, unknown agents, a Sonnet override of an Opus agent
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:implementer' }), undefined)
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:scanner' }), undefined)
+  assert.equal(agentCallEffort({ subagent_type: 'Explore' }), undefined)
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:reviewer', model: 'sonnet' }), undefined)
+  assert.equal(agentCallEffort({}), undefined)
+  assert.equal(agentCallEffort(undefined), undefined)
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:reviewer', effort: 7 }), undefined)
 })

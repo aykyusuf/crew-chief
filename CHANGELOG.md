@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.6 (2026-10-25)
+- Fixed the saver not lowering subagent effort: the `turn.step` rewrite (`high -> medium`) was logged but `/tasks` still showed the Opus agents at `high`, because the effort in an agent's own definition wins over it (seen on Claude Code 2.1.310). While the saver is on, an `Agent` call for `implementer-hard`, `reviewer` or any agent called with an Opus/Fable model now carries `effort: medium` itself, and only downwards (`low`/`medium` stay, Sonnet and Haiku agents are never touched). The `turn.step` cap stays as a second line. If the rewrite fails the call goes through unchanged.
+
 ## 0.6.5 (2026-10-25)
 - Diagnostics for the saver: every subagent request now writes one debug-log line (`saver: step agent=... model=... effort=... saver=...`, visible with `claude --debug-file <path>`), to find out why a subagent can still run at `high` while the saver is on. No behavior change.
 
