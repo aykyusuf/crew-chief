@@ -123,6 +123,22 @@ def main():
         out = run(many, h, data)
         check("at most two categories per start", out.count("(category id:") == 2, out.count("(category id:"))
 
+        # structure-map: any code project, but only a big enough one (tracked files).
+        def tracked(name, count, extra=()):
+            path = project(name, [("pyproject.toml", "[project]\nname='x'\n")] + [(f"src/m{i}.py", "x = 1\n") for i in range(count)] + list(extra))
+            subprocess.run(["git", "-C", path, "add", "-A"], check=True)
+            return path
+        big = tracked("sm-big", 70)
+        out = run(big, h, data)
+        check("big project gets the structure-map offer", TAG in out and "aykyusuf/structure-map" in out and "structure-map@structure-map" in out, out[:200])
+        check("small project gets no structure-map offer", "structure-map" not in run(tracked("sm-small", 10), h, data))
+        check("untracked files do not count", "structure-map" not in run(project("sm-untracked", [("pyproject.toml", "x")] + [(f"m{i}.py", "x") for i in range(80)]), h, data))
+        check("installed structure-map: quiet", "aykyusuf/structure-map" not in run(big, home("sm-has", skills=["structure-map"]), data))
+        with open(state, "w") as f:
+            f.write(f"{big}\tstructure-map\tnever\n")
+        check("never for structure-map is final", "aykyusuf/structure-map" not in run(big, h, data))
+        os.remove(state)
+
         # Where it stays quiet.
         outside = os.path.join(SCRATCH, "not-git")
         os.makedirs(outside)

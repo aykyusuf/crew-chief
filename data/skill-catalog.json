@@ -290,6 +290,68 @@
         "node",
         "typescript-magician"
       ]
+    },
+    {
+      "id": "structure-map",
+      "label": "Project map (structure-map)",
+      "minFiles": 60,
+      "detect": [
+        {
+          "file": "package.json"
+        },
+        {
+          "file": "pubspec.yaml"
+        },
+        {
+          "file": "pyproject.toml"
+        },
+        {
+          "file": "requirements.txt"
+        },
+        {
+          "file": "go.mod"
+        },
+        {
+          "file": "Gemfile"
+        },
+        {
+          "file": "Cargo.toml"
+        },
+        {
+          "file": "Package.swift"
+        },
+        {
+          "file": "pom.xml"
+        },
+        {
+          "file": "*.xcodeproj"
+        },
+        {
+          "file": "*.sln"
+        },
+        {
+          "file": "*.vbp"
+        },
+        {
+          "file": "*.py"
+        }
+      ],
+      "keywords": [
+        "structure-map",
+        "structure.md"
+      ],
+      "prefer": [
+        "structure-map"
+      ],
+      "recommend": [
+        {
+          "name": "structure-map (a cheap, always-fresh map of screens, routes, tables, events and entry points)",
+          "source": "aykyusuf/structure-map (MIT, plugin)",
+          "why": "a small Node script scans the repo deterministically and a session-start hook keeps the map fresh, so Claude finds screens, routes and tables without re-reading the whole repo; it also helps non-framework projects (computer vision, scripts, VB6).",
+          "risk": "it runs a Node (18+) script from a SessionStart and Stop hook; the hook only refreshes a map that already exists and never creates one by itself, and /structure-map writes docs/structure/ and one small rule file in the project.",
+          "install": "claude plugin marketplace add aykyusuf/structure-map && claude plugin install structure-map@structure-map"
+        }
+      ]
     }
   ]
 }

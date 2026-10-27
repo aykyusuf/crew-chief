@@ -75,9 +75,20 @@ ids=$(printf '%s\n' "$candidates" | while IFS="$tab" read -r id file pattern; do
 done | sort -u)
 [ -n "$ids" ] || exit 0
 
+# A category with "minFiles" is only offered in a project with at least that many tracked files.
+enough() {  # enough <category id>
+  need=$(jq -r --arg id "$1" '.categories[] | select(.id == $id) | .minFiles // 0' "$catalog" 2>/dev/null)
+  case "$need" in ''|*[!0-9]*) need=0 ;; esac
+  [ "$need" -le 0 ] && return 0
+  have=$(git -C "$root" ls-files 2>/dev/null | wc -l | tr -d ' ')
+  case "$have" in ''|*[!0-9]*) have=0 ;; esac
+  [ "$have" -ge "$need" ]
+}
+
 chosen=""
 count=0
 for id in $ids; do
+  enough "$id" || continue
   paused "$id" && continue
   chosen="$chosen $id"
   count=$((count + 1))

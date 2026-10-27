@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.7.1 (2026-10-27)
+- The one-time skill offer now also suggests the project map ([structure-map](https://github.com/aykyusuf/structure-map)) in any code project with at least 60 tracked files, when it is not installed (new `minFiles` field in `data/skill-catalog.json`). Same rules as before: asked once, nothing installed without a yes, "Not now" pauses a week, "Never" is remembered.
+
 ## 0.7.0 (2026-10-27)
 - No plugin question waits forever any more: a saver, advisor, compaction, limit-reset or `/crew-tidy archive` question left unanswered for 20 minutes counts as its safe answer (*Not now*, *Remind me in a week*, *No*, *Cancel*; never the yes and never *Don't ask again*), with a toast that says so. `CREW_CHIEF_ASK_TIMEOUT_MIN` sets the minutes (at most 30; `off` keeps the old waiting). Where it can, the mod also closes the dialog; a question raised between turns may stay on screen, and a late click on it then changes nothing.
 - The compaction question no longer holds Claude's turn open: the `crew_compact_checkpoint` tool only takes note and returns at once, and you are asked after the turn has ended with an answer and the session has stayed quiet for 10 seconds (no new prompt, no model request, no subagent running); otherwise at the next such turn end. A long job left running overnight no longer stops at it.

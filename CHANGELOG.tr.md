@@ -2,6 +2,9 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.7.1 (2026-10-27)
+- Tek seferlik skill teklifi artık proje haritasını da ([structure-map](https://github.com/aykyusuf/structure-map)) öneriyor: kurulu değilse ve git'te en az 60 dosyası olan her kod projesinde (`data/skill-catalog.json`'da yeni `minFiles` alanı). Kurallar aynı: bir kez sorulur, evet demeden bir şey kurulmaz, "Şimdi değil" bir hafta bekletir, "Hiç" hatırlanır.
+
 ## 0.7.0 (2026-10-27)
 - Hiçbir eklenti sorusu artık sonsuza kadar beklemez: 20 dakika cevapsız kalan saver, advisor, compact, limit sıfırlanması ya da `/crew-tidy archive` sorusu güvenli cevabıyla cevaplanmış sayılır (*Şimdi değil*, *Bir hafta sonra hatırlat*, *Hayır*, *Vazgeç*; asla evet, asla *Bir daha sorma* değil) ve bir toast bunu söyler. Dakikayı `CREW_CHIEF_ASK_TIMEOUT_MIN` belirler (en çok 30; `off` eski beklemeyi korur). Mod yapabildiği yerde diyaloğu da kapatır; turn aralarında açılan bir soru ekranda kalabilir, o zaman ona geç tıklamak bir şey değiştirmez.
 - Compact sorusu artık Claude'un turn'ünü açık tutmaz: `crew_compact_checkpoint` aracı yalnızca not alır ve hemen döner; sana turn bir cevapla bittikten ve session 10 saniye sessiz kaldıktan sonra (yeni prompt yok, model isteği yok, çalışan alt ajan yok) sorulur, yoksa bir sonraki böyle turn sonunda. Gece çalışmaya bırakılan uzun bir iş artık bu soruda durmaz.
