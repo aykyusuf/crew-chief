@@ -17,6 +17,10 @@
 //   - Once, after the first finished turn of a session where the advisor is off: offers to turn on
 //     /advisor (a stronger model Claude can ask at hard moments). It asks first, remembers "not now"
 //     for a week and "never" for good, and runs /advisor only after a yes.
+//   - An opt-in command guard (hooks/src/guard.js): built-in and personal deny/warn rules and an ssh
+//     "first contact" gate for production hosts, configured in ~/.claude/crew-chief-guard.json. CREW_CHIEF_GUARD.
+//     A first attempt at a "confirm" command is stopped with a checklist; the identical retry passes.
+//     /crew-guard [status|suggestions]; the tool crew_guard_suggest lets Claude flag what the config misses.
 // Environment: CREW_CHIEF_SAVER=off silences the saver questions and toasts (not the advisor offer);
 // CREW_CHIEF_SAVER_FIVE_HOUR and CREW_CHIEF_SAVER_SEVEN_DAY set the thresholds ("70,80,90");
 // CREW_CHIEF_ADVISOR_OFFER=off never offers the advisor; CREW_CHIEF_COMPACT=off turns the compact flow off;
@@ -32,6 +36,7 @@ import { registerTidy, tidySessionStart } from './tidy-flow.mjs'
 import { askWithDeadline, registerAsk } from './ask.mjs'
 import { rowSessionEnd, rowSessionStart, rowStepEnd, rowStepStart, rowTurnComplete } from './agent-row.mjs'
 import { addLanguageVote, resetLang, resolveLang } from './lang.mjs'
+import { guardAfter, guardCheck, guardNudge, guardSessionEnd, guardSessionStart, guardWants, registerGuard } from './guard.mjs'
 import {
   compactNoteActivity,
   compactNudge,
@@ -323,6 +328,7 @@ export function register(on) {
     await tidySessionStart($)
     await statsSessionStart($)
     rowSessionStart($)
+    await guardSessionStart($)
     return result
   })
 
@@ -330,6 +336,7 @@ export function register(on) {
     resetState()
     resetCompact()
     rowSessionEnd($)
+    guardSessionEnd()
     return next(e)
   })
 
@@ -347,8 +354,8 @@ export function register(on) {
       resetNotePrompt(lastPromptAt)
       await cacheOnPrompt($)
     }
-    const nudge = await compactNudge($)
-    return next(nudge === undefined ? e : { ...e, context: [...(e.context ?? []), nudge] })
+    const notes = [await compactNudge($), guardNudge()].filter((n) => n !== undefined)
+    return next(notes.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...notes] })
   })
 
   on('session.measure', async ($, e, next) => {
@@ -409,9 +416,20 @@ export function register(on) {
     return result
   })
 
-  // While the saver is on, an Agent call for one of the Opus agents carries effort medium. The
-  // turn.step cap below stays as the second line. Any failure here leaves the call as it was.
+  // The one unmatched tool.call hook of this module. First the opt-in command guard (hooks/src/guard.js):
+  // off unless turned on, untouched calls skip it without waiting, and any failure lets the call through.
+  // Then, while the saver is on, an Agent call for one of the Opus agents carries effort medium (the
+  // turn.step cap below stays as the second line). Any failure there leaves the call as it was.
   on('tool.call', async ($, e, next) => {
+    let guard
+    if (guardWants(e)) {
+      try {
+        guard = await guardCheck($, e)
+      } catch (err) {
+        guard = undefined
+      }
+    }
+    if (guard !== undefined && guard.deny !== undefined) return { deny: guard.deny }
     let request = e
     try {
       const effort = saver && e.tool === 'Agent' ? agentCallEffort(e) : undefined
@@ -422,7 +440,9 @@ export function register(on) {
     } catch (err) {
       request = e
     }
-    return next(request)
+    if (guard === undefined) return next(request)
+    const result = await next(request)
+    return guardAfter($, e, guard, result)
   })
 
   on('command.run', { command: 'saver' }, async ($, e, next) => {
@@ -451,4 +471,5 @@ export function register(on) {
   registerReset(on)
   registerTidy(on)
   registerStats(on)
+  registerGuard(on)
 }

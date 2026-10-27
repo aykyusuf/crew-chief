@@ -1,0 +1,75 @@
+{
+  "$comment": "Example for ~/.claude/crew-chief-guard.json. With the built-in rules, these rules reproduce a personal prod-guard mod. Levels: deny = never runs; confirm = the first attempt is stopped with a checklist and the identical command passes on retry (within confirmTtlMinutes); warn = runs, then a reminder. Writes to branch databases (.mdb, .accdb, /databases/) stay deny. Copies touching them, license or private key files (lic-*.key, private*.key|pem, *_private*.key|pem) and the 'never open a branch' rule are confirm: the agent must stop, check and decide before it can go on. The ssh gate is off here; set ssh.mode to gate and list your production hosts to use it.",
+  "enabled": true,
+  "confirmTtlMinutes": 360,
+  "rules": [
+    {
+      "id": "mdb-write",
+      "level": "deny",
+      "tools": ["Write", "Edit", "MultiEdit", "NotebookEdit"],
+      "target": "file_path",
+      "pattern": "(\\.mdb|\\.accdb|/databases/)",
+      "flags": "i",
+      "text": "write to a branch database path (.mdb / .accdb / databases/)"
+    },
+    {
+      "id": "lic-key-write",
+      "level": "confirm",
+      "tools": ["Write", "Edit", "MultiEdit", "NotebookEdit"],
+      "target": "file_path",
+      "pattern": "(lic-[\\w.-]*\\.key|private[\\w.-]*\\.(key|pem)|[\\w.-]*_private[\\w.-]*\\.(key|pem))",
+      "flags": "i",
+      "text": "write to a license or private key file"
+    },
+    {
+      "id": "lic-key-read",
+      "level": "confirm",
+      "tools": ["Read"],
+      "target": "file_path",
+      "pattern": "(lic-[\\w.-]*\\.key|private[\\w.-]*\\.(key|pem)|[\\w.-]*_private[\\w.-]*\\.(key|pem))",
+      "flags": "i",
+      "text": "read of a license or private key file"
+    },
+    {
+      "id": "mdb-write-cmd",
+      "level": "deny",
+      "tools": ["Bash"],
+      "target": "command",
+      "pattern": "^(?=[\\s\\S]*(\\.mdb|\\.accdb|/databases/))(?=[\\s\\S]*(\\b(rm|mv|truncate|dd|tee|shred|unlink)\\b|\\bsed\\s+-i\\b|>>?\\s*\\S*(\\.mdb|\\.accdb|/databases/)))",
+      "flags": "i",
+      "text": "delete, move or overwrite on a branch database path (.mdb / databases/)"
+    },
+    {
+      "id": "mdb-copy",
+      "level": "confirm",
+      "tools": ["Bash"],
+      "target": "command",
+      "pattern": "^(?=[\\s\\S]*(\\.mdb|\\.accdb|/databases/))(?=[\\s\\S]*\\b(cp|rsync|scp)\\b)",
+      "flags": "i",
+      "text": "copy touching a branch database path; check the destination is not the original"
+    },
+    {
+      "id": "lic-key-access",
+      "level": "confirm",
+      "tools": ["Bash"],
+      "target": "command",
+      "pattern": "^(?=[\\s\\S]*(lic-[\\w.-]*\\.key|private[\\w.-]*\\.(key|pem)|[\\w.-]*_private[\\w.-]*\\.(key|pem)))(?=[\\s\\S]*\\b(cat|less|more|head|tail|cp|mv|scp|rsync|base64|xxd|curl|git\\s+add|git\\s+commit\\s+-a)\\b)",
+      "flags": "i",
+      "text": "command reads, copies or stages a license or private key file"
+    },
+    {
+      "id": "git-branch",
+      "level": "confirm",
+      "tools": ["Bash"],
+      "target": "command",
+      "pattern": "\\bgit\\s+(checkout\\s+-b|switch\\s+-c|branch\\s+-[dD]|branch\\s+[A-Za-z0-9_/.\\-]+\\s*$)",
+      "text": "creates or deletes a git branch (your rule: never open a branch unless told)"
+    }
+  ],
+  "disable": [],
+  "ssh": {
+    "mode": "off",
+    "prodHosts": ["prod.example.com", "*.prod.example.com", "deploy@10.0.0.5"],
+    "safeRemote": ["pm2 (list|status|logs)( .*)?"]
+  }
+}

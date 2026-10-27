@@ -115,6 +115,33 @@ check("Checking the login flow" in visible(r["p3"]) and "%" not in visible(r["p3
       "no progress file: plain label", r["p3"])
 r = rows([task("p1", model="claude-sonnet-5-5", effort="medium", startTime=now_ms - 60_000)], columns=40, env=env)
 check(len(visible(r["p1"])) <= 38 and "~40%" in visible(r["p1"]), "percent survives a narrow panel", r["p1"])
+
+# Stale reports: the percent is shown only for fewer than 25 calls and 10 minutes after the report.
+now_s = int(time.time())
+def prog(i, **kw):
+    with open(os.path.join(pd, i + ".json"), "w") as f:
+        json.dump(dict({"id": i, "pct": 2, "step": "reading prod-guard", "reported": True}, **kw), f)
+prog("s1", tools=30, rtools=20, rts=now_s - 60)
+prog("s2", tools=80, rtools=50, rts=now_s - 60)
+prog("s3", tools=15, rtools=10, rts=now_s - 660)
+prog("s4", tools=10)
+prog("s5", tools=80)
+prog("s6", tools=80, rtools=0, rts=now_s - 2460, delay="slow tests", slow="Edit took 50s")
+srows = [task(i, model="claude-sonnet-5-5", effort="medium", startTime=now_ms - 60_000, label="Checking the login flow") for i in ("s1", "s2", "s3", "s4", "s5", "s6")]
+r = {k: visible(v) for k, v in rows(srows, columns=160, env=env).items()}
+check("~2%" in r["s1"] and "reading prod-guard" in r["s1"] and "calls" not in r["s1"], "fresh report shows percent and step", r["s1"])
+check("~2%" not in r["s2"] and "80 calls · report 1m ago" in r["s2"] and "Checking the login flow" in r["s2"] and "reading prod-guard" not in r["s2"],
+      "30 calls after the report: hint instead of percent, label instead of step", r["s2"])
+check("%" not in r["s3"] and "15 calls · report 11m ago" in r["s3"], "11 minutes after the report hides the percent", r["s3"])
+check("~2%" in r["s4"], "old file without rtools/rts, few calls: fresh", r["s4"])
+check("%" not in r["s5"] and "80 calls" in r["s5"] and "report" not in r["s5"], "old file without rtools/rts, many calls: stale, no age", r["s5"])
+check("slow tests" not in r["s6"] and "Edit took 50s" in r["s6"] and "report 41m ago" in r["s6"], "stale report drops its delay, keeps the automatic one", r["s6"])
+for cols in (120, 90, 60, 45, 30, 20):
+    r = {k: visible(v) for k, v in rows(srows[1:3], columns=cols, env=env).items()}
+    for i in ("s2", "s3"):
+        check(len(r[i]) <= max(cols - 2, 12) and "sonnet-5.5" in r[i], f"cols={cols} stale row {i} fits, model kept", r[i])
+        if cols >= 60:
+            check("sonnet-5.5 · medium · 1.2k" in r[i], f"cols={cols} stale row {i} keeps effort and tokens", r[i])
 shutil.rmtree(scratch, ignore_errors=True)
 
 failed = [(n, d) for ok, n, d in checks if not ok]

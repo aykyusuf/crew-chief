@@ -28,11 +28,12 @@ pdir = os.path.join(scratch, "crew-chief-progress")
 def fire(payload, tmpdir=scratch):
     r = subprocess.run(["sh", HOOK], input=json.dumps(payload), capture_output=True, text=True,
                        env={"PATH": os.environ["PATH"], "TMPDIR": tmpdir})
-    check("exit 0, silent", r.returncode == 0 and r.stdout == "" and r.stderr == "", f"{r.returncode} {r.stdout!r} {r.stderr!r}")
+    check("exit 0, no stderr", r.returncode == 0 and r.stderr == "", f"{r.returncode} {r.stdout!r} {r.stderr!r}")
+    return r.stdout
 
 
 def bash(agent, cmd, ms=10):
-    fire({"agent_id": agent, "agent_type": "crew-chief:scanner", "tool_name": "Bash", "duration_ms": ms,
+    return fire({"agent_id": agent, "agent_type": "crew-chief:scanner", "tool_name": "Bash", "duration_ms": ms,
           "tool_input": {"command": cmd}})
 
 
@@ -52,6 +53,11 @@ bash("a1", ": 'crew-progress 40 | reading the auth module | slow test suite'")
 d = load("a1")
 check("report parsed", d["pct"] == 40 and d["step"] == "reading the auth module" and d["delay"] == "slow test suite", d)
 check("report does not count as a tool call", d["tools"] == 3, d)
+check("report stores the tool count and time", d["rtools"] == 3 and abs(d["rts"] - __import__("time").time()) < 30, d)
+bash("a1", "ls")
+bash("a1", ": 'crew-progress 41 | again'")
+d = load("a1")
+check("a later report moves rtools and rts", d["rtools"] == 4 and d["tools"] == 4, d)
 bash("a1", ": 'crew-progress 55%|next step|'")
 d = load("a1")
 check("percent sign tolerated, delay cleared", d["pct"] == 55 and d["step"] == "next step" and d["delay"] == "", d)
@@ -88,6 +94,37 @@ bash("a1", "ls")
 check("corrupt file replaced", load("a1")["tools"] == 1, load("a1"))
 r = subprocess.run(["sh", HOOK], input="garbage", capture_output=True, text=True, env={"PATH": os.environ["PATH"], "TMPDIR": scratch})
 check("garbage input is harmless", r.returncode == 0 and r.stdout == "", r)
+
+# Nudge: every 10 calls since the last report, once per count, never for a report or the main session.
+outs = [bash("n1", "ls") for _ in range(9)]
+check("silent up to 9 calls", all(o == "" for o in outs), outs)
+o = bash("n1", "ls")
+msg = json.loads(o)["hookSpecificOutput"] if o else {}
+check("nudge at exactly 10 calls", msg.get("hookEventName") == "PostToolUse" and "10 tool calls" in msg.get("additionalContext", "")
+      and "crew-progress NN" in msg["additionalContext"], o)
+check("nudge marker stored, no temp field", load("n1")["nudged"] == 10 and "nudge" not in load("n1"), load("n1"))
+check("silent right after a nudge", bash("n1", "ls") == "")
+o = bash("n1", ": 'crew-progress 30 | halfway'")
+check("a report call never nudges", o == "" and load("n1")["rtools"] == 11, o)
+outs = [bash("n1", "ls") for _ in range(9)]
+check("counting restarts at the report", all(o == "" for o in outs), outs)
+check("second nudge 10 calls after the report", "10 tool calls" in bash("n1", "ls"))
+outs = [bash("n1", "ls") for _ in range(9)]
+check("an ignored nudge repeats at 20", "20 tool calls" in bash("n1", "ls") and all(o == "" for o in outs), outs)
+check("main session input prints nothing", all(fire({"tool_name": "Bash", "tool_input": {"command": "ls"}}) == "" for _ in range(12)))
+outs = [fire({"agent_id": "n2", "tool_name": "Read", "tool_input": {"file_path": "/x"}}) for _ in range(10)]
+check("non-Bash tools nudge too", outs[:9] == [""] * 9 and "10 tool calls" in outs[9], outs)
+check("old file without rtools counts from zero", bash("n3", "ls") == "" and "nudge" not in load("n3"))
+r = subprocess.run(["sh", HOOK], input="garbage", capture_output=True, text=True, env={"PATH": os.environ["PATH"], "TMPDIR": scratch})
+check("garbage input prints nothing", r.stdout == "" and r.returncode == 0)
+
+# SubagentStart rule text.
+START = os.path.join(ROOT, "scripts", "subagent-start.sh")
+for inp in (json.dumps({"agent_id": "z", "agent_type": "crew-chief:scanner"}), "garbage", ""):
+    r = subprocess.run(["sh", START], input=inp, capture_output=True, text=True, env={"PATH": os.environ["PATH"], "TMPDIR": scratch})
+    out = json.loads(r.stdout)["hookSpecificOutput"] if r.stdout else {}
+    check("start hook: valid JSON, rule text, no stderr", r.returncode == 0 and r.stderr == "" and out.get("hookEventName") == "SubagentStart"
+          and "crew-progress NN" in out.get("additionalContext", ""), (r.stdout, r.stderr))
 
 shutil.rmtree(scratch, ignore_errors=True)
 print("FAIL" if failures else "OK", f"({len(failures)} failures)")

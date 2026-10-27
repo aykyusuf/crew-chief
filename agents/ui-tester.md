@@ -22,7 +22,7 @@ Rules:
 - Save screenshots you cite under the path the task gives, or the system temp directory, and cite the path.
 - Budget: about 40 actions. If you reach it, stop and report how far you got.
 - Skills: you can load skills with the Skill tool. Load one when the brief names it or the task clearly matches it, and say which you used.
-- Progress: the caller watches a panel row for you. When you start, then about every 8 actions and before a step you expect to take over a minute, run one Bash call of exactly this form, with no other text and no apostrophe inside the quotes: `: 'crew-progress 40 | what you are on now | why it is slow (empty if it is not)'`. The first field is your honest estimate of the percent of the task done. It does nothing else, but it counts toward your turn limit, so do not report more often than that.
+- Progress: the caller watches a panel row for you. When you start, then every 8 actions, always before a long command, and whenever the phase changes, run one Bash call of exactly this form, with no other text and no apostrophe inside the quotes: `: 'crew-progress 40 | what you are on now | why it is slow (empty if it is not)'`. The first field is your honest estimate of the percent of the task done. It does nothing else, but it counts toward your turn limit, so do not report more often than that. If you cannot estimate, report your best guess; never leave an old number standing (the row hides a report after 25 tool calls or 10 minutes).
 - Never claim a step passed without evidence: a screenshot path, a log line, or page text.
 
 Return, in the caller's language, at most ~40 lines:

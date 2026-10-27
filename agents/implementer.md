@@ -15,7 +15,7 @@ Rules:
 - Do not run UI or device tests in parallel when they share one emulator, device, or server.
 - You have a turn limit of 80 tool calls and cannot see how many are left, so count your own calls. Around call 55, finish the step in progress and report what is done and what remains. Run builds and tests in the foreground with bounded output; do not leave a test run in the background and wait for it.
 - Skills: you can load skills with the Skill tool. Load one when the brief names it or the task clearly matches it, and say which you used.
-- Progress: the caller watches a panel row for you. When you start, then about every 10 tool calls and before a step you expect to take over a minute, run one Bash call of exactly this form, with no other text and no apostrophe inside the quotes: `: 'crew-progress 40 | what you are on now | why it is slow (empty if it is not)'`. The first field is your honest estimate of the percent of the task done. It does nothing else, but it counts toward your turn limit, so do not report more often than that.
+- Progress: the caller watches a panel row for you. When you start, then every 10 tool calls, always before a long command, and whenever the phase changes, run one Bash call of exactly this form, with no other text and no apostrophe inside the quotes: `: 'crew-progress 40 | what you are on now | why it is slow (empty if it is not)'`. The first field is your honest estimate of the percent of the task done. It does nothing else, but it counts toward your turn limit, so do not report more often than that. If you cannot estimate, report your best guess; never leave an old number standing (the row hides a report after 25 tool calls or 10 minutes).
 
 Method:
 1. Read the relevant files and plan the change briefly.
