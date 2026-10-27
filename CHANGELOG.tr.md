@@ -2,6 +2,11 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.7.0 (2026-10-27)
+- Hiçbir eklenti sorusu artık sonsuza kadar beklemez: 20 dakika cevapsız kalan saver, advisor, compact, limit sıfırlanması ya da `/crew-tidy archive` sorusu güvenli cevabıyla cevaplanmış sayılır (*Şimdi değil*, *Bir hafta sonra hatırlat*, *Hayır*, *Vazgeç*; asla evet, asla *Bir daha sorma* değil) ve bir toast bunu söyler. Dakikayı `CREW_CHIEF_ASK_TIMEOUT_MIN` belirler (en çok 30; `off` eski beklemeyi korur). Mod yapabildiği yerde diyaloğu da kapatır; turn aralarında açılan bir soru ekranda kalabilir, o zaman ona geç tıklamak bir şey değiştirmez.
+- Compact sorusu artık Claude'un turn'ünü açık tutmaz: `crew_compact_checkpoint` aracı yalnızca not alır ve hemen döner; sana turn bir cevapla bittikten ve session 10 saniye sessiz kaldıktan sonra (yeni prompt yok, model isteği yok, çalışan alt ajan yok) sorulur, yoksa bir sonraki böyle turn sonunda. Gece çalışmaya bırakılan uzun bir iş artık bu soruda durmaz.
+- Claude'un kendi `AskUserQuestion` sorularına hiç dokunulmaz.
+
 ## 0.6.6 (2026-10-25)
 - Saver'ın alt ajan effort'unu düşürmemesi düzeltildi: `turn.step` rewrite'ı (`high -> medium`) log'a yazılıyordu ama `/tasks` Opus ajanları hâlâ `high` gösteriyordu, çünkü ajanın kendi tanımındaki effort ondan güçlü (Claude Code 2.1.310'da görüldü). Saver açıkken `implementer-hard`, `reviewer` ya da Opus/Fable modeliyle çağrılan herhangi bir ajan için `Agent` çağrısı artık kendisi `effort: medium` taşıyor, yalnızca aşağı yönde (`low`/`medium` kalır, Sonnet ve Haiku ajanlarına dokunulmaz). `turn.step` tavanı ikinci hat olarak duruyor. Rewrite başarısız olursa çağrı olduğu gibi geçer.
 

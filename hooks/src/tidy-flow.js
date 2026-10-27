@@ -11,6 +11,7 @@
 // Files under ~/.claude (your global ones) are only ever reported. Memory files are never rewritten.
 import { findHandoff } from './handoff.mjs'
 import { resolveLang } from './lang.mjs'
+import { askWithDeadline } from './ask.mjs'
 import { PROGRESS_ARCHIVE_DAYS, splitProgress } from './compact-logic.mjs'
 import { t } from './saver-i18n.mjs'
 import {
@@ -155,7 +156,7 @@ async function archiveProgress($) {
   const answers = [yes, t(lang, 'tidy_archive_no')]
   let answer
   try {
-    answer = await $.ui.ask(t(lang, 'tidy_archive_ask', { n: split.count, days: PROGRESS_ARCHIVE_DAYS, path: baseOf(source), archive: baseOf(archive) }), answers)
+    answer = await askWithDeadline($, t(lang, 'tidy_archive_ask', { n: split.count, days: PROGRESS_ARCHIVE_DAYS, path: baseOf(source), archive: baseOf(archive) }), answers, answers[1])
   } catch (err) {
     return t(lang, 'tidy_archive_cancelled')
   }

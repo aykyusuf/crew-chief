@@ -10,6 +10,8 @@
 //   - The compact flow (hooks/compact-flow.mjs): at a phase boundary past 250k tokens it proposes a compaction,
 //     asks first, has the handoff files updated, and compacts with a detailed brief so nothing is lost.
 //   - /saver [on|off|status]
+//   - Every question the mod asks has a deadline (hooks/src/ask.js): unanswered after
+//     CREW_CHIEF_ASK_TIMEOUT_MIN minutes (default 20), it counts as "not now" / "no" / "cancel".
 //   - Once, after the first finished turn of a session where the advisor is off: offers to turn on
 //     /advisor (a stronger model Claude can ask at hard moments). It asks first, remembers "not now"
 //     for a week and "never" for good, and runs /advisor only after a yes.
@@ -25,8 +27,10 @@ import { open } from './coord.mjs'
 import { registerReset, resetNotePrompt, resetOnUsage, resetResetFlow } from './reset-flow.mjs'
 import { registerStats, cacheOnPrompt, statsReset, statsSessionStart, statsStepEnd, statsStepStart } from './stats-flow.mjs'
 import { registerTidy, tidySessionStart } from './tidy-flow.mjs'
+import { askWithDeadline, registerAsk } from './ask.mjs'
 import { addLanguageVote, resetLang, resolveLang } from './lang.mjs'
 import {
+  compactNoteActivity,
   compactNudge,
   compactSessionStart,
   compactTurnComplete,
@@ -126,9 +130,11 @@ async function askUser($, hit) {
     const now = await $.clock.now()
     const left = hit.resetsAt ? Date.parse(hit.resetsAt) - now : 0
     const reset = left > 0 ? t(lang, 'reset_in', { duration: formatDuration(left, unitsFor(lang)) }) : ''
-    const answer = await $.ui.ask(
+    const answer = await askWithDeadline(
+      $,
       t(lang, 'ask', { window: windowName(lang, hit.kind), percent: hit.percent, reset }),
       answers,
+      answers[1],
     )
     if (answer === answers[0]) {
       saver = true
@@ -237,7 +243,8 @@ async function offerAdvisor($) {
     const advisor = t(lang, 'model_' + plan.advisor)
     let answer
     try {
-      answer = await $.ui.ask(t(lang, plan.kind === 'second' ? 'advisor_ask_second' : 'advisor_ask_standard', { main, advisor }), answers)
+      // Unanswered: "remind me in a week", the same as clicking it.
+      answer = await askWithDeadline($, t(lang, plan.kind === 'second' ? 'advisor_ask_second' : 'advisor_ask_standard', { main, advisor }), answers, answers[1])
     } catch (err) {
       return
     }
@@ -323,6 +330,7 @@ export function register(on) {
 
   on('prompt.submit', async ($, e, next) => {
     lastPromptAt = await $.clock.now()
+    compactNoteActivity()
     // Only what the person types counts: task notifications, peer sessions, schedules, and other
     // plugins also come through prompt.submit, and their text is usually English.
     const kind = e.origin ? e.origin.kind : undefined
@@ -365,7 +373,10 @@ export function register(on) {
   })
 
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId === undefined) lastStepAt = await $.clock.now()
+    if (e.agentId === undefined) {
+      lastStepAt = await $.clock.now()
+      compactNoteActivity()
+    }
     await statsStepStart($, e)
     // Debug log only (claude --debug-file): what the host hands this hook for a subagent request.
     if (e.agentId !== undefined) {
@@ -427,6 +438,7 @@ export function register(on) {
     return { text: t(lang, 'cmd_usage') }
   })
 
+  registerAsk(on)
   registerCompact(on)
   registerReset(on)
   registerTidy(on)

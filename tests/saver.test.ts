@@ -77,6 +77,7 @@ function harness(on: any, opts: Opts = {}) {
     if (e.tool !== 'AskUserQuestion') return { result: 'ok' }
     state.questions.push(e.questions[0].question)
     if (state.answer === 'reject') return { deny: 'dismissed' }
+    if (state.answer === 'hang') return new Promise(() => {}) // nobody answers
     return { result: { answers: { [e.questions[0].question]: state.answer } } }
   })
   on('turn.step', async function* ($: any, e: any) {
@@ -177,6 +178,24 @@ test('a reset window (new resetsAt) asks again', async ($, on) => {
   await measure($, s, FIVE(72))
   await measure($, s, [{ kind: 'five_hour', percentUsed: 72, resetsAt: '1970-01-01T10:00:00.000Z' }])
   expect(s.questions.length).toBe(2)
+})
+
+test('an unanswered saver question counts as "not now" after 20 minutes, and the next threshold asks again', async ($, on) => {
+  const s = harness(on, { answer: 'hang' })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, s, FIVE(72))
+  expect(s.questions.length).toBe(1)
+  await s.clock.advance(19 * 60_000)
+  await settle()
+  expect(s.toasts.some((t) => t.startsWith('No answer'))).toBe(false)
+  await s.clock.advance(60_000)
+  await settle()
+  expect(s.toasts).toContain('No answer for 20 min: treated as "Not now".')
+  await step($, 'claude-opus-5-5', 'xhigh', 'a1')
+  expect(s.efforts).toEqual(['xhigh']) // the saver stayed off
+  s.answer = ON
+  await measure($, s, FIVE(82))
+  expect(s.questions.length).toBe(2) // the lock was released
 })
 
 test('a dismissed question is not an error and leaves the saver off', async ($, on) => {
@@ -572,6 +591,17 @@ test('"remind me in a week" pauses the offer for exactly a week', async ($, on) 
   const s = await offerSession($, on, { answer: ADV_LATER })
   expect(s.advisorWrites).toEqual(['later:' + (3_600_000 + WEEK)])
   expect(s.commandRuns).toEqual([])
+})
+
+test('an unanswered advisor offer counts as "remind me in a week" after 20 minutes, never as "never"', async ($, on) => {
+  const s = await offerSession($, on, { answer: 'hang' })
+  expect(s.questions.length).toBe(1)
+  expect(s.advisorWrites).toEqual([])
+  await s.clock.advance(20 * 60_000)
+  await settle()
+  expect(s.advisorWrites).toEqual(['later:' + (3_600_000 + WEEK)])
+  expect(s.commandRuns).toEqual([])
+  expect(s.toasts).toContain('No answer for 20 min: treated as "Remind me in a week".')
 })
 
 test('"don\'t ask again" is remembered and nothing is run', async ($, on) => {

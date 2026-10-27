@@ -13,6 +13,7 @@
 // CREW_CHIEF_RESET=off turns both off. Timers last as long as the session does.
 import { open } from './coord.mjs'
 import { resolveLang } from './lang.mjs'
+import { askWithDeadline } from './ask.mjs'
 import { formatDuration } from './saver-logic.mjs'
 import { t, unitsFor, windowName } from './saver-i18n.mjs'
 
@@ -108,9 +109,11 @@ async function offerContinue($) {
     const answers = [t(lang, 'limit_yes'), t(lang, 'limit_no'), t(lang, 'limit_never')]
     let answer
     try {
-      answer = await $.ui.ask(
+      answer = await askWithDeadline(
+        $,
         t(lang, 'limit_ask', { window: windowName(lang, hit.window.kind), duration: formatDuration(wait, unitsFor(lang)) }),
         answers,
+        answers[1],
       )
     } catch (err) {
       return

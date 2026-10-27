@@ -4,7 +4,7 @@ The directory that reviews plugins reads the mod file by itself: it accepts `$` 
 and `on` only when they are passed to a function declared in the SAME file. So everything that touches
 `$` lives in hooks/src/*.js, and this script joins those parts, in the order below, into the readable,
 unminified hooks/register.js. Pure helpers that never see `$` (saver-logic, saver-i18n, compact-logic,
-tidy-logic, report-logic, coord) stay separate files and are imported.
+tidy-logic, report-logic, ask-logic, coord) stay separate files and are imported.
 
     python3 tools/build_mod.py          # write hooks/register.js
     python3 tools/build_mod.py --check  # fail if it is stale or two parts declare the same name (CI)
@@ -17,7 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "hooks", "src")
 OUT = os.path.join(ROOT, "hooks", "register.js")
 # Join order: shared helpers first, the entry (which registers every hook) last.
-PARTS = ["lang", "handoff", "stats-flow", "reset-flow", "compact-flow", "tidy-flow", "register"]
+PARTS = ["lang", "ask", "handoff", "stats-flow", "reset-flow", "compact-flow", "tidy-flow", "register"]
 BUNDLED = {f"./{p}.mjs" for p in PARTS} | {f"./{p}.js" for p in PARTS}
 
 IMPORT = re.compile(r"^import\s*\{([^}]*)\}\s*from\s*'([^']+)'\s*\n", re.M)

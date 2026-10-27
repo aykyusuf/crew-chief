@@ -113,6 +113,7 @@ function harness(on: any, opts: Opts = {}) {
     const answer = answers[Math.min(state.answerAt, answers.length - 1)]
     state.answerAt += 1
     if (answer === 'reject') return { deny: 'dismissed' }
+    if (answer === 'hang') return new Promise(() => {}) // nobody answers
     return { result: { answers: { [e.questions[0].question]: answer } } }
   })
   on('turn.step', async function* ($: any, e: any) {
@@ -140,6 +141,19 @@ async function finishTurn($: any, s: any) {
   await settle()
 }
 
+// The compaction question waits 10 s after a clean turn end.
+async function afterGrace(s: any) {
+  await s.clock.advance(10_000)
+  await settle()
+  await s.clock.advance(0)
+  await settle()
+}
+
+async function askAtTurnEnd($: any, s: any) {
+  await finishTurn($, s)
+  await afterGrace(s)
+}
+
 async function prompt($: any, text = 'go') {
   await $.prompt.submit({ text, origin: { kind: 'composer' } })
 }
@@ -160,6 +174,7 @@ const FILES = { '/work/STATUS.md': STATUS, '/work/tasks.json': TASKS }
 async function compactOnce($: any, s: any) {
   await setTokens($, s, Math.max(s.tokens, 260_000)) // a fresh measurement arms the flow again after a compaction
   await $.tool.call({ tool: TOOL, phase: 'p' })
+  await askAtTurnEnd($, s)
   if ('/work/STATUS.md' in s.files) s.mtimes['/work/STATUS.md'] = 9_000_000 + s.answerAt
   await finishTurn($, s)
   await runClock(s, 1500)
@@ -168,6 +183,7 @@ async function compactOnce($: any, s: any) {
 async function approvedPlan($: any, s: any) {
   await setTokens($, s, 260_000)
   const result = await $.tool.call({ tool: TOOL, phase: 'login done' })
+  await askAtTurnEnd($, s)
   return result
 }
 
@@ -213,15 +229,23 @@ test('the tool says "not needed" when the flow is not armed, and asks nothing', 
   expect(s.questions.length).toBe(0)
 })
 
-test('yes: the tool tells Claude to update the files, then the compaction runs with the brief', async ($, on) => {
+test('yes: the tool returns at once, the question comes after the turn, Claude updates the files, then the compaction runs', async ($, on) => {
   const s = harness(on, { answers: [YES], files: FILES, mtimes: { '/work/STATUS.md': 1_000 }, summary: FAITHFUL })
   await start($)
-  const result = await approvedPlan($, s)
+  await setTokens($, s, 260_000)
+  const result = await $.tool.call({ tool: TOOL, phase: 'login done' })
+  expect(JSON.stringify(result)).toContain('after this turn finishes')
+  expect(JSON.stringify(result)).toContain('Do not wait for an answer')
+  expect(s.questions.length).toBe(0) // nothing is asked inside the turn
+  await finishTurn($, s)
+  expect(s.questions.length).toBe(0) // the grace period
+  await afterGrace(s)
   expect(s.questions.length).toBe(1)
   expect(s.questions[0]).toContain('260k')
   expect(s.questions[0]).toContain('login done')
-  expect(JSON.stringify(result)).toContain('approved compaction')
-  expect(JSON.stringify(result)).toContain('STATUS.md')
+  expect(s.submitted.length).toBe(1)
+  expect(s.submitted[0]).toContain('approved compacting')
+  expect(s.submitted[0]).toContain('STATUS.md')
   expect(s.compactCalls.length).toBe(0)
 
   // Claude updates STATUS.md during the turn, then the turn ends.
@@ -261,28 +285,28 @@ test('the gate: retry submits the update request', async ($, on) => {
   await approvedPlan($, s)
   await finishTurn($, s)
   await settle()
-  expect(s.submitted.length).toBe(1)
-  expect(s.submitted[0]).toContain('Update the handoff files')
+  expect(s.submitted.length).toBe(2) // the first came with the yes
+  expect(s.submitted[1]).toContain('Update the handoff files')
   expect(s.compactCalls.length).toBe(0)
 })
 
 test('a project without handoff files is offered them first, and the compaction does not wait for them', async ($, on) => {
   const s = harness(on, { answers: [YES] })
   await start($)
-  const result = await approvedPlan($, s)
-  expect(JSON.stringify(result)).toContain('no handoff files')
-  expect(JSON.stringify(result)).toContain('crew-chief:crew-handoff')
-  expect(JSON.stringify(result)).toContain('under Constraints')
+  await approvedPlan($, s)
+  expect(s.submitted[0]).toContain('no handoff files')
+  expect(s.submitted[0]).toContain('crew-chief:crew-handoff')
+  expect(s.submitted[0]).toContain('under Constraints')
   await finishTurn($, s)
   await runClock(s, 1500)
   expect(s.compactCalls.length).toBe(1)
 })
 
-test('"not now" gives the tool a polite answer and arms again only after 100k more tokens', async ($, on) => {
+test('"not now" arms again only after 100k more tokens', async ($, on) => {
   const s = harness(on, { answers: [LATER] })
   await start($)
-  const result = await approvedPlan($, s)
-  expect(JSON.stringify(result)).toContain('declined for now')
+  await approvedPlan($, s)
+  expect(s.questions.length).toBe(1)
   await setTokens($, s, 300_000)
   await prompt($, 'x')
   expect(s.contexts.length).toBe(0)
@@ -298,16 +322,20 @@ test('"don\'t ask again" ends it for the session', async ($, on) => {
   await setTokens($, s, 900_000)
   const again = await $.tool.call({ tool: TOOL, phase: 'z' })
   expect(JSON.stringify(again)).toContain('Not needed yet')
-  await finishTurn($, s)
+  await askAtTurnEnd($, s)
   expect(s.questions.length).toBe(1)
 })
 
-test('a dismissed question is "unavailable", not an error', async ($, on) => {
+test('a dismissed question is not an error and is not asked again in this cycle', async ($, on) => {
   const s = harness(on, { answers: ['reject'] })
   await start($)
-  const result = await approvedPlan($, s)
-  expect(JSON.stringify(result)).toContain('cannot be asked')
+  await approvedPlan($, s)
+  expect(s.questions.length).toBe(1)
   expect(s.compactCalls.length).toBe(0)
+  await setTokens($, s, 410_000)
+  await askAtTurnEnd($, s)
+  expect(s.questions.length).toBe(1)
+  expect(s.submitted.length).toBe(0)
 })
 
 test('a subagent cannot propose a compaction', async ($, on) => {
@@ -332,6 +360,8 @@ test('fallback: Claude never calls the tool; past 400k the person is asked betwe
   expect(s.questions.length).toBe(0)
   await setTokens($, s, 410_000)
   await finishTurn($, s)
+  expect(s.questions.length).toBe(0) // the grace period
+  await afterGrace(s)
   expect(s.questions.length).toBe(1)
   expect(s.submitted.length).toBe(1) // the request to update the handoff files
   expect(s.submitted[0]).toContain('approved compacting')
@@ -361,7 +391,7 @@ test('CREW_CHIEF_COMPACT=off: no tool, no note, no flow', async ($, on) => {
   await setTokens($, s, 500_000)
   await prompt($, 'x')
   expect(s.contexts.length).toBe(0)
-  await finishTurn($, s)
+  await askAtTurnEnd($, s)
   expect(s.questions.length).toBe(0)
   expect((await $.command.run({ command: 'crew-compact', args: '' })).text).toContain('CREW_CHIEF_COMPACT=off')
 })
@@ -444,6 +474,7 @@ test('Turkish session: the question and the toast speak Turkish', async ($, on) 
   await start($)
   await setTokens($, s, 260_000)
   await $.tool.call({ tool: TOOL, phase: 'giriş bitti' })
+  await askAtTurnEnd($, s)
   expect(s.questions[0]).toContain('Bağlam 260k token')
   expect(s.questions[0]).toContain('giriş bitti')
 })
@@ -472,11 +503,11 @@ test('Cancel at the gate is not asked again at the very next turn end', async ($
   const s = harness(on, { answers: [YES, CANCEL], files: FILES, mtimes: { '/work/STATUS.md': 1_000 } })
   await start($)
   await setTokens($, s, 410_000)
-  await finishTurn($, s) // the fallback question: yes
+  await askAtTurnEnd($, s) // the fallback question: yes
   await finishTurn($, s) // STATUS.md unchanged: the gate question: cancel
   expect(s.questions.length).toBe(2)
-  await finishTurn($, s)
-  await finishTurn($, s)
+  await askAtTurnEnd($, s)
+  await askAtTurnEnd($, s)
   expect(s.questions.length).toBe(2)
   expect(s.compactCalls.length).toBe(0)
 })
@@ -500,7 +531,7 @@ test('fallback path without handoff files: the update request offers to set them
   const s = harness(on, { answers: [YES] })
   await start($)
   await setTokens($, s, 410_000)
-  await finishTurn($, s)
+  await askAtTurnEnd($, s)
   expect(s.submitted.length).toBe(1)
   expect(s.submitted[0]).toContain('no handoff files')
   expect(s.submitted[0]).toContain('crew-chief:crew-handoff')
@@ -509,9 +540,9 @@ test('fallback path without handoff files: the update request offers to set them
 test('files that exist keep the plain update request', async ($, on) => {
   const s = harness(on, { answers: [YES], files: FILES, mtimes: { '/work/STATUS.md': 1_000 } })
   await start($)
-  const result = await approvedPlan($, s)
-  expect(JSON.stringify(result)).toContain('Update the handoff files')
-  expect(JSON.stringify(result)).not.toContain('no handoff files')
+  await approvedPlan($, s)
+  expect(s.submitted[0]).toContain('Update the handoff files')
+  expect(s.submitted[0]).not.toContain('no handoff files')
 })
 
 const STOP = (tasks: unknown[]) => ({ session_id: 's', transcript_path: '/t', cwd: '/work', hook_event_name: 'Stop', stop_hook_active: false, background_tasks: tasks })
@@ -521,21 +552,25 @@ test('the question shows what is running and what is uncommitted', async ($, on)
   await start($)
   await setTokens($, s, 260_000)
   await $.tool.call({ tool: TOOL, phase: 'login done' })
+  await askAtTurnEnd($, s)
   expect(s.questions[0]).toContain('subagents running: 0')
   expect(s.questions[0]).toContain('uncommitted files: 3')
 })
 
-test('subagents running: the tool is told to wait and nobody is asked', async ($, on) => {
+test('subagents running when the grace ends: nobody is asked until a later clean turn end', async ($, on) => {
   const s = harness(on)
   s.agents = ['running']
   await start($)
   await setTokens($, s, 260_000)
-  const result = await $.tool.call({ tool: TOOL, phase: 'x' })
-  expect(JSON.stringify(result)).toContain('Subagents are still running')
+  await $.tool.call({ tool: TOOL, phase: 'x' })
+  await askAtTurnEnd($, s)
   expect(s.questions.length).toBe(0)
   s.agents = ['completed', 'idle']
-  expect(JSON.stringify(await $.tool.call({ tool: TOOL, phase: 'x' }))).toContain('approved compaction')
+  await afterGrace(s)
+  expect(s.questions.length).toBe(0) // no timer left: it waits for a turn end
+  await askAtTurnEnd($, s)
   expect(s.questions.length).toBe(1)
+  expect(s.submitted[0]).toContain('approved compacting')
 })
 
 test('the fallback question waits for subagents and comes at the next finished turn', async ($, on) => {
@@ -543,10 +578,10 @@ test('the fallback question waits for subagents and comes at the next finished t
   s.agents = ['running']
   await start($)
   await setTokens($, s, 410_000)
-  await finishTurn($, s)
+  await askAtTurnEnd($, s)
   expect(s.questions.length).toBe(0)
   s.agents = []
-  await finishTurn($, s)
+  await askAtTurnEnd($, s)
   expect(s.questions.length).toBe(1)
 })
 
@@ -558,8 +593,9 @@ test('only a turn that ended with an answer is a phase boundary', async ($, on) 
     await $.turn.complete({ turnId: 'x' + reason, answer: '', durationMs: 1, isAborted: reason === 'aborted', reason, usage: null, ...(reason === 'refusal' ? { refusal: { category: null, explanation: null } } : {}) })
     await settle()
   }
+  await afterGrace(s)
   expect(s.questions.length).toBe(0)
-  await finishTurn($, s)
+  await askAtTurnEnd($, s)
   expect(s.questions.length).toBe(1)
 })
 
@@ -598,6 +634,7 @@ test('a dev server left open is shown, never waited for, and named to the summar
   ]))
   await setTokens($, s, 260_000)
   await $.tool.call({ tool: TOOL, phase: 'p' })
+  await askAtTurnEnd($, s)
   expect(s.questions[0]).toContain('background processes: 2 (uvicorn app:app --port 8000, npm run dev)')
   await finishTurn($, s)
   await runClock(s, 1500)
@@ -634,4 +671,130 @@ test('a subagent waiting on a server it started does not hold anything back, and
   await finishTurn($, s)
   await runClock(s, 1500)
   expect(s.compactCalls.length).toBe(1)
+})
+
+test('a prompt during the grace period holds the question until the next clean turn end', async ($, on) => {
+  const s = harness(on, { answers: [LATER] })
+  await start($)
+  await setTokens($, s, 260_000)
+  await $.tool.call({ tool: TOOL, phase: 'p' })
+  await finishTurn($, s)
+  await prompt($, 'one more thing')
+  await afterGrace(s)
+  expect(s.questions.length).toBe(0)
+  await askAtTurnEnd($, s)
+  expect(s.questions.length).toBe(1)
+})
+
+test('a main-loop model request during the grace period holds the question too', async ($, on) => {
+  const s = harness(on, { answers: [LATER] })
+  await start($)
+  await setTokens($, s, 260_000)
+  await $.tool.call({ tool: TOOL, phase: 'p' })
+  await finishTurn($, s)
+  const gen = $.turn.step({ turnId: 'n', index: 0, model: 'claude-sonnet-5-5', messages: [] })
+  for await (const _ of gen) {
+    // drain
+  }
+  await afterGrace(s)
+  expect(s.questions.length).toBe(0)
+  await askAtTurnEnd($, s)
+  expect(s.questions.length).toBe(1)
+})
+
+test('two turn ends close together give one question', async ($, on) => {
+  const s = harness(on, { answers: [LATER] })
+  await start($)
+  await setTokens($, s, 260_000)
+  await $.tool.call({ tool: TOOL, phase: 'p' })
+  await finishTurn($, s)
+  await finishTurn($, s)
+  await afterGrace(s)
+  await afterGrace(s)
+  expect(s.questions.length).toBe(1)
+})
+
+test('/clear during the grace period: no question', async ($, on) => {
+  const s = harness(on, { answers: [YES] })
+  await start($)
+  await setTokens($, s, 260_000)
+  await $.tool.call({ tool: TOOL, phase: 'p' })
+  await finishTurn($, s)
+  await $.session.end({ reason: 'clear', sessionId: 'sess1', resume: { sessionId: 'sess1' } })
+  await afterGrace(s)
+  expect(s.questions.length).toBe(0)
+  expect(s.submitted.length).toBe(0)
+})
+
+test('an unanswered compaction question counts as "not now" after 20 minutes and frees the flow', async ($, on) => {
+  const s = harness(on, { answers: ['hang'] })
+  await start($)
+  await setTokens($, s, 260_000)
+  await $.tool.call({ tool: TOOL, phase: 'p' })
+  await askAtTurnEnd($, s)
+  expect(s.questions.length).toBe(1)
+  expect((await $.command.run({ command: 'crew-compact', args: '' })).text).toContain('already being arranged')
+  await s.clock.advance(20 * 60_000)
+  await settle()
+  expect(s.toasts).toContain('No answer for 20 min: treated as "Not now".')
+  expect(s.submitted.length).toBe(0)
+  expect(s.compactCalls.length).toBe(0)
+  // "not now": armed again only after 100k more tokens, and nothing is locked
+  await setTokens($, s, 300_000)
+  await prompt($, 'x')
+  expect(s.contexts.length).toBe(0)
+  expect((await $.command.run({ command: 'crew-compact', args: '' })).text).toContain('ask when this turn ends')
+})
+
+test('an unanswered gate question counts as "cancel" after 20 minutes', async ($, on) => {
+  const s = harness(on, { answers: [YES, 'hang'], files: FILES, mtimes: { '/work/STATUS.md': 1_000 } })
+  await start($)
+  await approvedPlan($, s)
+  const done = $.turn.complete({ turnId: 'g', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer', usage: null })
+  await settle()
+  expect(s.questions.length).toBe(2)
+  await s.clock.advance(20 * 60_000)
+  await settle()
+  await done
+  expect(s.toasts).toContain('No answer for 20 min: treated as "Cancel".')
+  await runClock(s, 3000)
+  expect(s.compactCalls.length).toBe(0)
+})
+
+test('CREW_CHIEF_ASK_TIMEOUT_MIN=off: an unanswered question stays open', async ($, on) => {
+  const s = harness(on, { answers: ['hang'], env: { CREW_CHIEF_ASK_TIMEOUT_MIN: 'off' } })
+  await start($)
+  await setTokens($, s, 260_000)
+  await $.tool.call({ tool: TOOL, phase: 'p' })
+  await askAtTurnEnd($, s)
+  await s.clock.advance(60 * 60_000)
+  await settle()
+  expect(s.toasts.some((t) => t.startsWith('No answer'))).toBe(false)
+  expect((await $.command.run({ command: 'crew-compact', args: '' })).text).toContain('already being arranged')
+})
+
+test('CREW_CHIEF_ASK_TIMEOUT_MIN=1: the deadline is one minute', async ($, on) => {
+  const s = harness(on, { answers: ['hang'], env: { CREW_CHIEF_ASK_TIMEOUT_MIN: '1' } })
+  await start($)
+  await setTokens($, s, 260_000)
+  await $.tool.call({ tool: TOOL, phase: 'p' })
+  await askAtTurnEnd($, s)
+  await s.clock.advance(60_000)
+  await settle()
+  expect(s.toasts).toContain('No answer for 1 min: treated as "Not now".')
+})
+
+test('an AskUserQuestion that Claude raises itself is never given a deadline', async ($, on) => {
+  const s = harness(on, { answers: ['hang'] })
+  await start($)
+  let settled = false
+  $.tool.call({ tool: 'AskUserQuestion', questions: [{ question: 'Which database?', header: 'DB', options: [{ label: 'A', description: '' }, { label: 'B', description: '' }], multiSelect: false }] }).then(
+    () => (settled = true),
+    () => (settled = true),
+  )
+  await settle()
+  await s.clock.advance(60 * 60_000)
+  await settle()
+  expect(settled).toBe(false)
+  expect(s.toasts.some((t) => t.startsWith('No answer'))).toBe(false)
 })

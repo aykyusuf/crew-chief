@@ -3,6 +3,11 @@
 // declared here, so every part that touches `$` is joined into this one readable file. Pure helpers that
 // never see `$` stay in their own files and are imported below.)
 import {
+  minutesLabel,
+  parseAskTimeout,
+  pickFallback,
+} from './ask-logic.mjs'
+import {
   PROGRESS_ARCHIVE_DAYS,
   backgroundNote,
   backupName,
@@ -135,6 +140,121 @@ async function resolveLang($) {
     }
   }
   return pick.lang
+}
+
+// ===== ask ===================================================================
+// crew-chief questions with a deadline. Part of the mod in hooks/register.js (Claude Code 2.1.287+).
+//
+// $.ui.ask has no timeout, so a question nobody answers (a long job left running overnight) would stay open
+// for good. Every question the mod asks goes through askWithDeadline, which notes the question's text here.
+// $.ui.ask opens the dialog as a tool.call of AskUserQuestion that this mod's own hooks see; the hook below
+// races that call against a timer, and when the timer wins it returns the flow's safe default as the
+// answer: the engine closes the dialog and $.ui.ask resolves to that label, exactly as if it was clicked.
+// (That hook is only reached while the asking hook still runs; see askWithDeadline for the other case.)
+// Only questions noted here are raced: an AskUserQuestion that Claude raises itself passes through.
+// CREW_CHIEF_ASK_TIMEOUT_MIN sets the minutes (default 20, at most 30; "off" or "0" = no deadline).
+// question text -> { fallback, ms, lang, announced }
+const deadlines = new Map()
+const EXPIRED = Symbol('expired')
+
+// Asks like $.ui.ask (same answer, same rejection when dismissed or when nobody can be asked), but an
+// unanswered question resolves to `fallback` after the deadline. Two things enforce it:
+//   - the sibling hook in registerAsk closes the dialog with that answer. It is only reached while the
+//     hook that asks is still running (a $ call made after its hook returned skips this mod's own hooks);
+//   - the race below, so the flow moves on with the default in every case, even when the dialog could
+//     not be closed (then a late click on it changes nothing).
+async function askWithDeadline($, question, answers, fallback) {
+  let entry
+  try {
+    const ms = parseAskTimeout(await $.env.get('CREW_CHIEF_ASK_TIMEOUT_MIN'))
+    const label = pickFallback(answers, fallback)
+    if (ms > 0 && label === undefined) {
+      $.ui.log('crew-chief: no safe default for a question, it has no deadline: ' + String(fallback), { to: 'debug' })
+    }
+    if (ms > 0 && label !== undefined) {
+      // Two questions with the same text at once share the first one's entry.
+      entry = deadlines.get(question) ?? { fallback: label, ms, lang: await resolveLang($), question, announced: false }
+    }
+  } catch (err) {
+    entry = undefined // no deadline then; the question itself still goes out
+  }
+  if (entry === undefined) return $.ui.ask(question, answers)
+  const owner = !deadlines.has(question)
+  if (owner) deadlines.set(question, entry)
+  let timer
+  try {
+    const asked = $.ui.ask(question, answers)
+    asked.catch(() => {}) // dismissed after the deadline: nobody is listening any more
+    const expired = new Promise((resolve) => {
+      timer = $.clock.after(entry.ms, () => resolve(EXPIRED))
+    })
+    const first = await Promise.race([asked, expired])
+    if (first !== EXPIRED) return first
+    announceExpiry($, entry)
+    return entry.fallback
+  } finally {
+    try {
+      if (timer) timer.cancel()
+    } catch (err) {
+      // Already fired.
+    }
+    if (owner && deadlines.get(question) === entry) deadlines.delete(question)
+  }
+}
+
+function deadlineFor(e) {
+  const qs = Array.isArray(e.questions) ? e.questions : []
+  if (qs.length !== 1 || !qs[0] || typeof qs[0].question !== 'string') return undefined
+  return deadlines.get(qs[0].question)
+}
+
+// Once per question, whichever of the two deadlines comes first.
+function announceExpiry($, d) {
+  if (d.announced) return
+  d.announced = true
+  try {
+    const min = minutesLabel(d.ms)
+    $.ui.log('crew-chief: question unanswered for ' + min + ' min, answered "' + d.fallback + '": ' + d.question.slice(0, 120), { to: 'debug' })
+    $.ui.toast(t(d.lang, 'ask_expired_toast', { min, answer: d.fallback }), { timeoutMs: 15000 })
+  } catch (err) {
+    // The default answer stands either way.
+  }
+}
+
+function registerAsk(on) {
+  on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
+    let d
+    try {
+      d = deadlineFor(e)
+    } catch (err) {
+      d = undefined
+    }
+    if (d === undefined) return next(e)
+    let timer
+    let answered
+    try {
+      const expired = new Promise((resolve) => {
+        timer = $.clock.after(d.ms, () => resolve(EXPIRED))
+      })
+      answered = next(e)
+      answered.catch(() => {})
+      const first = await Promise.race([answered.then((r) => ({ r })), expired])
+      if (first === EXPIRED) {
+        announceExpiry($, d)
+        return { result: { questions: e.questions, answers: { [d.question]: d.fallback }, afkTimeoutMs: d.ms } }
+      }
+      return first.r
+    } catch (err) {
+      // A dismissed dialog rejects `answered`: pass that on unchanged. Anything else: no deadline.
+      return answered !== undefined ? answered : next(e)
+    } finally {
+      try {
+        if (timer) timer.cancel()
+      } catch (err) {
+        // Already fired.
+      }
+    }
+  })
 }
 
 // ===== handoff ===============================================================
@@ -439,9 +559,11 @@ async function offerContinue($) {
     const answers = [t(lang, 'limit_yes'), t(lang, 'limit_no'), t(lang, 'limit_never')]
     let answer
     try {
-      answer = await $.ui.ask(
+      answer = await askWithDeadline(
+        $,
         t(lang, 'limit_ask', { window: windowName(lang, hit.window.kind), duration: formatDuration(wait, unitsFor(lang)) }),
         answers,
+        answers[1],
       )
     } catch (err) {
       return
@@ -489,8 +611,11 @@ function registerReset(on) {
 //   1. Past the "arm" size (250k tokens on a 1M window, 60 % of a small one) the next prompt carries a
 //      one-time note telling Claude to call the tool crew_compact_checkpoint at the next natural phase
 //      boundary (never mid-task). Claude decides when a phase is over.
-//   2. The tool asks the person. If Claude never calls it, the person is asked between turns once the
-//      "ask" size is passed (400k, 85 % of a small window). Nothing is compacted without a yes.
+//   2. The tool only takes note and returns at once (a tool that waited for the person would hold the turn
+//      open, overnight if nobody is there). The person is asked after the turn has ended cleanly and the
+//      session has stayed quiet for 10 seconds with no subagent running; otherwise at the next clean turn
+//      end. If Claude never calls the tool, the same happens once the "ask" size is passed (400k, 85 % of
+//      a small window). Nothing is compacted without a yes; an unanswered question counts as "not now".
 //   3. On yes, Claude updates STATUS.md / tasks.json / PROGRESS.md (the handoff files, when the project
 //      has them). Compaction waits until STATUS.md has changed (the gate) or the person overrides.
 //   4. The compaction runs between turns with a detailed brief for the summarizer (compact-logic.mjs).
@@ -512,13 +637,15 @@ const TRANSCRIPTS_KEPT = 3
 const MAX_UPDATE_RETRIES = 2
 const AGENT_WAIT_MS = 5000
 const MAX_AGENT_WAITS = 36
+// How long the session must stay quiet after a clean turn end before the compaction question opens.
+const GRACE_MS = 10_000
 // `waiting` is a subagent held on background work it owns (a server it started), on a plan's approval or
 // on another agent: none of these is work that a compaction would cut in half, and a subagent that left a
 // dev server running stays `waiting` for as long as the server lives, so it must never hold a compaction back.
 const RUNNING_STATES = ['pending', 'running']
 
 const TOOL_DESCRIPTION =
-  'Propose compacting the conversation. Call it once, and only when a note from crew-chief says the context is large AND you have just finished a phase (a task done, tests passing, before an unrelated area). Never call it in the middle of work. It asks the user; if they decline, do not call it again.'
+  'Propose compacting the conversation. Call it once, and only when a note from crew-chief says the context is large AND you have just finished a phase (a task done, tests passing, before an unrelated area). Never call it in the middle of work. It returns at once; the user is asked after your turn ends. Do not wait for an answer and do not call it again.'
 
 const UPDATE_TEXT =
   'Update the handoff files of this project now, for those that exist: STATUS.md (Now, Next, Constraints = every rule the user gave, copied verbatim; keep the lines already there and only add new ones, Decisions, Failed attempts), tasks.json (only status and evidence change), PROGRESS.md (one dated line). If STATUS.md has no Constraints section, do not invent one; say so in your reply. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
@@ -533,11 +660,8 @@ async function updateText($) {
 }
 
 const RESULTS = {
-  declined: 'The user declined for now. Carry on with the work and do not call this tool again until you are told the context has grown.',
-  never: 'The user does not want compaction proposals for the rest of this session. Carry on and do not call this tool again.',
-  unavailable: 'The user cannot be asked right now. Carry on with the work.',
+  noted: 'Noted. The user will be asked about compaction after this turn finishes. Do not wait for an answer; carry on and finish the turn normally. Do not call this tool again.',
   notNeeded: 'Not needed yet. Keep working; crew-chief will say when to propose a compaction.',
-  subagents: 'Subagents are still running. Call this tool again after they have finished and their results are in.',
   busy: 'A compaction is already being arranged. Nothing more to do about it.',
 }
 
@@ -553,6 +677,9 @@ function freshCompact(toolReady = false) {
     compacting: false,
     toolReady,
     bgTasks: [],
+    wantAsk: null, // { phase } once the question is due at a quiet turn end
+    askTimer: null, // the one pending grace timer
+    activity: 0, // counts main-loop prompts and model requests
   }
 }
 
@@ -561,6 +688,7 @@ let ck = freshCompact()
 // session.start does not fire after /clear, so the tool registered at the start is still there: keep
 // toolReady across a reset, and let compactSessionStart (a real start) decide it afresh.
 function resetCompact() {
+  cancelAskTimer()
   ck = freshCompact(ck.toolReady)
   open.compact = false
 }
@@ -573,7 +701,25 @@ function cycleDone() {
   ck.askedFallback = false
   ck.rearmAt = 0
   ck.plan = null
+  ck.wantAsk = null
+  cancelAskTimer()
   statsNoteBoundary()
+}
+
+function cancelAskTimer() {
+  const timer = ck.askTimer
+  ck.askTimer = null
+  try {
+    if (timer) timer.cancel()
+  } catch (err) {
+    // Already fired.
+  }
+}
+
+// Called from the mod's main-loop prompt.submit and turn.step hooks: something started after the turn
+// ended, so the question waits for the next clean turn end.
+function compactNoteActivity() {
+  ck.activity += 1
 }
 
 // A mod must spell environment variable names as literals in $.env.get, so each switch is written out.
@@ -633,7 +779,7 @@ async function compactNudge($) {
   const usage = await safe(() => $.session.usage(), undefined)
   const tokens = usage?.context?.tokens
   const name = `mcp__${$.plugin.name}__${TOOL_NAME}`
-  return `[crew-chief] The context is about ${tokensLabel(tokens)} tokens; quality and cost both get worse from here. At the next natural phase boundary (a task finished, tests passing, before starting an unrelated area; never in the middle of work) call the tool ${name} once with a one-line phase summary. It asks the user whether to compact. If they decline, carry on and do not call it again.`
+  return `[crew-chief] The context is about ${tokensLabel(tokens)} tokens; quality and cost both get worse from here. At the next natural phase boundary (a task finished, tests passing, before starting an unrelated area; never in the middle of work) call the tool ${name} once with a one-line phase summary. It returns at once and the user is asked after your turn ends; do not wait for an answer and do not call it again.`
 }
 
 // ---- asking and planning --------------------------------------------------------------------
@@ -696,7 +842,8 @@ async function askAndPlan($, why) {
     const state = await stateLine($, lang, agents, waiting)
     let answer
     try {
-      answer = await $.ui.ask(t(lang, 'ck_ask', { tokens: tokensLabel(tokens), phase, state }), answers)
+      // Unanswered: "not now", the same as clicking it.
+      answer = await askWithDeadline($, t(lang, 'ck_ask', { tokens: tokensLabel(tokens), phase, state }), answers, answers[1])
     } catch (err) {
       return 'unavailable'
     }
@@ -723,10 +870,33 @@ async function requestStateUpdate($) {
   $.prompt.submit({ text }).catch(() => {})
 }
 
-async function askFallback($) {
-  const outcome = await askAndPlan($, {})
+// After a clean turn end: wait GRACE_MS, then ask if nothing started meanwhile. At most one timer.
+function scheduleAsk($) {
+  if (ck.askTimer) return
+  const cycle = ck
+  const seen = ck.activity
+  ck.askTimer = $.clock.after(GRACE_MS, () => {
+    if (cycle !== ck) return // /clear, /resume or a new session since
+    ck.askTimer = null
+    return askAfterGrace($, seen)
+  })
+}
+
+async function askAfterGrace($, seen) {
+  const why = ck.wantAsk
+  if (!why) return
+  if (!ck.armed || ck.never || ck.plan || ck.compacting || (await disabled($))) {
+    ck.wantAsk = null
+    return
+  }
+  if (ck.activity !== seen) return // a new turn started: ask at its end instead
+  const outcome = await askAndPlan($, why)
+  // 'busy' (another question is open) and 'subagents' keep the request for the next clean turn end.
+  if (outcome === 'busy' || outcome === 'subagents') return
+  ck.wantAsk = null
   if (outcome === 'approved') requestStateUpdate($)
-  else if (outcome === 'busy' || outcome === 'subagents') ck.askedFallback = false
+  // Dismissed, or nobody can be asked: the 400k fallback does not ask again in this cycle either.
+  else if (outcome === 'unavailable') ck.askedFallback = true
 }
 
 async function advancePlan($) {
@@ -742,7 +912,8 @@ async function advancePlan($) {
   open.compact = true
   let answer
   try {
-    answer = await $.ui.ask(t(lang, 'ck_gate_ask'), answers)
+    // Unanswered: "cancel", the same as clicking it.
+    answer = await askWithDeadline($, t(lang, 'ck_gate_ask'), answers, answers[2])
   } catch (err) {
     answer = answers[2]
   } finally {
@@ -776,12 +947,13 @@ async function compactTurnComplete($, usage, reason) {
   }
   if (!clean) return
   const tokens = usage?.context?.tokens
-  if (!ck.armed || ck.never || ck.compacting || ck.asking || ck.askedFallback || typeof tokens !== 'number') return
-  const lim = await limits($, usage)
-  if (tokens >= lim.ask) {
+  if (!ck.armed || ck.never || ck.compacting || ck.asking) return
+  if (!ck.wantAsk && !ck.askedFallback && typeof tokens === 'number' && tokens >= (await limits($, usage)).ask) {
+    // Claude never called the tool: ask anyway, once per cycle.
     ck.askedFallback = true
-    askFallback($) // not awaited: the hook must not wait for the person
+    ck.wantAsk = {}
   }
+  if (ck.wantAsk) scheduleAsk($) // the hook never waits for the person
 }
 
 // ---- running the compaction -----------------------------------------------------------------
@@ -983,10 +1155,11 @@ function registerCompact(on) {
   on('tool.call', { tool: TOOL_MATCH }, async ($, e) => {
     if (e.agentId !== undefined) return { deny: 'Only the main conversation can propose a compaction.' }
     if (!ck.armed || ck.never) return { result: RESULTS.notNeeded }
-    if (ck.plan || ck.compacting) return { result: RESULTS.busy }
-    const outcome = await askAndPlan($, { phase: clip(e.phase) })
-    if (outcome === 'approved') return { result: 'The user approved compaction. ' + (await updateText($)) }
-    return { result: RESULTS[outcome] ?? RESULTS.busy }
+    if (ck.plan || ck.compacting || ck.asking) return { result: RESULTS.busy }
+    // The question waits for the end of this turn (compactTurnComplete): a tool that waited for the
+    // person would hold the turn open.
+    ck.wantAsk = { phase: clip(e.phase) }
+    return { result: RESULTS.noted }
   })
 
   // Every compaction a person, the engine or another plugin starts passes here. (One this plugin starts
@@ -1160,7 +1333,7 @@ async function archiveProgress($) {
   const answers = [yes, t(lang, 'tidy_archive_no')]
   let answer
   try {
-    answer = await $.ui.ask(t(lang, 'tidy_archive_ask', { n: split.count, days: PROGRESS_ARCHIVE_DAYS, path: baseOf(source), archive: baseOf(archive) }), answers)
+    answer = await askWithDeadline($, t(lang, 'tidy_archive_ask', { n: split.count, days: PROGRESS_ARCHIVE_DAYS, path: baseOf(source), archive: baseOf(archive) }), answers, answers[1])
   } catch (err) {
     return t(lang, 'tidy_archive_cancelled')
   }
@@ -1222,6 +1395,8 @@ function registerTidy(on) {
 //   - The compact flow (hooks/compact-flow.mjs): at a phase boundary past 250k tokens it proposes a compaction,
 //     asks first, has the handoff files updated, and compacts with a detailed brief so nothing is lost.
 //   - /saver [on|off|status]
+//   - Every question the mod asks has a deadline (hooks/src/ask.js): unanswered after
+//     CREW_CHIEF_ASK_TIMEOUT_MIN minutes (default 20), it counts as "not now" / "no" / "cancel".
 //   - Once, after the first finished turn of a session where the advisor is off: offers to turn on
 //     /advisor (a stronger model Claude can ask at hard moments). It asks first, remembers "not now"
 //     for a week and "never" for good, and runs /advisor only after a yes.
@@ -1308,9 +1483,11 @@ async function askUser($, hit) {
     const now = await $.clock.now()
     const left = hit.resetsAt ? Date.parse(hit.resetsAt) - now : 0
     const reset = left > 0 ? t(lang, 'reset_in', { duration: formatDuration(left, unitsFor(lang)) }) : ''
-    const answer = await $.ui.ask(
+    const answer = await askWithDeadline(
+      $,
       t(lang, 'ask', { window: windowName(lang, hit.kind), percent: hit.percent, reset }),
       answers,
+      answers[1],
     )
     if (answer === answers[0]) {
       saver = true
@@ -1419,7 +1596,8 @@ async function offerAdvisor($) {
     const advisor = t(lang, 'model_' + plan.advisor)
     let answer
     try {
-      answer = await $.ui.ask(t(lang, plan.kind === 'second' ? 'advisor_ask_second' : 'advisor_ask_standard', { main, advisor }), answers)
+      // Unanswered: "remind me in a week", the same as clicking it.
+      answer = await askWithDeadline($, t(lang, plan.kind === 'second' ? 'advisor_ask_second' : 'advisor_ask_standard', { main, advisor }), answers, answers[1])
     } catch (err) {
       return
     }
@@ -1505,6 +1683,7 @@ export function register(on) {
 
   on('prompt.submit', async ($, e, next) => {
     lastPromptAt = await $.clock.now()
+    compactNoteActivity()
     // Only what the person types counts: task notifications, peer sessions, schedules, and other
     // plugins also come through prompt.submit, and their text is usually English.
     const kind = e.origin ? e.origin.kind : undefined
@@ -1547,7 +1726,10 @@ export function register(on) {
   })
 
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId === undefined) lastStepAt = await $.clock.now()
+    if (e.agentId === undefined) {
+      lastStepAt = await $.clock.now()
+      compactNoteActivity()
+    }
     await statsStepStart($, e)
     // Debug log only (claude --debug-file): what the host hands this hook for a subagent request.
     if (e.agentId !== undefined) {
@@ -1609,6 +1791,7 @@ export function register(on) {
     return { text: t(lang, 'cmd_usage') }
   })
 
+  registerAsk(on)
   registerCompact(on)
   registerReset(on)
   registerTidy(on)

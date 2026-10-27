@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0 (2026-10-27)
+- No plugin question waits forever any more: a saver, advisor, compaction, limit-reset or `/crew-tidy archive` question left unanswered for 20 minutes counts as its safe answer (*Not now*, *Remind me in a week*, *No*, *Cancel*; never the yes and never *Don't ask again*), with a toast that says so. `CREW_CHIEF_ASK_TIMEOUT_MIN` sets the minutes (at most 30; `off` keeps the old waiting). Where it can, the mod also closes the dialog; a question raised between turns may stay on screen, and a late click on it then changes nothing.
+- The compaction question no longer holds Claude's turn open: the `crew_compact_checkpoint` tool only takes note and returns at once, and you are asked after the turn has ended with an answer and the session has stayed quiet for 10 seconds (no new prompt, no model request, no subagent running); otherwise at the next such turn end. A long job left running overnight no longer stops at it.
+- Claude's own `AskUserQuestion` questions are never touched.
+
 ## 0.6.6 (2026-10-25)
 - Fixed the saver not lowering subagent effort: the `turn.step` rewrite (`high -> medium`) was logged but `/tasks` still showed the Opus agents at `high`, because the effort in an agent's own definition wins over it (seen on Claude Code 2.1.310). While the saver is on, an `Agent` call for `implementer-hard`, `reviewer` or any agent called with an Opus/Fable model now carries `effort: medium` itself, and only downwards (`low`/`medium` stay, Sonnet and Haiku agents are never touched). The `turn.step` cap stays as a second line. If the rewrite fails the call goes through unchanged.
 
