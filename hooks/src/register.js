@@ -10,6 +10,8 @@
 //   - The compact flow (hooks/compact-flow.mjs): at a phase boundary past 250k tokens it proposes a compaction,
 //     asks first, has the handoff files updated, and compacts with a detailed brief so nothing is lost.
 //   - /saver [on|off|status]
+//   - One status line with every running subagent's model, effort and tokens (hooks/src/agent-row.js), for
+//     the Desktop app, VS Code and terminals where the shell panel row cannot draw. CREW_CHIEF_ROW_MOD.
 //   - Every question the mod asks has a deadline (hooks/src/ask.js): unanswered after
 //     CREW_CHIEF_ASK_TIMEOUT_MIN minutes (default 20), it counts as "not now" / "no" / "cancel".
 //   - Once, after the first finished turn of a session where the advisor is off: offers to turn on
@@ -28,6 +30,7 @@ import { registerReset, resetNotePrompt, resetOnUsage, resetResetFlow } from './
 import { registerStats, cacheOnPrompt, statsReset, statsSessionStart, statsStepEnd, statsStepStart } from './stats-flow.mjs'
 import { registerTidy, tidySessionStart } from './tidy-flow.mjs'
 import { askWithDeadline, registerAsk } from './ask.mjs'
+import { rowSessionEnd, rowSessionStart, rowStepEnd, rowStepStart, rowTurnComplete } from './agent-row.mjs'
 import { addLanguageVote, resetLang, resolveLang } from './lang.mjs'
 import {
   compactNoteActivity,
@@ -319,12 +322,14 @@ export function register(on) {
     await compactSessionStart($)
     await tidySessionStart($)
     await statsSessionStart($)
+    rowSessionStart($)
     return result
   })
 
   on('session.end', async ($, e, next) => {
     resetState()
     resetCompact()
+    rowSessionEnd($)
     return next(e)
   })
 
@@ -357,6 +362,7 @@ export function register(on) {
   // The measure event can arrive mid-turn or not at all; a finished main turn is the safe moment
   // to ask, and a second chance to notice the limits.
   on('turn.complete', async ($, e, next) => {
+    await rowTurnComplete($, e)
     if (e.agentId === undefined) {
       lastCompleteAt = await $.clock.now()
       const usage = await $.session.usage()
@@ -396,8 +402,10 @@ export function register(on) {
         request = { ...e, effort: cap.effort }
       }
     }
+    await rowStepStart($, request)
     const result = yield* next(request)
     await statsStepEnd($, e, result)
+    await rowStepEnd($, request, result)
     return result
   })
 

@@ -2,6 +2,11 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.8.0 (2026-10-27)
+- Alt ajanların modeli, eforu ve token'ı artık Desktop uygulamasına, VS Code'a ve Windows terminallerine de ulaşıyor: mod, prompt'un üstünde tek bir durum satırı tutar (`scanner haiku-5.5·low 12.4k | implementer opus-5.5·medium 48.1k`), alt ajan bitince satır silinir. Efor, saver'ın sınırı uygulandıktan sonraki değerdir; token, ajanın son isteğinin context boyutudur. Geçen süre ve `~40%` ilerleme yalnızca shell panel satırında kalır.
+- `CREW_CHIEF_ROW_MOD=auto|on|off`: `auto` (varsayılan) satırı terminal dışında bir yüzey varsa ya da terminalde panel satırı çizilemiyorsa (Windows, ya da `jq` yok; oturum başına bir kez `jq --version` çalıştırılır) gösterir; `on` her zaman, `off` hiçbir zaman. Düz terminalde `jq` varsa değişen bir şey yok.
+- Durum: terminalde canlı denendi; VS Code için belgelenmiş (eklenti 2.1.299+), burada çalıştırılmadı; Desktop uygulamasında beklenen ama doğrulanmadı; Windows tasarım gereği (`jq` yok) ama bir Windows terminalinde çalıştırılmadı.
+
 ## 0.7.1 (2026-10-27)
 - Tek seferlik skill teklifi artık proje haritasını da ([structure-map](https://github.com/aykyusuf/structure-map)) öneriyor: kurulu değilse ve git'te en az 60 dosyası olan her kod projesinde (`data/skill-catalog.json`'da yeni `minFiles` alanı). Kurallar aynı: bir kez sorulur, evet demeden bir şey kurulmaz, "Şimdi değil" bir hafta bekletir, "Hiç" hatırlanır.
 

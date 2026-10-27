@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0 (2026-10-27)
+- The model, effort and tokens of your subagents now also reach the Desktop app, VS Code and Windows terminals: the mod keeps one status line above the prompt (`scanner haiku-5.5·low 12.4k | implementer opus-5.5·medium 48.1k`), cleared when the subagents finish. The effort is the one the request went out with, after the saver's cap; the tokens are the agent's latest request (its context size). Elapsed time and the `~40%` progress stay in the shell panel row only.
+- `CREW_CHIEF_ROW_MOD=auto|on|off`: `auto` (default) shows the line when the session draws somewhere other than the terminal, or in a terminal where the shell panel row cannot draw (Windows, or no `jq`; `jq --version` runs once a session to find out); `on` always, `off` never. A plain terminal with `jq` sees no change.
+- Status: run live in a terminal; documented for VS Code (extension 2.1.299+), not run here; expected but not verified on the Desktop app; Windows is covered by design (no `jq`) but was not run on a Windows terminal.
+
 ## 0.7.1 (2026-10-27)
 - The one-time skill offer now also suggests the project map ([structure-map](https://github.com/aykyusuf/structure-map)) in any code project with at least 60 tracked files, when it is not installed (new `minFiles` field in `data/skill-catalog.json`). Same rules as before: asked once, nothing installed without a yes, "Not now" pauses a week, "Never" is remembered.
 

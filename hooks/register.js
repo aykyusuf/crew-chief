@@ -38,6 +38,13 @@ import {
   statsRows,
 } from './report-logic.mjs'
 import {
+  formatRow,
+  jqMatters,
+  platformFromOs,
+  rowWanted,
+  usageTokens,
+} from './row-logic.mjs'
+import {
   classifyText,
   pickLanguage,
   t,
@@ -1382,6 +1389,202 @@ function registerTidy(on) {
   })
 }
 
+// ===== agent-row =============================================================
+// crew-chief agent row: one status line with every running subagent's model, effort and tokens. Part of the
+// mod in hooks/register.js (Claude Code 2.1.287+).
+//
+//   scanner haiku-5.5·low 12.4k | implementer opus-5.5·medium 48.1k
+//
+// The shell panel row (scripts/subagent-row.sh) only reaches a terminal with jq. This line, drawn with
+// $.ui.status, also reaches the Desktop app, VS Code and terminals without jq (Windows). The host puts its
+// own mark and the plugin's name before it.
+//   - model and effort: from each subagent request (turn.step), after the saver's cap was applied;
+//   - tokens: the latest request's input + cache + output (its context size), not a running sum;
+//   - names and who still runs: $.agent.list() (pending, running, waiting), minus the agents whose turn
+//     ended; the line is cleared when none is left.
+// CREW_CHIEF_ROW_MOD=auto (default) draws it when a surface is not the terminal, or when the terminal's
+// panel row cannot draw (Windows, or no jq: `jq --version` is run once a session to find out);
+// `on` always (with a surface), `off` never. Any failure leaves the line alone and the turn untouched.
+const ROW_LIVE = ['pending', 'running', 'waiting']
+const ROW_RECHECK_MS = 60_000
+const ROW_DRAW_DELAY_MS = 50
+
+function freshRow() {
+  return {
+    agents: new Map(), // agentId -> { model, effort, tokens }
+    done: new Set(), // agents whose turn ended (the list can still say running for a moment)
+    wanted: undefined,
+    checkedAt: undefined,
+    hasJq: undefined, // probed once a session, only when it matters
+    shown: false, // this module pinned a line
+    lastText: undefined,
+    drawPending: false,
+  }
+}
+
+let rowState = freshRow()
+
+async function rowProbeJq($) {
+  try {
+    const r = await $.process.run(['jq', '--version'], { timeoutMs: 3000 })
+    return r.exitCode === 0
+  } catch (err) {
+    return false // cannot start: not installed
+  }
+}
+
+// Decided at session start and again at most every ROW_RECHECK_MS (a Desktop or VS Code client can attach).
+async function rowCheckWanted($, force) {
+  let now
+  try {
+    now = await $.clock.now()
+  } catch (err) {
+    return false
+  }
+  if (!force && rowState.checkedAt !== undefined && now - rowState.checkedAt < ROW_RECHECK_MS) return rowState.wanted === true
+  let wanted = false
+  try {
+    const mode = await $.env.get('CREW_CHIEF_ROW_MOD')
+    const surfaces = await $.session.surfaces()
+    const platform = platformFromOs(await $.env.get('OS'))
+    let hasJq = rowState.hasJq
+    if (hasJq === undefined && jqMatters({ mode, surfaces, platform })) {
+      hasJq = await rowProbeJq($)
+      rowState.hasJq = hasJq
+    }
+    wanted = rowWanted({ mode, surfaces, platform, hasJq })
+  } catch (err) {
+    wanted = false
+  }
+  rowState.wanted = wanted
+  rowState.checkedAt = now
+  return wanted
+}
+
+function rowClear($) {
+  if (!rowState.shown) return
+  rowState.shown = false
+  rowState.lastText = undefined
+  try {
+    $.ui.status(undefined)
+  } catch (err) {
+    // Nothing to clear then.
+  }
+}
+
+function rowAgentName(a) {
+  if (typeof a.teammateId === 'string' && a.teammateId !== '') return a.teammateId.replace(/@.*$/, '')
+  return a.type || a.description || 'agent'
+}
+
+async function rowDraw($) {
+  try {
+    if (!(await rowCheckWanted($, false))) {
+      rowClear($)
+      return
+    }
+    let list
+    try {
+      list = await $.agent.list()
+    } catch (err) {
+      list = []
+    }
+    const rows = []
+    for (const a of Array.isArray(list) ? list : []) {
+      if (!a || !ROW_LIVE.includes(a.status) || rowState.done.has(a.id)) continue
+      const info = rowState.agents.get(a.id) ?? {}
+      rows.push({ name: rowAgentName(a), model: info.model, effort: info.effort, tokens: info.tokens })
+    }
+    const text = formatRow(rows)
+    if (text === undefined) {
+      rowClear($)
+      return
+    }
+    if (text === rowState.lastText && rowState.shown) return
+    $.ui.status(text)
+    rowState.shown = true
+    rowState.lastText = text
+    $.ui.log('crew-chief: agent row = ' + text, { to: 'debug' })
+  } catch (err) {
+    // A missing line is better than a broken turn.
+  }
+}
+
+// At most one redraw waits at a time; several requests in a burst draw once.
+function rowSchedule($) {
+  if (rowState.drawPending) return
+  rowState.drawPending = true
+  try {
+    $.clock.after(ROW_DRAW_DELAY_MS, () => {
+      rowState.drawPending = false
+      rowDraw($)
+    })
+  } catch (err) {
+    rowState.drawPending = false
+  }
+}
+
+// Skip the timer while the line is known to be unwanted (rechecked every ROW_RECHECK_MS).
+async function rowMaybeSchedule($) {
+  if (rowState.wanted === false && !rowState.shown && rowState.checkedAt !== undefined) {
+    const now = await $.clock.now()
+    if (now - rowState.checkedAt < ROW_RECHECK_MS) return
+  }
+  rowSchedule($)
+}
+
+// Called by the turn.step hook in register.js with the request as it goes out (the saver's cap applied).
+async function rowStepStart($, request) {
+  try {
+    if (request.agentId === undefined) return
+    const prev = rowState.agents.get(request.agentId) ?? {}
+    rowState.agents.set(request.agentId, { ...prev, model: request.model, effort: request.effort })
+    rowState.done.delete(request.agentId)
+    await rowMaybeSchedule($)
+  } catch (err) {
+    // Never in the way of a request.
+  }
+}
+
+// ...and with its result: the tokens of the agent's latest request.
+async function rowStepEnd($, request, result) {
+  try {
+    if (request.agentId === undefined) return
+    const tokens = usageTokens(result?.usage)
+    if (tokens === undefined) return
+    const prev = rowState.agents.get(request.agentId) ?? {}
+    rowState.agents.set(request.agentId, { ...prev, tokens })
+    await rowMaybeSchedule($)
+  } catch (err) {
+    // Never in the way of a request.
+  }
+}
+
+// The host takes one hook per event from a module (no second unmatched session.start, session.end or
+// turn.complete), so register.js calls these from its own hooks.
+function rowSessionStart($) {
+  rowClear($) // a line left from before /clear or /resume
+  rowState = freshRow()
+  // Not awaited: `jq --version` must not hold the session's start.
+  rowCheckWanted($, true).catch(() => {})
+}
+
+function rowSessionEnd($) {
+  rowClear($)
+  rowState = freshRow()
+}
+
+// A subagent's turn ended: off the line now, even if the list still says running. The main turn's end
+// is a second chance to clear a line that nothing else redraws.
+async function rowTurnComplete($, e) {
+  try {
+    if (e.agentId !== undefined) rowState.done.add(e.agentId)
+    if (rowState.shown || e.agentId !== undefined) await rowMaybeSchedule($)
+  } catch (err) {
+    // The turn ends either way.
+  }
+}
+
 // ===== register ==============================================================
 // crew-chief saver mod: watches your plan limits and asks whether to turn on a token saver.
 //
@@ -1395,6 +1598,8 @@ function registerTidy(on) {
 //   - The compact flow (hooks/compact-flow.mjs): at a phase boundary past 250k tokens it proposes a compaction,
 //     asks first, has the handoff files updated, and compacts with a detailed brief so nothing is lost.
 //   - /saver [on|off|status]
+//   - One status line with every running subagent's model, effort and tokens (hooks/src/agent-row.js), for
+//     the Desktop app, VS Code and terminals where the shell panel row cannot draw. CREW_CHIEF_ROW_MOD.
 //   - Every question the mod asks has a deadline (hooks/src/ask.js): unanswered after
 //     CREW_CHIEF_ASK_TIMEOUT_MIN minutes (default 20), it counts as "not now" / "no" / "cancel".
 //   - Once, after the first finished turn of a session where the advisor is off: offers to turn on
@@ -1672,12 +1877,14 @@ export function register(on) {
     await compactSessionStart($)
     await tidySessionStart($)
     await statsSessionStart($)
+    rowSessionStart($)
     return result
   })
 
   on('session.end', async ($, e, next) => {
     resetState()
     resetCompact()
+    rowSessionEnd($)
     return next(e)
   })
 
@@ -1710,6 +1917,7 @@ export function register(on) {
   // The measure event can arrive mid-turn or not at all; a finished main turn is the safe moment
   // to ask, and a second chance to notice the limits.
   on('turn.complete', async ($, e, next) => {
+    await rowTurnComplete($, e)
     if (e.agentId === undefined) {
       lastCompleteAt = await $.clock.now()
       const usage = await $.session.usage()
@@ -1749,8 +1957,10 @@ export function register(on) {
         request = { ...e, effort: cap.effort }
       }
     }
+    await rowStepStart($, request)
     const result = yield* next(request)
     await statsStepEnd($, e, result)
+    await rowStepEnd($, request, result)
     return result
   })
 

@@ -91,6 +91,7 @@ Plan limits are eaten mostly by long sessions and big contexts, then by subagent
 | `CREW_CHIEF_SAVER_SEVEN_DAY=50,90` | Your own weekly thresholds |
 | `CREW_CHIEF_LANG=tr` or `en` | Force the language of every message |
 | `CREW_CHIEF_ADVISOR_OFFER=off` | Never offer the advisor |
+| `CREW_CHIEF_ROW_MOD=auto`, `on` or `off` | The [agent row status line](#agent-row-status-line): `auto` (default) shows it on the Desktop app, VS Code and terminals where the shell panel row cannot draw; `on` always; `off` never |
 | `CREW_CHIEF_ASK_TIMEOUT_MIN=10` | Minutes before an unanswered question takes its safe answer (default 20, at most 30; `off` or `0`: questions wait for you) |
 
 **Questions never wait forever.** Every question the mod asks (saver, advisor offer, compaction, the compaction gate, limit reset, `/crew-tidy archive`) counts as answered with its safe choice when nobody answers for 20 minutes: *Not now* for the saver and the compaction, *No* for the limit reset, *Remind me in a week* for the advisor offer, *Cancel* for the compaction gate and the archive. Never the yes, and never *Don't ask again*. A toast says so (`No answer for 20 min: treated as "Not now".`). The mod moves on in every case; where it can, it also closes the dialog (it answers its own `AskUserQuestion` call), but a question raised between turns may stay on screen, and a late click on it then changes nothing. An `AskUserQuestion` that Claude itself raises is never touched.
@@ -133,13 +134,14 @@ For reviewers and for you. Everything below happens inside Claude Code on your m
 |---|---|---|
 | **Reads files** (`$.fs.read`, `exists`, `list`, `stat`) | The project's `STATUS.md`, `tasks.json`, `PROGRESS.md`; the instruction and memory files Claude Code loaded (the list `/context` shows), only for `/crew-tidy`; file times for the compact gate | To check the summary against your pinned rules and open tasks, to audit context, to wait until `STATUS.md` was updated |
 | **Reads settings** (`$.settings.read`) | Only the `language` and `advisorModel` keys | To speak your language and to know whether the advisor offer applies. It never reads API keys, tokens or any credential |
-| **Reads environment** (`$.env.get`) | `HOME`, `TMPDIR`, `LANG`, the `CREW_CHIEF_*` switches, and a few `CLAUDE_CODE_USE_*` flags | Paths, language, switches, and whether a cloud provider route is in use |
-| **Runs programs** (`$.process.run`) | `wc -l <transcript>` (count lines before and after a compaction); `git status --porcelain` (count uncommitted files, shown in the compact question); `chmod 600 <file>` (make its own backups private); `rm -f <old backup>` (delete only its own backups beyond the newest 5 or 3); `mkdir -p`, `cp -p <transcript> <backup>` (only if a compaction ever lost transcript lines). The arguments are paths the mod computes, not text from the conversation | Backups and the transcript check |
+| **Reads environment** (`$.env.get`) | `HOME`, `TMPDIR`, `LANG`, `OS`, the `CREW_CHIEF_*` switches, and a few `CLAUDE_CODE_USE_*` flags | Paths, language, switches, whether a cloud provider route is in use, and whether this is Windows (`OS=Windows_NT`, for the agent row) |
+| **Runs programs** (`$.process.run`) | `wc -l <transcript>` (count lines before and after a compaction); `git status --porcelain` (count uncommitted files, shown in the compact question); `chmod 600 <file>` (make its own backups private); `rm -f <old backup>` (delete only its own backups beyond the newest 5 or 3); `mkdir -p`, `cp -p <transcript> <backup>` (only if a compaction ever lost transcript lines); `jq --version` (once a session, only in a plain terminal, to know whether the shell panel row can draw). The arguments are paths the mod computes, not text from the conversation | Backups and the transcript check |
 | **Runs a slash command** | `/advisor`, once, only after you said yes to the [advisor offer](#advisor-offer) | To turn the advisor on for you |
 | **Submits prompts** (`$.prompt.submit`) | Two fixed texts, framed as coming from crew-chief (never as your own words): "update the handoff files" after you approved a compaction, and "continue where you left off" at a limit reset you approved. They contain no file contents and no conversation text | To carry out what you approved |
 | **Writes files** (`$.fs.write`) | Its own data folder (`compact-summaries/`); and, only when you confirm `/crew-tidy archive`, `PROGRESS.md` (shortened) and `PROGRESS-archive.md` (the old entries). It never writes your instruction files, settings, or build files | Backups; the archive you asked for |
 | **Registers a tool** | `crew_compact_checkpoint`, which only notes that a phase ended and tells Claude to carry on; you are asked after the turn | The phase-boundary proposal |
 | **Answers its own questions** (a `tool.call` hook on `AskUserQuestion`) | Only the dialogs the mod itself opened: after `CREW_CHIEF_ASK_TIMEOUT_MIN` minutes (default 20) without an answer it answers with the question's safe choice (never yes, never *Don't ask again*). Claude's own `AskUserQuestion` calls pass through untouched | So an unattended session is not held by a plugin question |
+| **Draws one status line** (`$.ui.status`), reads the session's surfaces (`$.session.surfaces`) and agent list (`$.agent.list`) | The [agent row](#agent-row-status-line): each running subagent's name, model, effort and tokens, cleared when none runs | So the model and effort of subagents show on the Desktop app, VS Code and Windows too. Nothing is stored or sent |
 | **Compaction hooks** | Adds a summarizer brief to a compaction (`session.compact`), and starts a compaction only after your yes | Nothing important lost |
 
 ## Advisor offer
@@ -233,6 +235,19 @@ implementer-hard  opus-5.5 · high · 232k · 4m12s · ~40%  Reading the auth mo
 - Without a report the row shows the usual label and no percent. A single tool call of 45 s or more adds `⚠ Bash took 61s` on its own.
 - The read-only guard lets the report through, even for the read-only agents.
 
+## Agent row status line
+
+The panel row above is drawn by a shell script, so it needs a terminal with `jq` (and `sh`). For the places it cannot reach, the mod also keeps one status line above the prompt with every running subagent's model, effort and tokens:
+
+```
+scanner haiku-5.5·low 12.4k | implementer opus-5.5·medium 48.1k
+```
+
+- Model and effort come from each subagent request, after the [token saver](#token-saver)'s cap; the tokens are the agent's latest request (input, cache and output: the size of its context), not a running sum. Names and who is still running come from Claude Code's agent list; the line is cleared when no subagent runs. The elapsed time and the `~40%` progress report stay in the shell panel row only.
+- Too long for one line (190 characters): the tokens go first, then the effort, then the last agents (`+2 more`). Claude Code puts its own mark and the plugin name in front; that part cannot be changed.
+- When it shows (`CREW_CHIEF_ROW_MOD`, default `auto`): whenever the session also draws somewhere other than the terminal (the Desktop app, the VS Code extension, the mobile app), and in a terminal only when the shell panel row cannot draw there: on Windows, or when `jq` is missing (checked once a session with `jq --version`). `on` shows it in every session that draws anything, `off` never. Never in `claude -p` or the SDK, where nothing is drawn.
+- Where it was checked: in a terminal (a live session drew it). VS Code: documented (extension 2.1.299 or later shows a mod's status line above the prompt box, cut at 200 characters), not run here. The Desktop app: expected, not verified (it draws mods, but its status line is not documented). Windows: by design (no `jq` there by default), not run on a Windows terminal.
+
 ## Panel row installer
 
 On a fresh session, `scripts/install-row.sh` puts the agent panel row into your own `~/.claude/settings.json`, because a plugin-supplied `subagentStatusLine` does not reach the panel. What it does:
@@ -263,8 +278,8 @@ python3 tests/test_mode_guard.py           # solo mode: record and block
 python3 tests/test_plugin_notices.py       # what's-new, Claude Code version, and stale-session notices
 python3 tools/build_mod.py                 # rebuild hooks/register.js from hooks/src/ after editing the mod (add --check to verify)
 python3 tests/test_compact_restore.py     # what is put back after a compaction (sh and dash)
-node --test tests/*.test.mjs               # saver, compact, tidy and report logic, messages, language detection (plain Node)
-claude plugin test                         # the mod's hooks (saver, compact, resets, tidy, report), with stubs (no session, no network)
+node --test tests/*.test.mjs               # saver, compact, tidy, report and agent row logic, messages, language detection (plain Node)
+claude plugin test                         # the mod's hooks (saver, compact, resets, tidy, report, agent row), with stubs (no session, no network)
 python3 tools/build_assets.py              # regenerate skills/crew-setup/assets after editing agents/ or scripts/
 claude plugin validate . --strict          # marketplace manifest
 claude plugin validate .claude-plugin/plugin.json --strict
