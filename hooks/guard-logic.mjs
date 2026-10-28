@@ -1041,7 +1041,7 @@ export function defaultConfigObject() {
     confirmTtlMinutes: DEFAULT_TTL_MIN,
     rules: [],
     disable: [],
-    ssh: { mode: 'gate', prodHosts: ['*'], ttlMinutes: DEFAULT_TTL_MIN },
+    ssh: { mode: 'warn', prodHosts: ['*'], ttlMinutes: DEFAULT_TTL_MIN },
   }
 }
 

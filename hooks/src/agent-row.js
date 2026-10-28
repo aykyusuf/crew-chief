@@ -13,6 +13,7 @@
 // CREW_CHIEF_ROW_MOD=auto (default) draws it when a surface is not the terminal, or when the terminal's
 // panel row cannot draw (Windows, or no jq: `jq --version` is run once a session to find out);
 // `on` always (with a surface), `off` never. Any failure leaves the line alone and the turn untouched.
+import { progressPct } from './progress.mjs'
 import { formatRow, jqMatters, platformFromOs, rowWanted, usageTokens } from './row-logic.mjs'
 
 const ROW_LIVE = ['pending', 'running', 'waiting']
@@ -40,6 +41,17 @@ async function rowProbeJq($) {
     return r.exitCode === 0
   } catch (err) {
     return false // cannot start: not installed
+  }
+}
+
+// True when the shell progress hook cannot work here (no jq), so the mod sends the progress reminders itself.
+// `jq --version` is run once a session, the first time it matters.
+export async function rowShellHookDead($) {
+  try {
+    if (rowState.hasJq === undefined) rowState.hasJq = await rowProbeJq($)
+    return rowState.hasJq === false
+  } catch (err) {
+    return false // unknown: the shell hook keeps the job, so nobody is reminded twice
   }
 }
 
@@ -103,7 +115,7 @@ async function rowDraw($) {
     for (const a of Array.isArray(list) ? list : []) {
       if (!a || !ROW_LIVE.includes(a.status) || rowState.done.has(a.id)) continue
       const info = rowState.agents.get(a.id) ?? {}
-      rows.push({ name: rowAgentName(a), model: info.model, effort: info.effort, tokens: info.tokens })
+      rows.push({ name: rowAgentName(a), model: info.model, effort: info.effort, tokens: info.tokens, pct: await progressPct($, a.id) })
     }
     const text = formatRow(rows)
     if (text === undefined) {

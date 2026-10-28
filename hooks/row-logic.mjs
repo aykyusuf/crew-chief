@@ -55,10 +55,11 @@ function piece(a, level) {
   const model = shortModel(a?.model)
   const effort = a?.effort === undefined || a?.effort === null || a?.effort === '' ? 'default' : clean(a.effort)
   const tok = level === 0 ? kilo(a?.tokens) : ''
-  return agentName(a) + ' ' + model + (level <= 1 ? '·' + effort : '') + (tok ? ' ' + tok : '')
+  const pct = level <= 1 && typeof a?.pct === 'number' && Number.isFinite(a.pct) ? ' ~' + Math.max(0, Math.min(100, Math.round(a.pct))) + '%' : ''
+  return agentName(a) + ' ' + model + (level <= 1 ? '·' + effort : '') + pct + (tok ? ' ' + tok : '')
 }
 
-// The line for `agents` ([{ name, model, effort, tokens }]) within maxChars: drops the tokens first, then the
+// The line for `agents` ([{ name, model, effort, tokens, pct }]) within maxChars: drops the tokens first, then the
 // effort, then whole agents from the end ("+2 more"). No agents -> undefined (the line is cleared).
 export function formatRow(agents, maxChars = ROW_MAX) {
   if (!Array.isArray(agents) || agents.length === 0) return undefined

@@ -345,8 +345,8 @@ export async function guardAfter($, e, g, r) {
       // The context below still reaches the model.
     }
     const context = [...(r.context ?? []), ...g.contexts]
-    if (r.isError) return { isError: true, result: r.result, text: r.text, context }
-    return { result: r.result, context }
+    // Keep every field the host sent: rebuilding the result by hand could change its shape.
+    return { ...r, context }
   } catch (err) {
     return r
   }

@@ -36,6 +36,7 @@ import { registerTidy, tidySessionStart } from './tidy-flow.mjs'
 import { askWithDeadline, registerAsk } from './ask.mjs'
 import { rowSessionEnd, rowSessionStart, rowStepEnd, rowStepStart, rowTurnComplete } from './agent-row.mjs'
 import { addLanguageVote, resetLang, resolveLang } from './lang.mjs'
+import { progressAfter, progressObserve, progressReset } from './progress.mjs'
 import { guardAfter, guardCheck, guardNudge, guardSessionEnd, guardSessionStart, guardWants, registerGuard } from './guard.mjs'
 import {
   compactNoteActivity,
@@ -95,6 +96,7 @@ function resetState() {
   resetLang()
   resetResetFlow()
   statsReset()
+  progressReset()
   seen.clear()
 }
 
@@ -440,9 +442,12 @@ export function register(on) {
     } catch (err) {
       request = e
     }
-    if (guard === undefined) return next(request)
+    // Subagent progress (hooks/src/progress.js): counts the call, and returns a reminder only where the
+    // shell hook cannot run.
+    const reminder = await progressObserve($, e)
+    if (guard === undefined && reminder === undefined) return next(request)
     const result = await next(request)
-    return guardAfter($, e, guard, result)
+    return progressAfter(guard === undefined ? result : await guardAfter($, e, guard, result), reminder)
   })
 
   on('command.run', { command: 'saver' }, async ($, e, next) => {

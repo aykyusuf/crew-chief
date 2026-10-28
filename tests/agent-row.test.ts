@@ -41,6 +41,7 @@ function harness(on: any, opts: Opts = {}) {
   on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
   on('ui.toast', () => ({ value: undefined }))
   on('ui.log', () => ({ value: undefined }))
+  on('tool.call', () => ({ result: 'ok' }))
   on('session.start', () => ({ cwd: '/work' }))
   on('session.end', ($: any, e: any) => ({ sessionId: e.sessionId }))
   on('turn.complete', () => ({ text: '' }))
@@ -206,4 +207,70 @@ test('the saver cap shows: the line has the effort the request went out with', a
   await step($, s, 'a1', 'claude-opus-5-5', 'xhigh')
   await redraw(s)
   expect(s.status.at(-1)).toBe('implementer-hard opus-5.5·medium')
+})
+
+// ---- progress kept by the mod (hooks/src/progress.js) -----------------------------------------------------
+
+const call = ($: any, agentId: string | undefined, command = 'ls') => $.tool.call(agentId ? { tool: 'Bash', command, agentId } : { tool: 'Bash', command })
+const REPORT = ": 'crew-progress 40 | reading auth | slow tests'"
+const contextOf = (r: any) => JSON.stringify(r?.context ?? [])
+
+test('a fresh report puts its percentage in the status line', async ($, on) => {
+  const s = harness(on, { surfaces: ['vscode'] })
+  await start($)
+  running(s, 'a1', 'crew-chief:scanner')
+  await step($, s, 'a1', 'claude-haiku-5-5', 'low', USAGE)
+  await call($, 'a1', REPORT)
+  await step($, s, 'a1', 'claude-haiku-5-5', 'low', USAGE)
+  await redraw(s)
+  expect(s.status.at(-1)).toBe('scanner haiku-5.5·low ~40% 13k')
+})
+
+test('no report, no percentage; a stale report (25 calls) drops it again', async ($, on) => {
+  const s = harness(on, { surfaces: ['vscode'] })
+  await start($)
+  running(s, 'a1', 'Explore')
+  await step($, s, 'a1', 'claude-sonnet-5-5', 'high')
+  await call($, 'a1')
+  await redraw(s)
+  expect(s.status.at(-1)).toBe('Explore sonnet-5.5·high')
+  await call($, 'a1', REPORT)
+  for (let i = 0; i < 24; i++) await call($, 'a1')
+  await step($, s, 'a1', 'claude-sonnet-5-5', 'high')
+  await redraw(s)
+  expect(s.status.at(-1)).toBe('Explore sonnet-5.5·high ~40%')
+  await call($, 'a1')
+  await step($, s, 'a1', 'claude-sonnet-5-5', 'high')
+  await redraw(s)
+  expect(s.status.at(-1)).toBe('Explore sonnet-5.5·high')
+})
+
+test('Windows without jq: the mod reminds a subagent after 10 calls, once per 10', async ($, on) => {
+  const s = harness(on, { surfaces: ['terminal'], env: { OS: 'Windows_NT' }, jq: 'missing' })
+  await start($)
+  for (let i = 1; i <= 9; i++) expect(contextOf(await call($, 'a1'))).toBe('[]')
+  const tenth = await call($, 'a1')
+  expect(contextOf(tenth)).toContain('10 tool calls since your last progress report')
+  expect(contextOf(tenth)).toContain('crew-progress NN')
+  for (let i = 11; i <= 19; i++) expect(contextOf(await call($, 'a1'))).toBe('[]')
+  expect(contextOf(await call($, 'a1'))).toContain('20 tool calls')
+  expect(s.jqRuns).toBe(1)
+})
+
+test('a report restarts the count; the main session is never counted or reminded', async ($, on) => {
+  const s = harness(on, { surfaces: ['terminal'], env: { OS: 'Windows_NT' }, jq: 'missing' })
+  await start($)
+  for (let i = 0; i < 9; i++) await call($, 'a1')
+  await call($, 'a1', REPORT)
+  for (let i = 0; i < 9; i++) expect(contextOf(await call($, 'a1'))).toBe('[]')
+  for (let i = 0; i < 30; i++) expect(contextOf(await call($, undefined))).toBe('[]')
+  expect(contextOf(await call($, 'a1'))).toContain('10 tool calls')
+  expect(s.jqRuns).toBe(1)
+})
+
+test('where jq works the shell hook does the reminding, so the mod stays quiet', async ($, on) => {
+  const s = harness(on, { surfaces: ['terminal'], jq: 'yes' })
+  await start($)
+  for (let i = 0; i < 25; i++) expect(contextOf(await call($, 'a1'))).toBe('[]')
+  expect(s.jqRuns).toBe(1)
 })

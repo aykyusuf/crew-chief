@@ -229,6 +229,47 @@ test('the tool says "not needed" when the flow is not armed, and asks nothing', 
   expect(s.questions.length).toBe(0)
 })
 
+test('after "not now" the tool still says "not needed", and points at user_requested', async ($, on) => {
+  const s = harness(on, { answers: [LATER] })
+  await start($)
+  await approvedPlan($, s) // the question is asked and declined
+  expect(s.questions.length).toBe(1)
+  await setTokens($, s, 300_000) // still below the 100k growth that arms it again
+  const result = await $.tool.call({ tool: TOOL, phase: 'x' })
+  expect(JSON.stringify(result)).toContain('Not needed yet')
+  expect(JSON.stringify(result)).toContain('user_requested')
+  await askAtTurnEnd($, s)
+  expect(s.questions.length).toBe(1) // nothing new was asked
+})
+
+test('user_requested beats an earlier "not now": the question comes after the turn', async ($, on) => {
+  const s = harness(on, { answers: [LATER, YES], files: FILES, mtimes: { '/work/STATUS.md': 1_000 }, summary: FAITHFUL })
+  await start($)
+  await approvedPlan($, s)
+  expect(s.questions.length).toBe(1)
+  await setTokens($, s, 300_000)
+  const result = await $.tool.call({ tool: TOOL, phase: 'asked by the user', user_requested: true })
+  expect(JSON.stringify(result)).toContain('after this turn finishes')
+  expect(s.questions.length).toBe(1) // nothing inside the turn
+  await askAtTurnEnd($, s)
+  expect(s.questions.length).toBe(2)
+  expect(s.questions[1]).toContain('asked by the user')
+  expect(s.submitted.length).toBe(1)
+})
+
+test('user_requested also clears "never" and works below the arm size', async ($, on) => {
+  const s = harness(on, { answers: [NEVER, YES], files: FILES, mtimes: { '/work/STATUS.md': 1_000 }, summary: FAITHFUL })
+  await start($)
+  await approvedPlan($, s)
+  await setTokens($, s, 100_000)
+  const plain = await $.tool.call({ tool: TOOL, phase: 'x' })
+  expect(JSON.stringify(plain)).toContain('Not needed yet')
+  const result = await $.tool.call({ tool: TOOL, phase: 'y', user_requested: true })
+  expect(JSON.stringify(result)).toContain('after this turn finishes')
+  await askAtTurnEnd($, s)
+  expect(s.questions.length).toBe(2)
+})
+
 test('yes: the tool returns at once, the question comes after the turn, Claude updates the files, then the compaction runs', async ($, on) => {
   const s = harness(on, { answers: [YES], files: FILES, mtimes: { '/work/STATUS.md': 1_000 }, summary: FAITHFUL })
   await start($)

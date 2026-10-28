@@ -59,6 +59,11 @@ import {
   toggleConfigText,
 } from './guard-logic.mjs'
 import {
+  freshPct,
+  nudgeText,
+  observe,
+} from './progress-logic.mjs'
+import {
   addStep,
   classifyGap,
   fmtTokens,
@@ -685,7 +690,7 @@ const GRACE_MS = 10_000
 const RUNNING_STATES = ['pending', 'running']
 
 const TOOL_DESCRIPTION =
-  'Propose compacting the conversation. Call it once, and only when a note from crew-chief says the context is large AND you have just finished a phase (a task done, tests passing, before an unrelated area). Never call it in the middle of work. It returns at once; the user is asked after your turn ends. Do not wait for an answer and do not call it again.'
+  'Propose compacting the conversation. Call it once, and only when a note from crew-chief says the context is large AND you have just finished a phase (a task done, tests passing, before an unrelated area). Never call it in the middle of work. It returns at once; the user is asked after your turn ends. Do not wait for an answer and do not call it again. When the user themselves asked for a compaction, call it with user_requested: true, whatever the context size. Never tell the user to run /compact because this tool said "not needed": /crew-compact does the same.'
 
 const UPDATE_TEXT =
   'Update the handoff files of this project now, for those that exist: STATUS.md (Now, Next, Constraints = every rule the user gave, copied verbatim; keep the lines already there and only add new ones, Decisions, Failed attempts), tasks.json (only status and evidence change), PROGRESS.md (one dated line). If STATUS.md has no Constraints section, do not invent one; say so in your reply. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
@@ -701,7 +706,7 @@ async function updateText($) {
 
 const RESULTS = {
   noted: 'Noted. The user will be asked about compaction after this turn finishes. Do not wait for an answer; carry on and finish the turn normally. Do not call this tool again.',
-  notNeeded: 'Not needed yet. Keep working; crew-chief will say when to propose a compaction.',
+  notNeeded: 'Not needed yet. Keep working; crew-chief will say when to propose a compaction. If the user themselves asked for a compaction, call this tool again with user_requested: true.',
   busy: 'A compaction is already being arranged. Nothing more to do about it.',
 }
 
@@ -1161,6 +1166,7 @@ async function compactSessionStart($) {
         properties: {
           phase: { type: 'string', description: 'One line: the phase that was just finished.' },
           next: { type: 'string', description: 'One line: what comes next.' },
+          user_requested: { type: 'boolean', description: 'true only when the user asked for a compaction in this conversation (for example "compact now"); it then works even after an earlier "not now".' },
         },
       },
       isDeferred: false,
@@ -1194,8 +1200,15 @@ function registerCompact(on) {
 
   on('tool.call', { tool: TOOL_MATCH }, async ($, e) => {
     if (e.agentId !== undefined) return { deny: 'Only the main conversation can propose a compaction.' }
-    if (!ck.armed || ck.never) return { result: RESULTS.notNeeded }
+    // The user asked for it in their own words ("compact now"): that beats an earlier "not now" or "never",
+    // the same as the /crew-compact command (which also clears `never`).
+    const requested = e.user_requested === true
+    if (!requested && (!ck.armed || ck.never)) return { result: RESULTS.notNeeded }
     if (ck.plan || ck.compacting || ck.asking) return { result: RESULTS.busy }
+    if (requested) {
+      ck.never = false
+      ck.armed = true
+    }
     // The question waits for the end of this turn (compactTurnComplete): a tool that waited for the
     // person would hold the turn open.
     ck.wantAsk = { phase: clip(e.phase) }
@@ -1422,6 +1435,56 @@ function registerTidy(on) {
   })
 }
 
+// ===== progress ==============================================================
+// crew-chief subagent progress, kept by the mod (Claude Code 2.1.287+). Part of the mod in hooks/register.js.
+//
+// The shell hook (scripts/progress-hook.sh) needs jq and writes the files the shell panel row reads. Where it
+// cannot run (Windows, no jq) nothing would count the subagent's calls, so the mod does it in memory:
+//   - every subagent tool.call is counted; a `: 'crew-progress NN | step | delay'` Bash call is a report;
+//   - the percentage of a fresh report goes into the status line (hooks/src/agent-row.js);
+//   - after 10 calls without a report the call's result carries the same reminder the shell hook would send,
+//     but only when jq is missing, so an agent never gets it twice.
+// Any failure leaves the call alone.
+let progressAgents = new Map()
+
+function progressReset() {
+  progressAgents = new Map()
+}
+
+// Called from the mod's tool.call hook with the call as it goes out. Returns the reminder text, or undefined.
+async function progressObserve($, e) {
+  try {
+    if (typeof e.agentId !== 'string' || e.agentId === '') return undefined
+    const now = await $.clock.now()
+    const due = observe(progressAgents, e.agentId, e.tool, e.command, now)
+    if (due === 0) return undefined
+    return (await rowShellHookDead($)) ? nudgeText(due) : undefined
+  } catch (err) {
+    return undefined
+  }
+}
+
+// The percentage to show for an agent, or undefined.
+async function progressPct($, agentId) {
+  try {
+    const entry = progressAgents.get(agentId)
+    if (!entry) return undefined
+    return freshPct(entry, await $.clock.now())
+  } catch (err) {
+    return undefined
+  }
+}
+
+// After the call ran: the reminder rides with the result, next to what the guard may have added.
+function progressAfter(r, text) {
+  try {
+    if (!r || r.deny !== undefined || text === undefined) return r
+    return { ...r, context: [...(r.context ?? []), text] }
+  } catch (err) {
+    return r
+  }
+}
+
 // ===== agent-row =============================================================
 // crew-chief agent row: one status line with every running subagent's model, effort and tokens. Part of the
 // mod in hooks/register.js (Claude Code 2.1.287+).
@@ -1463,6 +1526,17 @@ async function rowProbeJq($) {
     return r.exitCode === 0
   } catch (err) {
     return false // cannot start: not installed
+  }
+}
+
+// True when the shell progress hook cannot work here (no jq), so the mod sends the progress reminders itself.
+// `jq --version` is run once a session, the first time it matters.
+async function rowShellHookDead($) {
+  try {
+    if (rowState.hasJq === undefined) rowState.hasJq = await rowProbeJq($)
+    return rowState.hasJq === false
+  } catch (err) {
+    return false // unknown: the shell hook keeps the job, so nobody is reminded twice
   }
 }
 
@@ -1526,7 +1600,7 @@ async function rowDraw($) {
     for (const a of Array.isArray(list) ? list : []) {
       if (!a || !ROW_LIVE.includes(a.status) || rowState.done.has(a.id)) continue
       const info = rowState.agents.get(a.id) ?? {}
-      rows.push({ name: rowAgentName(a), model: info.model, effort: info.effort, tokens: info.tokens })
+      rows.push({ name: rowAgentName(a), model: info.model, effort: info.effort, tokens: info.tokens, pct: await progressPct($, a.id) })
     }
     const text = formatRow(rows)
     if (text === undefined) {
@@ -1930,8 +2004,8 @@ async function guardAfter($, e, g, r) {
       // The context below still reaches the model.
     }
     const context = [...(r.context ?? []), ...g.contexts]
-    if (r.isError) return { isError: true, result: r.result, text: r.text, context }
-    return { result: r.result, context }
+    // Keep every field the host sent: rebuilding the result by hand could change its shape.
+    return { ...r, context }
   } catch (err) {
     return r
   }
@@ -2093,6 +2167,7 @@ function resetState() {
   resetLang()
   resetResetFlow()
   statsReset()
+  progressReset()
   seen.clear()
 }
 
@@ -2438,9 +2513,12 @@ export function register(on) {
     } catch (err) {
       request = e
     }
-    if (guard === undefined) return next(request)
+    // Subagent progress (hooks/src/progress.js): counts the call, and returns a reminder only where the
+    // shell hook cannot run.
+    const reminder = await progressObserve($, e)
+    if (guard === undefined && reminder === undefined) return next(request)
     const result = await next(request)
-    return guardAfter($, e, guard, result)
+    return progressAfter(guard === undefined ? result : await guardAfter($, e, guard, result), reminder)
   })
 
   on('command.run', { command: 'saver' }, async ($, e, next) => {

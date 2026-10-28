@@ -60,7 +60,7 @@ const GRACE_MS = 10_000
 const RUNNING_STATES = ['pending', 'running']
 
 const TOOL_DESCRIPTION =
-  'Propose compacting the conversation. Call it once, and only when a note from crew-chief says the context is large AND you have just finished a phase (a task done, tests passing, before an unrelated area). Never call it in the middle of work. It returns at once; the user is asked after your turn ends. Do not wait for an answer and do not call it again.'
+  'Propose compacting the conversation. Call it once, and only when a note from crew-chief says the context is large AND you have just finished a phase (a task done, tests passing, before an unrelated area). Never call it in the middle of work. It returns at once; the user is asked after your turn ends. Do not wait for an answer and do not call it again. When the user themselves asked for a compaction, call it with user_requested: true, whatever the context size. Never tell the user to run /compact because this tool said "not needed": /crew-compact does the same.'
 
 const UPDATE_TEXT =
   'Update the handoff files of this project now, for those that exist: STATUS.md (Now, Next, Constraints = every rule the user gave, copied verbatim; keep the lines already there and only add new ones, Decisions, Failed attempts), tasks.json (only status and evidence change), PROGRESS.md (one dated line). If STATUS.md has no Constraints section, do not invent one; say so in your reply. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
@@ -76,7 +76,7 @@ async function updateText($) {
 
 const RESULTS = {
   noted: 'Noted. The user will be asked about compaction after this turn finishes. Do not wait for an answer; carry on and finish the turn normally. Do not call this tool again.',
-  notNeeded: 'Not needed yet. Keep working; crew-chief will say when to propose a compaction.',
+  notNeeded: 'Not needed yet. Keep working; crew-chief will say when to propose a compaction. If the user themselves asked for a compaction, call this tool again with user_requested: true.',
   busy: 'A compaction is already being arranged. Nothing more to do about it.',
 }
 
@@ -536,6 +536,7 @@ export async function compactSessionStart($) {
         properties: {
           phase: { type: 'string', description: 'One line: the phase that was just finished.' },
           next: { type: 'string', description: 'One line: what comes next.' },
+          user_requested: { type: 'boolean', description: 'true only when the user asked for a compaction in this conversation (for example "compact now"); it then works even after an earlier "not now".' },
         },
       },
       isDeferred: false,
@@ -569,8 +570,15 @@ export function registerCompact(on) {
 
   on('tool.call', { tool: TOOL_MATCH }, async ($, e) => {
     if (e.agentId !== undefined) return { deny: 'Only the main conversation can propose a compaction.' }
-    if (!ck.armed || ck.never) return { result: RESULTS.notNeeded }
+    // The user asked for it in their own words ("compact now"): that beats an earlier "not now" or "never",
+    // the same as the /crew-compact command (which also clears `never`).
+    const requested = e.user_requested === true
+    if (!requested && (!ck.armed || ck.never)) return { result: RESULTS.notNeeded }
     if (ck.plan || ck.compacting || ck.asking) return { result: RESULTS.busy }
+    if (requested) {
+      ck.never = false
+      ck.armed = true
+    }
     // The question waits for the end of this turn (compactTurnComplete): a tool that waited for the
     // person would hold the turn open.
     ck.wantAsk = { phase: clip(e.phase) }

@@ -17,7 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "hooks", "src")
 OUT = os.path.join(ROOT, "hooks", "register.js")
 # Join order: shared helpers first, the entry (which registers every hook) last.
-PARTS = ["lang", "ask", "handoff", "stats-flow", "reset-flow", "compact-flow", "tidy-flow", "agent-row", "guard", "register"]
+PARTS = ["lang", "ask", "handoff", "stats-flow", "reset-flow", "compact-flow", "tidy-flow", "progress", "agent-row", "guard", "register"]
 BUNDLED = {f"./{p}.mjs" for p in PARTS} | {f"./{p}.js" for p in PARTS}
 
 IMPORT = re.compile(r"^import\s*\{([^}]*)\}\s*from\s*'([^']+)'\s*\n", re.M)

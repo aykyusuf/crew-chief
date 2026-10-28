@@ -349,7 +349,7 @@ const DEFAULT_OBJ = {
   confirmTtlMinutes: 360,
   rules: [],
   disable: [],
-  ssh: { mode: 'gate', prodHosts: ['*'], ttlMinutes: 360 },
+  ssh: { mode: 'warn', prodHosts: ['*'], ttlMinutes: 360 },
 }
 const DEFAULT_TEXT = JSON.stringify(DEFAULT_OBJ, null, 2) + '\n'
 const TYPED = { kind: 'composer' }
@@ -362,9 +362,11 @@ test('first run: writes the exact default once, toasts once, the guard is live i
   expect(s.store.guard_setup).toBe('done')
   expect(s.toasts).toEqual(['crew-chief: command guard is on (default rules). Status: /crew-guard status. Off: /crew-guard off.'])
   expect(s.registered).toContain('crew_guard_suggest')
+  // The default ssh mode is warn: nothing is held, the first contact only carries a warning.
   const first = await bash($, 'ssh prod.example.com ls')
-  expect(first.deny).toContain('first contact with the production host prod.example.com')
-  expect((await bash($, 'ssh prod.example.com ls')).deny).toBeUndefined()
+  expect(first.deny).toBeUndefined()
+  expect(first.context).toEqual([expect.stringContaining('first contact with the production host prod.example.com')])
+  expect((await bash($, 'ssh prod.example.com ls')).context ?? []).toEqual([])
   expect((await bash($, 'ssh localhost uptime')).deny).toBeUndefined()
   expect((await bash($, 'ssh-keygen -t ed25519 -f /tmp/k')).deny).toBeUndefined()
   expect((await bash($, 'ssh-add -l')).deny).toBeUndefined()
@@ -379,7 +381,7 @@ test('first run: writes the exact default once, toasts once, the guard is live i
   await start($)
   expect(s.writes).toEqual([GUARD_PATH])
   expect(s.toasts.filter((x: string) => x.includes('default rules')).length).toBe(1) // no second first-run toast
-  expect((await bash($, 'ssh prod.example.com ls')).deny).toContain('first contact')
+  expect((await bash($, 'ssh prod.example.com ls')).context).toEqual([expect.stringContaining('first contact')])
 })
 
 test('first run: the owner\'s file is never touched, the marker is still set', async ($, on) => {

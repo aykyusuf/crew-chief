@@ -2,6 +2,12 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.10.1 (2026-10-28)
+- Windows'ta ve `jq` olmayan her yerde ilerleme: mod her alt ajanın tool çağrılarını ve `crew-progress` raporlarını kendisi (bellekte) sayar; durum satırı model ve eforun yanında `~40%` gösterir, 10 çağrılık hatırlatma `jq` olmadan da alt ajana ulaşır. `jq` çalışan yerde hatırlatmayı yine shell hook yapar, kimse iki kez hatırlatılmaz.
+- "Şimdi değil" dedikten sonra compact: `crew_compact_checkpoint` artık `user_requested: true` alıyor. Compact'i kendi sözlerinle istediğinde, az önce reddetmiş (ya da "bir daha sorma" demiş) olsan bile çalışır; "henüz gerekmez" cevabı vermez. "Gerekmez" cevabı bunu söylüyor, Claude'a da seni `/compact`'a yönlendirmemesi söyleniyor.
+- Varsayılan guard ayarı artık her host'a ilk ssh'ı durdurmaz: `ssh.mode` `warn` (loopback dışı bir host'a ilk bağlantıda sana ve Claude'a not). İlk denemeyi durdurmak için `"gate"` yazıp üretim host'larını listele. Yazılmış ayar dosyalarına dokunulmaz.
+- Guard'ın uyarısı, sardığı tool sonucunu yeniden kurmak yerine tüm alanlarını korur (iki guard aynı `rm -rf`'yi sararken görülen "result does not match its output shape" hatasına karşı bir önlem; nedeninin bu olduğu doğrulanmadı).
+
 ## 0.10.0 (2026-10-28)
 - Komut koruması kendini kuruyor: `~/.claude/crew-chief-guard.json` yoksa ilk etkileşimli oturum varsayılan ayarı yazar (yerleşik kurallar; loopback dışındaki her host üretim sayılan ssh kapısı), korumayı o oturumda açar ve bir kez bildirim gösterir. Dosya bir kez yazılır; silersen yeniden oluşturulmaz. `CREW_CHIEF_GUARD_AUTOSETUP=off` ya da `CREW_CHIEF_GUARD=off` bunu engeller; `-p`/SDK oturumları hiçbir şey yazmaz. Bu, güncelleyen herkes için varsayılanı değiştirir.
 - `/crew-guard on` ve `/crew-guard off` ayardaki `enabled` değerini değiştirir (diğer anahtarlar korunur, geçersiz JSON'a dokunulmaz, hemen geçerli olur); yalnızca sen yazdığında çalışır, Claude, plugin ya da SDK çalıştıramaz.

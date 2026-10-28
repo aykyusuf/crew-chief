@@ -19,7 +19,7 @@ const EXPECTED = {
   confirmTtlMinutes: 360,
   rules: [],
   disable: [],
-  ssh: { mode: 'gate', prodHosts: ['*'], ttlMinutes: 360 },
+  ssh: { mode: 'warn', prodHosts: ['*'], ttlMinutes: 360 },
 }
 
 test('the default config is exactly the agreed object, 2-space JSON, and compiles with no problems', () => {
@@ -28,7 +28,7 @@ test('the default config is exactly the agreed object, 2-space JSON, and compile
   assert.equal(c.ok, true)
   assert.deepEqual(c.problems, [])
   assert.equal(c.config.enabled, true)
-  assert.equal(c.config.ssh.mode, 'gate')
+  assert.equal(c.config.ssh.mode, 'warn')
   assert.equal(c.config.ssh.ttlMs, 360 * 60_000)
   assert.equal(isDefaultConfig(defaultConfigText()), true)
   assert.equal(isDefaultConfig(JSON.stringify(EXPECTED)), true)

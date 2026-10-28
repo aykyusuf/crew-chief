@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.1 (2026-10-28)
+- Progress on Windows and wherever `jq` is missing: the mod counts each subagent's tool calls and `crew-progress` reports itself (in memory), so the status line shows `~40%` next to the model and effort, and the 10-call reminder reaches a subagent without `jq`. Where `jq` works the shell hook still does the reminding, so nobody is reminded twice.
+- Compaction after a "not now": `crew_compact_checkpoint` takes `user_requested: true`. When you ask for a compaction in your own words it works even right after you declined one (or chose "don't ask again"), instead of answering "not needed yet". The "not needed" answer now says so, and Claude is told not to send you to `/compact`.
+- The default guard config no longer stops the first ssh to every host: `ssh.mode` is `warn` (a note for you and for Claude on the first contact with a non-loopback host). Set `"gate"` and list your production hosts to stop the first attempt. Configs already written are not changed.
+- The guard's warning keeps every field of the tool result it wraps instead of rebuilding it (a defence against a "result does not match its output shape" error seen when two guards wrap the same `rm -rf`; not confirmed as the cause).
+
 ## 0.10.0 (2026-10-28)
 - The command guard sets itself up: the first interactive session with no `~/.claude/crew-chief-guard.json` writes a default config (built-in rules, ssh gate with every non-loopback host as production) and turns the guard on in that session, with one toast. It is written once; a deleted file is not recreated. `CREW_CHIEF_GUARD_AUTOSETUP=off` or `CREW_CHIEF_GUARD=off` prevents it; `-p`/SDK runs never write. This changes the default for everyone who updates.
 - `/crew-guard on` and `/crew-guard off` switch the guard by setting `enabled` in the config (other keys kept, invalid JSON refused, applied at once); only when you type them, never when Claude, a plugin or the SDK runs them.
