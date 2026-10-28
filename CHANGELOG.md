@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.10.3 (2026-10-28)
+- Windows with `jq` installed no longer gets the extra `⚠crew-chief: ...` line above the prompt: the panel row below it (model, effort, tokens, time, percent) works there too, so the line was a duplicate. It is drawn on Windows only when `jq` is missing, like on every other terminal (`CREW_CHIEF_ROW_MOD=on` still forces it). Seen on Windows with `jq` 1.8.2: the panel row and the `~NN%` both work.
+
 ## 0.10.2 (2026-10-28)
 - The progress reminder now says the no-op is a Bash command, not a separate tool. A subagent on Windows had read "run this no-op" as a tool it did not have and skipped the report, so no percentage showed.
 - Without `jq` the agent panel below the prompt cannot show each subagent's model and effort (that row is a shell script that needs it). crew-chief now says so once, in a toast (never a question): `winget install jqlang.jq` on Windows, `brew install jq` elsewhere. Not shown with no surface (`-p`, SDK) or `CREW_CHIEF_ROW=off`. A `jq`-free version of the panel row is planned, not built.

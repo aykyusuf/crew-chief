@@ -123,14 +123,24 @@ test('a terminal without jq gets the status line', async ($, on) => {
   expect(s.jqRuns).toBe(1) // probed once a session
 })
 
-test('Windows (OS=Windows_NT): shown without asking for jq', async ($, on) => {
-  const s = harness(on, { surfaces: ['terminal'], env: { OS: 'Windows_NT' } })
+test('Windows with jq: the shell panel row works, so no status line (same as the Mac terminal)', async ($, on) => {
+  const s = harness(on, { surfaces: ['terminal'], env: { OS: 'Windows_NT' }, jq: 'yes' })
+  await start($)
+  running(s, 'a1', 'Explore')
+  await step($, s, 'a1', 'claude-sonnet-5-5', 'high')
+  await redraw(s)
+  expect(s.status.length).toBe(0)
+  expect(s.jqRuns).toBe(1)
+})
+
+test('Windows without jq (OS=Windows_NT): the status line is drawn', async ($, on) => {
+  const s = harness(on, { surfaces: ['terminal'], env: { OS: 'Windows_NT' }, jq: 'missing' })
   await start($)
   running(s, 'a1', 'Explore')
   await step($, s, 'a1', 'claude-sonnet-5-5', 'high')
   await redraw(s)
   expect(s.status.at(-1)).toBe('Explore sonnet-5.5·high')
-  expect(s.jqRuns).toBe(1) // the one probe a session (for the install hint); the line does not wait for it
+  expect(s.jqRuns).toBe(1)
 })
 
 test('no surface (-p, SDK): nothing drawn', async ($, on) => {

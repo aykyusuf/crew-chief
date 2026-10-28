@@ -2,6 +2,9 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.10.3 (2026-10-28)
+- `jq` kurulu bir Windows artık prompt'un üstünde fazladan `⚠crew-chief: ...` satırı almıyor: altındaki panel satırı (model, efor, token, süre, yüzde) orada da çalışıyor, o satır tekrar oluyordu. Windows'ta yalnızca `jq` yoksa çizilir, diğer terminallerdeki gibi (`CREW_CHIEF_ROW_MOD=on` yine zorlar). `jq` 1.8.2'li Windows'ta görüldü: panel satırı ve `~NN%` ikisi de çalışıyor.
+
 ## 0.10.2 (2026-10-28)
 - İlerleme hatırlatması artık etkisiz çağrının ayrı bir tool değil, bir Bash komutu olduğunu söylüyor. Windows'taki bir alt ajan "bu no-op'u çalıştır"ı sahip olmadığı bir tool sanıp raporu atlamıştı, bu yüzden yüzde görünmedi.
 - `jq` yoksa prompt'un altındaki ajan paneli her alt ajanın modelini ve eforunu gösteremez (o satır `jq` isteyen bir shell script'i). crew-chief artık bunu bir kez, bir toast ile söylüyor (soru değil): Windows'ta `winget install jqlang.jq`, diğerlerinde `brew install jq`. Yüzey yokken (`-p`, SDK) ya da `CREW_CHIEF_ROW=off` iken gösterilmez. Panel satırının `jq`'suz bir sürümü planlı, yazılmadı.

@@ -86,7 +86,8 @@ test('rowWanted: auto mode', () => {
   assert.equal(rowWanted({ ...base, surfaces: ['terminal', 'mobile'] }), true)
   assert.equal(rowWanted({ ...base, surfaces: ['terminal'] }), false)
   assert.equal(rowWanted({ ...base, surfaces: ['terminal'], hasJq: false }), true)
-  assert.equal(rowWanted({ ...base, surfaces: ['terminal'], platform: 'win32' }), true)
+  assert.equal(rowWanted({ ...base, surfaces: ['terminal'], platform: 'win32' }), false) // Windows with jq: the shell row works
+  assert.equal(rowWanted({ ...base, surfaces: ['terminal'], platform: 'win32', hasJq: false }), true)
   assert.equal(rowWanted({ ...base, surfaces: [] }), false)
   assert.equal(rowWanted({ ...base, surfaces: undefined }), false)
 })
@@ -97,10 +98,10 @@ test('rowWanted: on and off', () => {
   assert.equal(rowWanted({ mode: 'on', surfaces: [], platform: 'other', hasJq: true }), false)
 })
 
-test('jqMatters only for auto on a plain terminal outside Windows', () => {
+test('jqMatters only for auto on a plain terminal', () => {
   assert.equal(jqMatters({ mode: 'auto', surfaces: ['terminal'], platform: 'other' }), true)
   assert.equal(jqMatters({ mode: undefined, surfaces: ['terminal'], platform: 'other' }), true)
-  assert.equal(jqMatters({ mode: 'auto', surfaces: ['terminal'], platform: 'win32' }), false)
+  assert.equal(jqMatters({ mode: 'auto', surfaces: ['terminal'], platform: 'win32' }), true)
   assert.equal(jqMatters({ mode: 'auto', surfaces: ['vscode'], platform: 'other' }), false)
   assert.equal(jqMatters({ mode: 'on', surfaces: ['terminal'], platform: 'other' }), false)
   assert.equal(jqMatters({ mode: 'auto', surfaces: [], platform: 'other' }), false)

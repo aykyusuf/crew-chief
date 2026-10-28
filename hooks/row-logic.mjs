@@ -2,7 +2,7 @@
 //
 // The row is one line, `name model·effort tokens | name model·effort tokens`, drawn with $.ui.status so it
 // also reaches surfaces that cannot run the shell panel row (scripts/subagent-row.sh): the Desktop app,
-// VS Code, and terminals without jq (Windows).
+// VS Code, and terminals without jq.
 
 export const ROW_MAX = 190
 const NAME_MAX = 32
@@ -93,18 +93,19 @@ function onlyTerminal(surfaces) {
 }
 
 // True when rowWanted's answer depends on whether jq exists (so the caller runs `jq --version` only then).
-export function jqMatters({ mode, surfaces, platform }) {
-  return rowMode(mode) === 'auto' && onlyTerminal(surfaces) && platform !== 'win32'
+export function jqMatters({ mode, surfaces }) {
+  return rowMode(mode) === 'auto' && onlyTerminal(surfaces)
 }
 
 // CREW_CHIEF_ROW_MOD: off never; on always; auto (default) when a surface is not the terminal (Desktop,
-// VS Code, mobile, ...) or when the terminal's shell panel row cannot draw (Windows, or no jq). Never with
+// VS Code, mobile, ...) or when the terminal's shell panel row cannot draw (no jq; Windows is no different:
+// the shell panel row works there once jq is installed). Never with
 // no surface at all (-p, SDK, cloud): nothing would show.
-export function rowWanted({ mode, surfaces, platform, hasJq }) {
+export function rowWanted({ mode, surfaces, hasJq }) {
   const m = rowMode(mode)
   if (m === 'off') return false
   if (!Array.isArray(surfaces) || surfaces.length === 0) return false
   if (m === 'on') return true
   if (!onlyTerminal(surfaces)) return true
-  return platform === 'win32' || hasJq === false
+  return hasJq === false
 }
