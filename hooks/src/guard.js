@@ -1,6 +1,6 @@
-// crew-chief command guard (opt-in). Part of the mod in hooks/register.js (Claude Code 2.1.287+).
+// crew-chief command guard (on by default after the first interactive run). Part of the mod in hooks/register.js (Claude Code 2.1.287+).
 //
-// Off unless CREW_CHIEF_GUARD=on, or ~/.claude/crew-chief-guard.json exists with "enabled": true
+// On when CREW_CHIEF_GUARD=on, or ~/.claude/crew-chief-guard.json exists with "enabled": true (the first run writes it)
 // (CREW_CHIEF_GUARD=off always wins). The rules and the ssh parser live in hooks/guard-logic.mjs.
 //   - deny: catastrophic rm -rf, the guard's own config, and personal deny rules. Never runs.
 //   - confirm: the first attempt is stopped with a checklist the model answers by itself; the identical
@@ -10,7 +10,10 @@
 //     read-only list, are handled like confirm (same map, same checklist). Read-only agents get a plain deny.
 //   - crew_guard_suggest: a tool Claude calls to flag something the config does not cover. It returns at
 //     once, keeps the note in memory (at most 50) and never asks anything; /crew-guard shows them.
-// The config is read once per session. State lives in memory and ends with the session; nothing is written.
+//   - first run: in an interactive session with no config file and no SETUP_KEY in the plugin store, the
+//     default config is written once (CREW_CHIEF_GUARD_AUTOSETUP=off or CREW_CHIEF_GUARD=off prevent it);
+//     the marker keeps a deleted file from coming back. /crew-guard on|off is the only other write.
+// The config is read once per session. Gate state lives in memory and ends with the session.
 // A speed bump, not a security boundary. Any failure lets the call through (fail open).
 import { resolveLang } from './lang.mjs'
 import { t } from './saver-i18n.mjs'
@@ -25,6 +28,12 @@ import {
   clipText,
   compileConfig,
   configPath,
+  defaultConfigText,
+  DEFAULTS_NOTE,
+  isDefaultConfig,
+  offConfigText,
+  SETUP_KEY,
+  toggleConfigText,
   gateDecide,
   gateReason,
   gateRecord,
@@ -62,6 +71,8 @@ function guardFresh() {
     suggestions: [],
     suggestToasted: false,
     noted: false,
+    defaults: false, // the loaded file is the first-run default
+    toolRegistered: false,
   }
 }
 
@@ -82,10 +93,74 @@ async function guardToast($, key, vars) {
   }
 }
 
+async function setMarker($, value) {
+  try {
+    await $.store.set(SETUP_KEY, value)
+  } catch (err) {
+    // No store: the file check still keeps an existing file untouched.
+  }
+}
+
+// First run: writes the default config once and returns its text, else undefined. Every step that cannot be
+// answered (no surface, no store, fs.exists failing) does nothing, so a -p, SDK or cloud run never writes.
+// `fileText`: what was read at `path` (a string when the file is there).
+async function guardAutoSetup($, path, fileText) {
+  if (String((await $.env.get('CREW_CHIEF_GUARD_AUTOSETUP')) ?? '').trim().toLowerCase() === 'off') return undefined
+  let surfaces
+  try {
+    surfaces = await $.session.surfaces()
+  } catch (err) {
+    return undefined
+  }
+  if (!Array.isArray(surfaces) || surfaces.length === 0) return undefined
+  let marker
+  try {
+    marker = await $.store.get(SETUP_KEY)
+  } catch (err) {
+    return undefined
+  }
+  if (marker !== undefined && marker !== null) return undefined
+  if (typeof fileText === 'string') {
+    await setMarker($, 'done') // the owner's own file: never touched
+    return undefined
+  }
+  let exists
+  try {
+    exists = await $.fs.exists(path)
+  } catch (err) {
+    return undefined
+  }
+  if (exists) {
+    await setMarker($, 'done')
+    return undefined
+  }
+  const text = defaultConfigText()
+  try {
+    await $.fs.write(path, text) // creates ~/.claude when missing; the API has no rename, so a plain write
+  } catch (err) {
+    try {
+      $.ui.log('crew-chief guard: could not write the default config to ' + path + ': ' + String(err && err.message ? err.message : err).slice(0, 200), { to: 'debug' })
+    } catch (e2) {
+      // nothing else to do
+    }
+    await setMarker($, 'failed')
+    return undefined
+  }
+  await setMarker($, 'done')
+  try {
+    $.ui.log('crew-chief guard: first run, wrote the default config to ' + path, { to: 'debug' })
+  } catch (err) {
+    // the toast below still says it
+  }
+  await guardToast($, 'guard_toast_autosetup', {})
+  return text
+}
+
 async function guardLoad($) {
   const st = guardState
   st.on = false
   st.config = undefined
+  st.defaults = false
   const env = await $.env.get('CREW_CHIEF_GUARD')
   if (String(env ?? '').trim().toLowerCase() === 'off') {
     st.why = 'CREW_CHIEF_GUARD=off'
@@ -98,9 +173,19 @@ async function guardLoad($) {
     try {
       text = await $.fs.read(path)
     } catch (err) {
-      text = undefined // no file: the guard stays off unless CREW_CHIEF_GUARD=on
+      text = undefined // no file: the guard stays off unless CREW_CHIEF_GUARD=on (or the first run writes it)
     }
-    if (typeof text === 'string') loaded = compileConfig(text)
+    let written
+    try {
+      written = await guardAutoSetup($, path, text)
+    } catch (err) {
+      written = undefined // never into the session
+    }
+    if (typeof written === 'string') text = written // live in this session, not only the next
+    if (typeof text === 'string') {
+      loaded = compileConfig(text)
+      st.defaults = isDefaultConfig(text)
+    }
   }
   if (loaded !== undefined && !loaded.ok) {
     st.why = 'the config file is ' + loaded.error
@@ -133,8 +218,17 @@ export async function guardSessionStart($) {
   } catch (err) {
     guardState.on = false // fail open
   }
+  await guardRegisterTool($)
   try {
-    if (guardState.on) {
+    await $.command.register({ name: 'crew-guard', description: t(await resolveLang($), 'cmd_guard_description'), argumentHint: '[status|suggestions|on|off]' })
+  } catch (err) {
+    // The name is taken (another plugin, or this one at an earlier start): the guard works without it.
+  }
+}
+
+async function guardRegisterTool($) {
+  try {
+    if (guardState.on && !guardState.toolRegistered) {
       await $.tool.register({
         name: GUARD_TOOL_NAME,
         description: GUARD_TOOL_DESCRIPTION,
@@ -149,14 +243,10 @@ export async function guardSessionStart($) {
         },
         isDeferred: false,
       })
+      guardState.toolRegistered = true
     }
   } catch (err) {
     // An older Claude Code, or the name is taken (registered at an earlier start): nothing else depends on it.
-  }
-  try {
-    await $.command.register({ name: 'crew-guard', description: t(await resolveLang($), 'cmd_guard_description'), argumentHint: '[status|suggestions]' })
-  } catch (err) {
-    // The name is taken (another plugin, or this one at an earlier start): the guard works without it.
   }
 }
 
@@ -173,7 +263,7 @@ export function guardWants(e) {
 export function guardNudge() {
   if (!guardState.on || guardState.noted) return undefined
   guardState.noted = true
-  return GUARD_NOTE
+  return guardState.defaults ? GUARD_NOTE + ' ' + DEFAULTS_NOTE : GUARD_NOTE
 }
 
 async function guardReadOnlyAgent($, agentId) {
@@ -262,6 +352,57 @@ export async function guardAfter($, e, g, r) {
   }
 }
 
+// /crew-guard on|off: the only write to the config after the first run. Sets `enabled`, keeps every other
+// key, and applies the result to this session at once. Returns the reply (English).
+async function guardToggle($, enabled) {
+  const st = guardState
+  const path = configPath(await guardHome($))
+  if (path === undefined) return 'crew-chief guard: no HOME (or USERPROFILE), so the config file cannot be found; nothing was changed.'
+  let exists
+  try {
+    exists = await $.fs.exists(path)
+  } catch (err) {
+    return 'crew-chief guard: could not check ' + path + '; nothing was changed.'
+  }
+  let text
+  let did
+  if (exists) {
+    let current
+    try {
+      current = await $.fs.read(path)
+    } catch (err) {
+      return 'crew-chief guard: could not read ' + path + '; nothing was changed.'
+    }
+    const next = toggleConfigText(String(current), enabled)
+    if (!next.ok) return 'crew-chief guard: ' + path + ' is ' + next.error + ', so it was not changed. Fix the file by hand, then run /crew-guard ' + (enabled ? 'on' : 'off') + ' again.'
+    text = next.text
+    did = 'set "enabled": ' + enabled + ' in ' + path + ' (other settings kept)'
+  } else {
+    text = enabled ? defaultConfigText() : offConfigText()
+    did = 'created ' + path + (enabled ? ' with the default rules' : ' with "enabled": false')
+  }
+  try {
+    await $.fs.write(path, text)
+  } catch (err) {
+    return 'crew-chief guard: could not write ' + path + ' (' + String(err && err.message ? err.message : err).slice(0, 120) + '); nothing was changed.'
+  }
+  const loaded = compileConfig(text)
+  const env = await $.env.get('CREW_CHIEF_GUARD')
+  const envWord = String(env ?? '').trim().toLowerCase()
+  st.config = loaded.ok ? loaded.config : st.config
+  st.defaults = isDefaultConfig(text)
+  st.on = envWord === 'off' ? false : guardOn(env, loaded)
+  st.loaded = true
+  if (envWord === 'off') st.why = 'CREW_CHIEF_GUARD=off'
+  else if (envWord === 'on') st.why = 'CREW_CHIEF_GUARD=on'
+  else st.why = enabled ? 'the config file says enabled: true' : 'the config file says enabled: false'
+  await guardRegisterTool($)
+  const lines = ['crew-chief guard: ' + did + '. The guard is now ' + (st.on ? 'on' : 'off') + ' in this session.']
+  if (envWord === 'off' && enabled) lines.push('CREW_CHIEF_GUARD=off is set, so the guard stays off until you unset it.')
+  if (envWord === 'on' && !enabled) lines.push('CREW_CHIEF_GUARD=on is set, so the guard stays on until you unset it.')
+  return lines.join('\n')
+}
+
 export function registerGuard(on) {
   // Returns at once and never asks: the person reads the notes with /crew-guard suggestions.
   on('tool.call', { tool: GUARD_TOOL_MATCH }, async ($, e) => {
@@ -288,6 +429,15 @@ export function registerGuard(on) {
     }
     const word = String(e.args || '').trim().toLowerCase()
     if (word === 'suggestions') return { text: suggestionsText(guardState.suggestions) }
+    if (word === 'on' || word === 'off') {
+      // Only the person's own gesture (Enter at the prompt, or the Remote Control bridge) changes the config:
+      // a run started by the model, a plugin, the SDK or another session is refused, like an agent's Write.
+      const kind = e.origin && typeof e.origin === 'object' ? e.origin.kind : undefined
+      if (kind !== 'composer' && kind !== 'bridge') {
+        return { text: 'crew-chief guard: /crew-guard ' + word + ' changes the config, so only you can run it by typing it at the prompt (this run came from ' + String(kind ?? 'an unknown source') + '). Nothing was changed.' }
+      }
+      return { text: await guardToggle($, word === 'on') }
+    }
     return {
       text: guardStatusText({ on: guardState.on, why: guardState.why, config: guardState.config, contacted: guardState.gate.contacted.size, suggestions: guardState.suggestions.length }),
     }

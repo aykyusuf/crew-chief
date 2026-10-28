@@ -13,7 +13,15 @@ const CONFIG = JSON.stringify({
   ssh: { mode: 'gate', prodHosts: ['prod.example.com', '*.db.example.com'], ttlMinutes: 30 },
 })
 
-type Opts = { env?: Record<string, string>; file?: string; agents?: { id: string; type: string }[]; agentListFails?: boolean }
+type Opts = {
+  env?: Record<string, string>
+  file?: string
+  agents?: { id: string; type: string }[]
+  agentListFails?: boolean
+  surfaces?: string[]
+  store?: Record<string, unknown>
+  writeFails?: boolean
+}
 
 function harness(on: any, opts: Opts = {}) {
   const state: any = {
@@ -24,7 +32,12 @@ function harness(on: any, opts: Opts = {}) {
     notices: [] as string[],
     ran: [] as string[],
     reads: [] as string[],
+    files: {} as Record<string, string>,
+    writes: [] as string[],
+    store: { ...(opts.store ?? {}) } as Record<string, unknown>,
+    logs: [] as string[],
   }
+  if (opts.file !== undefined) state.files[GUARD_PATH] = opts.file
   mock.env(on, {
     CREW_CHIEF_SAVER: 'off',
     CREW_CHIEF_COMPACT: 'off',
@@ -34,18 +47,29 @@ function harness(on: any, opts: Opts = {}) {
     ...(opts.env ?? {}),
   })
   state.clock = mock.clock(on, { now: 3_600_000 })
-  mock.store(on, {})
+  on('store.get', ($: any, e: any) => ({ value: state.store[e.key] }))
+  on('store.set', ($: any, e: any) => {
+    state.store[e.key] = e.value
+    return { value: undefined }
+  })
   on('fs.read', ($: any, e: any) => {
     state.reads.push(e.path)
-    if (e.path === GUARD_PATH && opts.file !== undefined) return { value: opts.file }
+    if (e.path in state.files) return { value: state.files[e.path] }
     return { deny: 'ENOENT: no such file' }
+  })
+  on('fs.exists', ($: any, e: any) => ({ value: e.path in state.files }))
+  on('fs.write', ($: any, e: any) => {
+    state.writes.push(e.path)
+    if (opts.writeFails) return { deny: 'EACCES: permission denied' }
+    state.files[e.path] = e.text
+    return { value: undefined }
   })
   on('agent.list', () => {
     if (opts.agentListFails) throw new Error('agent list unavailable')
     return { value: (opts.agents ?? []).map((a) => ({ ...a, status: 'running', description: '' })) }
   })
   on('session.usage', () => ({ value: { startedAt: 3_000_000, context: { window: 1_000_000, tokens: 1000, percent: 0 }, rateLimits: [], cost: { usd: 0 } } }))
-  on('session.surfaces', () => ({ value: ['terminal'] }))
+  on('session.surfaces', () => ({ value: opts.surfaces ?? ['terminal'] }))
   on('session.cwd', () => ({ value: '/work' }))
   on('session.root', () => ({ value: '/work' }))
   on('settings.read', () => ({ value: { advisorModel: 'opus' } }))
@@ -61,7 +85,10 @@ function harness(on: any, opts: Opts = {}) {
     state.notices.push(e.text)
     return { value: undefined }
   })
-  on('ui.log', () => ({ value: undefined }))
+  on('ui.log', ($: any, e: any) => {
+    state.logs.push(e.text)
+    return { value: undefined }
+  })
   on('session.start', () => ({ cwd: '/work' }))
   on('session.end', ($: any, e: any) => ({ sessionId: e.sessionId }))
   on('turn.complete', () => ({ text: '' }))
@@ -93,8 +120,10 @@ async function start($: any) {
 
 const bash = ($: any, command: string, agentId?: string) => $.tool.call(agentId ? { tool: 'Bash', command, agentId } : { tool: 'Bash', command })
 
-test('off by default: no config file, nothing is held, nothing is shown', async ($, on) => {
-  const s = harness(on)
+const NO_SETUP = { CREW_CHIEF_GUARD_AUTOSETUP: 'off' }
+
+test('no config file and autosetup off: nothing is held, nothing is shown', async ($, on) => {
+  const s = harness(on, { env: NO_SETUP })
   await start($)
   expect((await bash($, 'rm -rf /')).deny).toBeUndefined()
   expect((await bash($, 'ssh prod.example.com reboot')).deny).toBeUndefined()
@@ -112,7 +141,7 @@ test('CREW_CHIEF_GUARD=off wins over an enabled config and never reads it', asyn
 })
 
 test('CREW_CHIEF_GUARD=on without a file: the built-in rules only', async ($, on) => {
-  const s = harness(on, { env: { CREW_CHIEF_GUARD: 'on' } })
+  const s = harness(on, { env: { CREW_CHIEF_GUARD: 'on', ...NO_SETUP } })
   await start($)
   const r = await bash($, 'rm -rf ~')
   expect(r.deny).toContain('crew-chief guard [rm-rf] BLOCKED')
@@ -294,7 +323,7 @@ test('crew_guard_suggest returns at once, stores, toasts once; /crew-guard print
 })
 
 test('guard off: no tool, no note, /crew-guard says why', async ($, on) => {
-  const s = harness(on)
+  const s = harness(on, { env: NO_SETUP })
   await start($)
   expect(s.registered).not.toContain('crew_guard_suggest')
   await $.prompt.submit({ text: 'hello' })
@@ -309,4 +338,170 @@ test('toasts clip the command', async ($, on) => {
   expect(s.toasts.length).toBe(1)
   expect(s.toasts[0].length).toBeLessThan(200)
   expect(s.toasts[0]).not.toContain('x'.repeat(100))
+})
+
+// ---- first run: the default config is written once -------------------------------------------------
+
+const DEFAULT_OBJ = {
+  $comment:
+    "Written once by crew-chief on first run. Edit freely, or run /crew-guard off. Delete this file and crew-chief will NOT recreate it. Docs: README, 'Command guard'.",
+  enabled: true,
+  confirmTtlMinutes: 360,
+  rules: [],
+  disable: [],
+  ssh: { mode: 'gate', prodHosts: ['*'], ttlMinutes: 360 },
+}
+const DEFAULT_TEXT = JSON.stringify(DEFAULT_OBJ, null, 2) + '\n'
+const TYPED = { kind: 'composer' }
+
+test('first run: writes the exact default once, toasts once, the guard is live in the same session', async ($, on) => {
+  const s = harness(on)
+  await start($)
+  expect(s.writes).toEqual([GUARD_PATH])
+  expect(s.files[GUARD_PATH]).toBe(DEFAULT_TEXT)
+  expect(s.store.guard_setup).toBe('done')
+  expect(s.toasts).toEqual(['crew-chief: command guard is on (default rules). Status: /crew-guard status. Off: /crew-guard off.'])
+  expect(s.registered).toContain('crew_guard_suggest')
+  const first = await bash($, 'ssh prod.example.com ls')
+  expect(first.deny).toContain('first contact with the production host prod.example.com')
+  expect((await bash($, 'ssh prod.example.com ls')).deny).toBeUndefined()
+  expect((await bash($, 'ssh localhost uptime')).deny).toBeUndefined()
+  expect((await bash($, 'ssh-keygen -t ed25519 -f /tmp/k')).deny).toBeUndefined()
+  expect((await bash($, 'ssh-add -l')).deny).toBeUndefined()
+  expect((await bash($, 'ssh -V')).deny).toBeUndefined()
+  expect((await bash($, 'which ssh')).deny).toBeUndefined()
+  expect((await bash($, 'rm -rf ~')).deny).toContain('[rm-rf] BLOCKED')
+  await $.prompt.submit({ text: 'hello' })
+  const note = s.prompts[0].find((x: string) => x.includes('The command guard is on'))
+  expect(note).toContain('defaults crew-chief wrote on first run')
+  // A new session reads the file it wrote, writes nothing, toasts nothing.
+  await $.session.end({ sessionId: 's1', reason: 'clear' })
+  await start($)
+  expect(s.writes).toEqual([GUARD_PATH])
+  expect(s.toasts.filter((x: string) => x.includes('default rules')).length).toBe(1) // no second first-run toast
+  expect((await bash($, 'ssh prod.example.com ls')).deny).toContain('first contact')
+})
+
+test('first run: the owner\'s file is never touched, the marker is still set', async ($, on) => {
+  const s = harness(on, { file: CONFIG })
+  await start($)
+  expect(s.writes).toEqual([])
+  expect(s.files[GUARD_PATH]).toBe(CONFIG)
+  expect(s.store.guard_setup).toBe('done')
+  expect(s.toasts).toEqual([])
+})
+
+test('first run: an invalid file is not touched either', async ($, on) => {
+  const s = harness(on, { file: '{ broken' })
+  await start($)
+  expect(s.writes).toEqual([])
+  expect(s.store.guard_setup).toBe('done')
+})
+
+for (const env of [{ CREW_CHIEF_GUARD_AUTOSETUP: 'off' }, { CREW_CHIEF_GUARD: 'off' }, { CREW_CHIEF_GUARD_AUTOSETUP: ' OFF ' }]) {
+  test('first run: ' + JSON.stringify(env) + ' prevents the write', async ($, on) => {
+    const s = harness(on, { env })
+    await start($)
+    expect(s.writes).toEqual([])
+    expect(s.store.guard_setup).toBeUndefined()
+    expect((await bash($, 'ssh prod.example.com ls')).deny).toBeUndefined()
+  })
+}
+
+test('first run: no surface (-p, SDK, cloud) writes nothing and sets no marker', async ($, on) => {
+  const s = harness(on, { surfaces: [] })
+  await start($)
+  expect(s.writes).toEqual([])
+  expect(s.store.guard_setup).toBeUndefined()
+  expect((await bash($, 'rm -rf ~')).deny).toBeUndefined()
+})
+
+test('first run: a deleted file is not recreated (marker)', async ($, on) => {
+  const s = harness(on, { store: { guard_setup: 'done' } })
+  await start($)
+  expect(s.writes).toEqual([])
+  expect((await bash($, 'rm -rf ~')).deny).toBeUndefined()
+})
+
+test('first run: a failed write sets failed, does not throw, the guard stays off, no retry next session', async ($, on) => {
+  const s = harness(on, { writeFails: true })
+  await start($)
+  expect(s.writes).toEqual([GUARD_PATH])
+  expect(s.store.guard_setup).toBe('failed')
+  expect(s.toasts).toEqual([])
+  expect((await bash($, 'rm -rf ~')).deny).toBeUndefined()
+  await $.session.end({ sessionId: 's1', reason: 'clear' })
+  await start($)
+  expect(s.writes).toEqual([GUARD_PATH])
+})
+
+// ---- /crew-guard on|off ------------------------------------------------------------------------------
+
+test('/crew-guard off then on: round trip keeps other keys and the $comment, applies at once', async ($, on) => {
+  const own = JSON.stringify({ $comment: 'mine', enabled: true, rules: [], ssh: { mode: 'gate', prodHosts: ['prod.example.com'] }, extra: { a: 1 } })
+  const s = harness(on, { file: own })
+  await start($)
+  const off = await $.command.run({ command: 'crew-guard', args: 'off', origin: TYPED } as any)
+  expect(off.text).toContain('set "enabled": false in ' + GUARD_PATH)
+  expect(off.text).toContain('now off')
+  expect(JSON.parse(s.files[GUARD_PATH])).toEqual({ ...JSON.parse(own), enabled: false })
+  expect(s.files[GUARD_PATH]).toContain('\n  "enabled": false,')
+  expect((await bash($, 'ssh prod.example.com ls')).deny).toBeUndefined()
+  const back = await $.command.run({ command: 'crew-guard', args: 'on', origin: TYPED } as any)
+  expect(back.text).toContain('now on')
+  expect(JSON.parse(s.files[GUARD_PATH])).toEqual(JSON.parse(own))
+  expect((await bash($, 'ssh prod.example.com uptime')).deny).toContain('first contact')
+  expect((await $.command.run({ command: 'crew-guard', args: 'status' })).text).toContain('on (the config file says enabled: true)')
+})
+
+test('/crew-guard on without a file writes the default even with the marker set; off writes enabled false', async ($, on) => {
+  const s = harness(on, { store: { guard_setup: 'done' } })
+  await start($)
+  const r = await $.command.run({ command: 'crew-guard', args: 'on', origin: TYPED } as any)
+  expect(r.text).toContain('created ' + GUARD_PATH + ' with the default rules')
+  expect(s.files[GUARD_PATH]).toBe(DEFAULT_TEXT)
+  expect(s.registered).toContain('crew_guard_suggest')
+  expect((await bash($, 'rm -rf ~')).deny).toContain('[rm-rf]')
+  delete s.files[GUARD_PATH]
+  const o = await $.command.run({ command: 'crew-guard', args: 'off', origin: TYPED } as any)
+  expect(o.text).toContain('with "enabled": false')
+  expect(JSON.parse(s.files[GUARD_PATH])).toEqual({ $comment: DEFAULT_OBJ.$comment, enabled: false })
+  expect((await bash($, 'rm -rf ~')).deny).toBeUndefined()
+})
+
+test('/crew-guard on|off refuses a file that is not valid JSON', async ($, on) => {
+  const s = harness(on, { file: '{ "enabled": true, ' })
+  await start($)
+  const r = await $.command.run({ command: 'crew-guard', args: 'off', origin: TYPED } as any)
+  expect(r.text).toContain('is not valid JSON, so it was not changed')
+  expect(s.files[GUARD_PATH]).toBe('{ "enabled": true, ')
+  expect(s.writes).toEqual([])
+})
+
+test('/crew-guard on while CREW_CHIEF_GUARD=off writes the file and says the guard stays off', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_GUARD: 'off' } })
+  await start($)
+  const r = await $.command.run({ command: 'crew-guard', args: 'on', origin: TYPED } as any)
+  expect(r.text).toContain('stays off until you unset it')
+  expect(s.files[GUARD_PATH]).toBe(DEFAULT_TEXT)
+  expect((await bash($, 'rm -rf ~')).deny).toBeUndefined()
+})
+
+test('Claude still cannot write the config after the first-run setup', async ($, on) => {
+  const s = harness(on)
+  await start($)
+  expect((await $.tool.call({ tool: 'Write', file_path: GUARD_PATH, content: '{}' })).deny).toContain('can only be changed by the user')
+  expect((await bash($, 'echo {} > ~/.claude/crew-chief-guard.json')).deny).toContain('[guard-config] BLOCKED')
+  expect(s.files[GUARD_PATH]).toBe(DEFAULT_TEXT)
+})
+
+test('/crew-guard on|off from anything but the person (a plugin, the model, the SDK) changes nothing', async ($, on) => {
+  const s = harness(on, { file: CONFIG })
+  await start($)
+  for (const origin of [undefined, { kind: 'sdk' }, { kind: 'plugin', name: 'x' }, { kind: 'peer' }]) {
+    const r = await $.command.run({ command: 'crew-guard', args: 'off', ...(origin ? { origin } : {}) } as any)
+    expect(r.text).toContain('only you can run it by typing it at the prompt')
+  }
+  expect(s.writes).toEqual([])
+  expect((await bash($, 'rm -rf ~')).deny).toContain('[rm-rf]')
 })

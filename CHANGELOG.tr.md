@@ -2,6 +2,14 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.10.0 (2026-10-28)
+- Komut koruması kendini kuruyor: `~/.claude/crew-chief-guard.json` yoksa ilk etkileşimli oturum varsayılan ayarı yazar (yerleşik kurallar; loopback dışındaki her host üretim sayılan ssh kapısı), korumayı o oturumda açar ve bir kez bildirim gösterir. Dosya bir kez yazılır; silersen yeniden oluşturulmaz. `CREW_CHIEF_GUARD_AUTOSETUP=off` ya da `CREW_CHIEF_GUARD=off` bunu engeller; `-p`/SDK oturumları hiçbir şey yazmaz. Bu, güncelleyen herkes için varsayılanı değiştirir.
+- `/crew-guard on` ve `/crew-guard off` ayardaki `enabled` değerini değiştirir (diğer anahtarlar korunur, geçersiz JSON'a dokunulmaz, hemen geçerli olur); yalnızca sen yazdığında çalışır, Claude, plugin ya da SDK çalıştıramaz.
+- ssh kapısı: `*` host deseni artık localhost, 127.x, `::1` ve `*.local` ile eşleşmiyor; ssh'ı yalnızca anan komutları (`ssh -V`, `which ssh`, commit mesajları, `GIT_SSH_COMMAND`) artık durdurmuyor.
+- Devir ve skill önerileri artık ilk yanıtı bekletmiyor: Claude önce isteğinizi yapar, cevabının sonuna tek kısa satır ekler (diyalog yok). Gece boyu, arka planda veya döngüde çalışan işlerde ve etkileşimsiz çalıştırmalarda öneri hiç yapılmaz. Gösterildiği anda "sonra" olarak kaydedilir; görmezden gelinen öneri bir hafta susar.
+- Devir dosyası olmayan projede sıkıştırma artık kurulum için soru sormuyor: devam eder ve son satırında `/crew-chief:crew-handoff` komutunu bir kez anar.
+- `crew-routing` skill'i: `implementer-hard` bir ürün kararında durursa Claude ona bağlı olmayan kısmı bitirir ve soruyu tüm işi durdurmak yerine son cevabına yazar.
+
 ## 0.9.0 (2026-10-27)
 - Komut koruması, isteğe bağlı ve varsayılan olarak kapalı: `/`, `~` ya da `*` üzerinde `rm -rf`, `DROP`/`TRUNCATE`, `git push --force`, `git reset --hard` ve özel anahtar dosyalarını engeller; diğer `rm -rf`, `.env` erişimi, `WHERE`'siz `DELETE`/`UPDATE`, deploy, servis durdurma/yeniden başlatma ve ssh üzerinden veritabanı istemcileri için uyarır. Kendi engel/uyarı kuralların ve kapattığın hazır kurallar `~/.claude/crew-chief-guard.json` dosyasına yazılır; `docs/examples/crew-chief-guard.example.json` kişisel bir prod-guard modunu birebir kurar. `CREW_CHIEF_GUARD=auto|on|off`.
 - Üç seviye: deny (hiç çalışmaz), confirm (ilk deneme 5 satırlık bir kontrol listesiyle durdurulur ve Claude kendisi cevaplar: ne nerede çalışıyor, ne kaybolabilir, yedek ya da geri dönüş, doğru hedef, GÜVENLİ ya da RİSKLİ; aynı komut sonra `confirmTtlMinutes` içinde (varsayılan 360) sessizce geçer; değişen komut yenidir) ve warn. Varsayılan olarak yalnızca felaket boyutundaki `rm -rf` ve korumanın kendi ayarı deny'dir; riskli silmeler, yıkıcı SQL, force push, hard reset, özel anahtarlar, deploy, servis durdurma ve ssh üzerinden veritabanı istemcileri confirm'dür.

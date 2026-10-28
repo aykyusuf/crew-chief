@@ -149,7 +149,7 @@ test('suggestions: stored, deduped, capped, secrets keep only a label, tokens hi
   assert.equal(addSuggestion(list, null), 'invalid')
   assert.equal(addSuggestion(list, { kind: 'secret', value: 'STRIPE_KEY=' + ['sk', 'live', 'FAKE0000000000000000'].join('_'), reason: 'in .env' }), 'added')
   assert.equal(list[1].value, 'STRIPE_KEY')
-  addSuggestion(list, { kind: 'other', value: 'x', reason: 'token ghp_abcdefghijklmnopqrstuvwxyz0123456789 seen' })
+  addSuggestion(list, { kind: 'other', value: 'x', reason: 'token ' + ['ghp', 'FAKE0000000000000000000000000000000000'].join('_') + ' seen' })
   assert.doesNotMatch(JSON.stringify(list), /sk_live|ghp_/)
   addSuggestion(list, { kind: 'command', value: 'x'.repeat(500), reason: 'r'.repeat(500) })
   assert.ok(list[3].value.length <= 200 && list[3].reason.length <= 200)

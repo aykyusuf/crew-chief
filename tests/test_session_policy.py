@@ -71,6 +71,21 @@ def suite():
               "STATUS.md" in out and "tasks.json" in out and "PROGRESS.md" in out and "Nothing is committed" in out
               and "anthropic.com/engineering/effective-harnesses-for-long-running-agents" in out)
         check("offer writes nothing itself", not os.path.exists(data) and sorted(os.listdir(bare)) == [".git"])
+        # The offer must never hold up the user's work: no question before the work, no dialog, one line at the end.
+        check("offer does not ask first or open a dialog",
+              "Ask the user ONCE" not in out and "at the start of your first reply" not in out
+              and "AskUserQuestion if available" not in out and "never use AskUserQuestion or any other dialog" in out
+              and "Do the user's first request first" in out and "Do NOT ask about this before starting" in out)
+        check("offer is one short line at the end of the final answer",
+              "exactly ONE short line" in out and "very end of your final answer" in out
+              and "Say yes to set them up." in out and "in the user's language" in out)
+        check("offer skips long autonomous or non-interactive runs",
+              "long autonomous or unattended job" in out and "overnight" in out and "every N minutes" in out
+              and "I am leaving" in out and "non-interactive" in out)
+        check("offer records later right away, then installed or never on the answer",
+              "record it as offered with Bash" in out and f"printf '%s\\tlater\\t%s\\n' '{bare}'" in out
+              and "handoff-offers.tsv" in out and "crew-chief:crew-handoff" in out
+              and f"printf '%s\\tnever\\n' '{bare}'" in out)
 
         for source in ("resume", "clear", "compact"):
             check(f"no offer on {source}", OFFER not in run(bare, source=source, data=data))

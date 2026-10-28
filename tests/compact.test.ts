@@ -290,13 +290,17 @@ test('the gate: retry submits the update request', async ($, on) => {
   expect(s.compactCalls.length).toBe(0)
 })
 
-test('a project without handoff files is offered them first, and the compaction does not wait for them', async ($, on) => {
+test('a project without handoff files is not asked about them, only told the command, and the compaction does not wait', async ($, on) => {
   const s = harness(on, { answers: [YES] })
   await start($)
   await approvedPlan($, s)
   expect(s.submitted[0]).toContain('no handoff files')
-  expect(s.submitted[0]).toContain('crew-chief:crew-handoff')
-  expect(s.submitted[0]).toContain('under Constraints')
+  expect(s.submitted[0]).toContain('/crew-chief:crew-handoff')
+  expect(s.submitted[0]).toContain('Do not ask the user')
+  expect(s.submitted[0]).toContain('do not create anything')
+  expect(s.submitted[0]).toContain('as if they had declined')
+  expect(s.submitted[0]).not.toContain('ask the user once')
+  expect(s.submitted[0]).not.toMatch(/AskUserQuestion\)/)
   await finishTurn($, s)
   await runClock(s, 1500)
   expect(s.compactCalls.length).toBe(1)
@@ -527,7 +531,7 @@ test('an interrupted turn does not start the compaction; a finished one does', a
   expect(s.compactCalls.length).toBe(1)
 })
 
-test('fallback path without handoff files: the update request offers to set them up', async ($, on) => {
+test('fallback path without handoff files: the update request only names the setup command', async ($, on) => {
   const s = harness(on, { answers: [YES] })
   await start($)
   await setTokens($, s, 410_000)

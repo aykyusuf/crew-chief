@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0 (2026-10-28)
+- The command guard sets itself up: the first interactive session with no `~/.claude/crew-chief-guard.json` writes a default config (built-in rules, ssh gate with every non-loopback host as production) and turns the guard on in that session, with one toast. It is written once; a deleted file is not recreated. `CREW_CHIEF_GUARD_AUTOSETUP=off` or `CREW_CHIEF_GUARD=off` prevents it; `-p`/SDK runs never write. This changes the default for everyone who updates.
+- `/crew-guard on` and `/crew-guard off` switch the guard by setting `enabled` in the config (other keys kept, invalid JSON refused, applied at once); only when you type them, never when Claude, a plugin or the SDK runs them.
+- The ssh gate: a `*` host pattern no longer matches localhost, 127.x, `::1` or `*.local`, and no longer stops commands that only mention ssh (`ssh -V`, `which ssh`, commit messages, `GIT_SSH_COMMAND`).
+- Handoff and skill offers no longer block the first reply: Claude does your request first, then adds one short line at the end of its answer (no dialog). The offer is skipped for overnight, background or looped jobs and non-interactive runs, and is recorded as "later" as soon as it is shown, so an ignored offer pauses for a week.
+- Compaction in a project without handoff files no longer asks about setting them up. It goes ahead and mentions `/crew-chief:crew-handoff` once in its closing line.
+- `crew-routing` skill: when `implementer-hard` stops on a product decision, Claude finishes what does not depend on it and puts the question in its final answer instead of stopping the whole job.
+
 ## 0.9.0 (2026-10-27)
 - Command guard, opt-in and off by default: blocks `rm -rf` on `/`, `~` or `*`, `DROP`/`TRUNCATE`, `git push --force`, `git reset --hard` and private key files; warns on other `rm -rf`, `.env` access, `DELETE`/`UPDATE` without `WHERE`, deploys, service stop/restart and database clients over ssh. Your own deny/warn rules and switched-off built-ins go in `~/.claude/crew-chief-guard.json`; `docs/examples/crew-chief-guard.example.json` reproduces a personal prod-guard mod. `CREW_CHIEF_GUARD=auto|on|off`.
 - Three levels: deny (never runs), confirm (the first attempt is stopped with a 5-line checklist Claude answers by itself: what runs where, what can be lost, backup or undo, right target, SAFE or RISKY; the identical command then passes silently within `confirmTtlMinutes`, default 360; a changed command is new) and warn. Only catastrophic `rm -rf` and the guard's own config are deny by default; risky deletes, destructive SQL, force push, hard reset, private keys, deploys, service stops and database clients over ssh are confirm.

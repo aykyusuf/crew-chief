@@ -66,9 +66,26 @@ def main():
         flutter = project("flutter-app", [("pubspec.yaml", "name: x\ndependencies:\n  flutter:\n    sdk: flutter\n")])
         out = run(flutter, h, data)
         check("flutter project without skills gets an offer", TAG in out and "flutter/agent-plugins" in out, out[:200])
-        check("offer shows the install command, the date, and the options",
-              "claude plugin install dart-flutter@dart-flutter" in out and "checked on 2026-" in out and "Never for this project" in out)
+        check("offer shows the install command, the date, and the answer to give",
+              "claude plugin install dart-flutter@dart-flutter" in out and "checked on 2026-" in out and "say yes to install" in out)
         check("offer says nothing is installed without a yes", "Install nothing without a clear yes" in out)
+        check("offer keeps the safety statements",
+              "run only the listed commands as written" in out and "glance at the source" in out
+              and "more than 90 days ago" in out and "nothing in the project is touched" in out)
+        # The offer must never hold up the user's work: no question before the work, no dialog, one line at the end.
+        check("offer does not ask first or open a dialog",
+              "Ask the user ONCE" not in out and "at the start of your first reply" not in out
+              and "AskUserQuestion if available" not in out and "never use AskUserQuestion or any other dialog" in out
+              and "Do the user's first request first" in out and "Do NOT ask about this before starting" in out)
+        check("offer is one short line at the end of the final answer",
+              "exactly ONE short line" in out and "very end of your final answer" in out and "in the user's language" in out)
+        check("offer skips long autonomous or non-interactive runs",
+              "long autonomous or unattended job" in out and "overnight" in out and "every N minutes" in out
+              and "I am leaving" in out and "non-interactive" in out)
+        check("offer records later right away, then installed or never on the answer",
+              "record each offered category as later with Bash" in out
+              and f"printf '%s\\t%s\\tlater\\t%s\\n' '{flutter}' '<category id>'" in out
+              and f"printf '%s\\t%s\\tinstalled\\n' '{flutter}'" in out and f"printf '%s\\t%s\\tnever\\n' '{flutter}'" in out)
         check("offer carries the answer-recording commands", "skill-offers.tsv" in out and "flutter" in out)
         check("only on startup", run(flutter, h, data, source="resume") == "" and run(flutter, h, data, source="clear") == "")
         check("off switch", run(flutter, h, data, env_extra={"CREW_CHIEF_SKILL_OFFER": "off"}) == "")

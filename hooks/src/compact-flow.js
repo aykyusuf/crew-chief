@@ -65,10 +65,10 @@ const TOOL_DESCRIPTION =
 const UPDATE_TEXT =
   'Update the handoff files of this project now, for those that exist: STATUS.md (Now, Next, Constraints = every rule the user gave, copied verbatim; keep the lines already there and only add new ones, Decisions, Failed attempts), tasks.json (only status and evidence change), PROGRESS.md (one dated line). If STATUS.md has no Constraints section, do not invent one; say so in your reply. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
 
-// A project with no handoff files has nowhere to pin the user's rules, so the person is offered them first
-// (the crew-handoff skill shows a preview and creates only what is missing; it needs a yes of its own).
+// A project with no handoff files has nowhere to pin the user's rules. Nobody is asked here (a dialog would
+// hold the compaction up while the person may be away): the answer only mentions /crew-chief:crew-handoff.
 const SETUP_TEXT =
-  'This project has no handoff files (STATUS.md, tasks.json, PROGRESS.md), so nothing would put the user\'s rules back after the compaction. Before it runs, ask the user once (AskUserQuestion) whether to set them up now: run the crew-chief:crew-handoff skill, which shows a preview and creates only what is missing. If they agree, run it, then copy every rule the user gave in this conversation, verbatim, under Constraints in STATUS.md. If they decline, do nothing more about it. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
+  'This project has no handoff files (STATUS.md, tasks.json, PROGRESS.md). Do not ask the user about them (no AskUserQuestion, no dialog) and do not create anything; carry on with the compaction exactly as if they had declined. Do not start any new work. Finish with one short line that also mentions, once, that handoff files were not set up and that /crew-chief:crew-handoff sets them up; the conversation is compacted right after your turn ends.'
 
 async function updateText($) {
   return (await findHandoff($)) ? UPDATE_TEXT : SETUP_TEXT

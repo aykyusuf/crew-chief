@@ -251,7 +251,8 @@ function compileSsh(raw, problems, ttlMs = DEFAULT_TTL_MIN * 60_000) {
       continue
     }
     const host = h.trim()
-    ssh.prodHosts.push({ hasUser: host.includes('@'), re: globToRegex(host) })
+    // `any`: a catch-all ('*', 'user@*'). It never matches loopback and is not used by the fallback scan.
+    ssh.prodHosts.push({ hasUser: host.includes('@'), re: globToRegex(host), any: /^\*+$/.test(host.slice(host.lastIndexOf('@') + 1)) })
   }
   const safe = Array.isArray(raw.safeRemote) ? raw.safeRemote.slice(0, MAX_RULES) : []
   safe.forEach((p, i) => {
@@ -799,11 +800,20 @@ export function remoteVerdict(remote, safeRemote = []) {
 
 // ---- the gate ------------------------------------------------------------------------------------
 
-export function hostMatches(prodHosts, user, host) {
+// localhost, 127.x.x.x, ::1 and *.local (also *.localhost): never production for a catch-all pattern
+// ('*'); they match only a pattern that names them.
+export function isLoopback(host) {
+  const h = String(host ?? '').toLowerCase().replace(/^\[(.*)\]$/, '$1')
+  return h === 'localhost' || h === '::1' || /^127(\.\d{1,3}){3}$/.test(h) || /\.(local|localhost)$/.test(h)
+}
+
+// `noCatchAll`: skip catch-all patterns (the fallback scan, which only sees words, uses it).
+export function hostMatches(prodHosts, user, host, noCatchAll = false) {
   if (!host) return false
   const h = String(host).toLowerCase()
   const full = (user ? String(user).toLowerCase() : '') + '@' + h
-  return prodHosts.some((p) => p.re.test(p.hasUser ? full : h))
+  const loop = isLoopback(h)
+  return prodHosts.some((p) => !(p.any && (loop || noCatchAll)) && p.re.test(p.hasUser ? full : h))
 }
 
 // What a Bash command does to production hosts: one entry per touch, with the remote verdict.
@@ -827,7 +837,8 @@ export function sshAssess(command, ssh) {
   if (!touches.some((t) => t.host !== undefined) && /(^|[\s'"`;&|(/])(ssh|scp|sftp|rsync|autossh)(?=[\s'"`;&|)]|$)/.test(command)) {
     for (const raw of command.split(/[^\w.@*\-[\]:]+/)) {
       const spec = splitHost(raw.replace(/:.*$/, ''))
-      if (spec.host && hostMatches(ssh.prodHosts, spec.user, spec.host)) {
+      // Only a named production host: with '*' every word (`which ssh`, a commit message) would match.
+      if (spec.host && hostMatches(ssh.prodHosts, spec.user, spec.host, true)) {
         touches.push({ host: spec.host, tool: 'ssh', verdict: { kind: 'unknown', why: 'the ssh call could not be read (nested or wrapped)' } })
         break
       }
@@ -1014,6 +1025,62 @@ export function guardStatusText(info) {
 
 export const GUARD_NOTE =
   "The command guard is on. If while working you meet a production host, a critical path, a secret, or a command that looks dangerous and is not covered by the guard, call crew_guard_suggest with a one-line reason (it returns at once; never stop to ask). Never edit the guard's config yourself."
+
+// ---- the config crew-chief writes itself (first run, /crew-guard on|off) ---------------------------
+
+// The plugin store key that remembers the first-run setup ('done' or 'failed'), so a deleted file is
+// never recreated and a failed write is not retried every session.
+export const SETUP_KEY = 'guard_setup'
+export const DEFAULT_COMMENT =
+  "Written once by crew-chief on first run. Edit freely, or run /crew-guard off. Delete this file and crew-chief will NOT recreate it. Docs: README, 'Command guard'."
+
+export function defaultConfigObject() {
+  return {
+    $comment: DEFAULT_COMMENT,
+    enabled: true,
+    confirmTtlMinutes: DEFAULT_TTL_MIN,
+    rules: [],
+    disable: [],
+    ssh: { mode: 'gate', prodHosts: ['*'], ttlMinutes: DEFAULT_TTL_MIN },
+  }
+}
+
+const configJson = (obj) => JSON.stringify(obj, null, 2) + '\n'
+
+export function defaultConfigText() {
+  return configJson(defaultConfigObject())
+}
+
+// What `/crew-guard off` writes when there is no file.
+export function offConfigText() {
+  return configJson({ $comment: DEFAULT_COMMENT, enabled: false })
+}
+
+// True when the text is the first-run default (any whitespace), so the note can tell Claude the defaults.
+export function isDefaultConfig(text) {
+  try {
+    return JSON.stringify(JSON.parse(text)) === JSON.stringify(defaultConfigObject())
+  } catch (err) {
+    return false
+  }
+}
+
+// `/crew-guard on|off` on an existing file: { ok: true, text } with `enabled` set and every other key kept,
+// or { ok: false, error } when the file is not a JSON object (then nothing is written).
+export function toggleConfigText(text, enabled) {
+  let raw
+  try {
+    raw = JSON.parse(text)
+  } catch (err) {
+    return { ok: false, error: 'not valid JSON' }
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'not a JSON object' }
+  raw.enabled = enabled === true
+  return { ok: true, text: configJson(raw) }
+}
+
+export const DEFAULTS_NOTE =
+  "The guard runs with the defaults crew-chief wrote on first run: the built-in rules, and an ssh gate that treats every host except localhost/127.0.0.1/::1/*.local as production (the first contact with a host, and a remote command off the read-only list, is stopped once: answer the checklist, then retry the identical command). The user changes this in ~/.claude/crew-chief-guard.json or with /crew-guard off."
 
 export function sshWarnContext(d) {
   const hosts = d.hosts.join(', ')

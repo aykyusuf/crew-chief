@@ -18,9 +18,9 @@
 //     /advisor (a stronger model Claude can ask at hard moments). It asks first, remembers "not now"
 //     for a week and "never" for good, and runs /advisor only after a yes.
 //   - An opt-in command guard (hooks/src/guard.js): built-in and personal deny/warn rules and an ssh
-//     "first contact" gate for production hosts, configured in ~/.claude/crew-chief-guard.json. CREW_CHIEF_GUARD.
+//     "first contact" gate for production hosts, configured in ~/.claude/crew-chief-guard.json (written with defaults on the first interactive run). CREW_CHIEF_GUARD, CREW_CHIEF_GUARD_AUTOSETUP.
 //     A first attempt at a "confirm" command is stopped with a checklist; the identical retry passes.
-//     /crew-guard [status|suggestions]; the tool crew_guard_suggest lets Claude flag what the config misses.
+//     /crew-guard [status|suggestions|on|off]; the tool crew_guard_suggest lets Claude flag what the config misses.
 // Environment: CREW_CHIEF_SAVER=off silences the saver questions and toasts (not the advisor offer);
 // CREW_CHIEF_SAVER_FIVE_HOUR and CREW_CHIEF_SAVER_SEVEN_DAY set the thresholds ("70,80,90");
 // CREW_CHIEF_ADVISOR_OFFER=off never offers the advisor; CREW_CHIEF_COMPACT=off turns the compact flow off;

@@ -82,7 +82,7 @@ Vague briefs lead to duplicated work and gaps. Independent briefs go out in one 
 ## 4. Escalate, don't retry
 
 - `implementer` says stopped → hand the same brief plus its report to `implementer-hard`.
-- `implementer-hard` says stopped → take it into the main session, or ask the user if it is a product decision.
+- `implementer-hard` says stopped → take it into the main session. If it is a product decision, do not stop the whole job to wait for an answer: finish what does not depend on it and put the question in your final answer (ask on the spot only when the user is clearly present and nothing else can proceed).
 - Do not re-run the same tier with the same brief hoping for a different result.
 
 Escalate on evidence, not only on the agent's own "stopped". Treat these as stopped too: the check was not run or still fails, files changed outside the brief, or the run ended at `maxTurns` with partial output. Verify a "done" yourself with the diff and the check before relying on it.
