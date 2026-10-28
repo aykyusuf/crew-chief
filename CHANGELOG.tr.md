@@ -2,6 +2,10 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.10.2 (2026-10-28)
+- İlerleme hatırlatması artık etkisiz çağrının ayrı bir tool değil, bir Bash komutu olduğunu söylüyor. Windows'taki bir alt ajan "bu no-op'u çalıştır"ı sahip olmadığı bir tool sanıp raporu atlamıştı, bu yüzden yüzde görünmedi.
+- `jq` yoksa prompt'un altındaki ajan paneli her alt ajanın modelini ve eforunu gösteremez (o satır `jq` isteyen bir shell script'i). crew-chief artık bunu bir kez, bir toast ile söylüyor (soru değil): Windows'ta `winget install jqlang.jq`, diğerlerinde `brew install jq`. Yüzey yokken (`-p`, SDK) ya da `CREW_CHIEF_ROW=off` iken gösterilmez. Panel satırının `jq`'suz bir sürümü planlı, yazılmadı.
+
 ## 0.10.1 (2026-10-28)
 - Windows'ta ve `jq` olmayan her yerde ilerleme: mod her alt ajanın tool çağrılarını ve `crew-progress` raporlarını kendisi (bellekte) sayar; durum satırı model ve eforun yanında `~40%` gösterir, 10 çağrılık hatırlatma `jq` olmadan da alt ajana ulaşır. `jq` çalışan yerde hatırlatmayı yine shell hook yapar, kimse iki kez hatırlatılmaz.
 - "Şimdi değil" dedikten sonra compact: `crew_compact_checkpoint` artık `user_requested: true` alıyor. Compact'i kendi sözlerinle istediğinde, az önce reddetmiş (ya da "bir daha sorma" demiş) olsan bile çalışır; "henüz gerekmez" cevabı vermez. "Gerekmez" cevabı bunu söylüyor, Claude'a da seni `/compact`'a yönlendirmemesi söyleniyor.

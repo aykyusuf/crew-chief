@@ -71,6 +71,6 @@ find "$dir" -type f -mmin +720 -delete 2>/dev/null
 case "$due" in
   ''|*[!0-9]*|0) ;;
   *) jq -nc --arg n "$due" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext:
-       ("crew-chief: you have made " + $n + " tool calls since your last progress report. Run this no-op now, with your honest numbers: : '"'"'crew-progress NN | what you are on | why it is slow (empty if not)'"'"'. Do not mention this note in your answer.")}}' 2>/dev/null ;;
+       ("crew-chief: you have made " + $n + " tool calls since your last progress report. Run this no-op now with the Bash tool (it is a shell command that does nothing, not a separate tool), with your honest numbers: : '"'"'crew-progress NN | what you are on | why it is slow (empty if not)'"'"'. Do not mention this note in your answer.")}}' 2>/dev/null ;;
 esac
 exit 0

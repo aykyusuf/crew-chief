@@ -72,6 +72,6 @@ export function nudgeText(n) {
   return (
     'crew-chief: you have made ' +
     n +
-    " tool calls since your last progress report. Run this no-op now, with your honest numbers: : 'crew-progress NN | what you are on | why it is slow (empty if not)'. Do not mention this note in your answer."
+    " tool calls since your last progress report. Run this no-op now with the Bash tool (it is a shell command that does nothing, not a separate tool), with your honest numbers: : 'crew-progress NN | what you are on | why it is slow (empty if not)'. Do not mention this note in your answer."
   )
 }

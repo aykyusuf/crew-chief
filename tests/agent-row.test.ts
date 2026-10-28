@@ -8,6 +8,7 @@ function harness(on: any, opts: Opts = {}) {
   const state = {
     clock: undefined as any,
     status: [] as (string | undefined)[], // every $.ui.status call, in order
+    toasts: [] as string[],
     surfaces: opts.surfaces ?? ['terminal'],
     agents: [] as { id: string; type: string; status: string; description: string }[],
     listFails: false,
@@ -39,7 +40,10 @@ function harness(on: any, opts: Opts = {}) {
   on('command.register', () => ({ value: undefined }))
   on('command.list', () => ({ value: [{ name: 'advisor' }] }))
   on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', ($: any, e: any) => {
+    state.toasts.push(e.text)
+    return { value: undefined }
+  })
   on('ui.log', () => ({ value: undefined }))
   on('tool.call', () => ({ result: 'ok' }))
   on('session.start', () => ({ cwd: '/work' }))
@@ -85,7 +89,7 @@ test('VS Code: every running subagent with model, effort and tokens on one line'
   await step($, s, 'a2', 'claude-opus-5-5', 'medium')
   await redraw(s)
   expect(s.status.at(-1)).toBe('scanner haiku-5.5·low 13k | implementer opus-5.5·medium')
-  expect(s.jqRuns).toBe(0) // jq only matters on a plain terminal
+  expect(s.jqRuns).toBe(1) // probed once a session for the install hint; it does not decide the line here
 })
 
 test('Desktop: shown too', async ($, on) => {
@@ -126,7 +130,7 @@ test('Windows (OS=Windows_NT): shown without asking for jq', async ($, on) => {
   await step($, s, 'a1', 'claude-sonnet-5-5', 'high')
   await redraw(s)
   expect(s.status.at(-1)).toBe('Explore sonnet-5.5·high')
-  expect(s.jqRuns).toBe(0)
+  expect(s.jqRuns).toBe(1) // the one probe a session (for the install hint); the line does not wait for it
 })
 
 test('no surface (-p, SDK): nothing drawn', async ($, on) => {
@@ -273,4 +277,48 @@ test('where jq works the shell hook does the reminding, so the mod stays quiet',
   await start($)
   for (let i = 0; i < 25; i++) expect(contextOf(await call($, 'a1'))).toBe('[]')
   expect(s.jqRuns).toBe(1)
+})
+
+// ---- the one-time jq install hint --------------------------------------------------------------------------
+
+test('no jq: one toast says how to install it, on Windows with winget, and it is not a question', async ($, on) => {
+  const s = harness(on, { surfaces: ['terminal'], env: { OS: 'Windows_NT' }, jq: 'missing' })
+  await start($)
+  expect(s.toasts.length).toBe(1)
+  expect(s.toasts[0]).toContain('winget install jqlang.jq')
+  expect(s.toasts[0]).toContain('model and effort')
+})
+
+test('no jq on another system: a generic install hint', async ($, on) => {
+  const s = harness(on, { surfaces: ['terminal'], jq: 'missing' })
+  await start($)
+  expect(s.toasts.length).toBe(1)
+  expect(s.toasts[0]).toContain('brew install jq')
+})
+
+test('the hint is shown once, not again in a later session', async ($, on) => {
+  const s = harness(on, { surfaces: ['terminal'], jq: 'missing' })
+  await start($)
+  await $.session.end({ sessionId: 's1', reason: 'clear' })
+  await start($)
+  expect(s.toasts.length).toBe(1)
+})
+
+test('with jq: no hint', async ($, on) => {
+  const withJq = harness(on, { surfaces: ['terminal'], jq: 'yes' })
+  await start($)
+  expect(withJq.toasts.length).toBe(0)
+})
+
+test('no surface: no hint and no probe', async ($, on) => {
+  const s = harness(on, { surfaces: [], jq: 'missing' })
+  await start($)
+  expect(s.toasts.length).toBe(0)
+  expect(s.jqRuns).toBe(0)
+})
+
+test('CREW_CHIEF_ROW=off: no hint', async ($, on) => {
+  const s = harness(on, { surfaces: ['terminal'], jq: 'missing', env: { CREW_CHIEF_ROW: 'off' } })
+  await start($)
+  expect(s.toasts.length).toBe(0)
 })

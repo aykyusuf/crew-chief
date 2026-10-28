@@ -1511,7 +1511,8 @@ function freshRow() {
     done: new Set(), // agents whose turn ended (the list can still say running for a moment)
     wanted: undefined,
     checkedAt: undefined,
-    hasJq: undefined, // probed once a session, only when it matters
+    hasJq: undefined, // probed once a session (rowJq)
+    jqAnswer: undefined, // the promise of that one probe
     shown: false, // this module pinned a line
     lastText: undefined,
     drawPending: false,
@@ -1529,12 +1530,42 @@ async function rowProbeJq($) {
   }
 }
 
+// `jq --version` runs once a session however many places ask (the draw decision, the progress reminder,
+// the install hint): they all share this one answer.
+function rowJq($) {
+  if (!rowState.jqAnswer) {
+    rowState.jqAnswer = rowProbeJq($).then((has) => {
+      rowState.hasJq = has
+      return has
+    })
+  }
+  return rowState.jqAnswer
+}
+
+// Without jq the agent panel below the prompt (scripts/subagent-row.sh) stays the host's own: no model, no
+// effort. Said once, as a toast, never as a question: the person decides whether they want it.
+async function rowJqHint($) {
+  try {
+    const surfaces = await $.session.surfaces()
+    if (!Array.isArray(surfaces) || surfaces.length === 0) return
+    if ((await $.env.get('CREW_CHIEF_ROW')) === 'off') return
+    if (await $.store.get('jq_hint')) return
+    if (await rowJq($)) return
+    await $.store.set('jq_hint', 'shown')
+    const lang = await resolveLang($)
+    const windows = platformFromOs(await $.env.get('OS')) === 'win32'
+    const install = windows ? 'winget install jqlang.jq (then open a new terminal)' : 'brew install jq (macOS) or your package manager'
+    $.ui.toast(t(lang, 'row_jq_hint', { install }), { timeoutMs: 20000 })
+  } catch (err) {
+    // A missing hint is no problem.
+  }
+}
+
 // True when the shell progress hook cannot work here (no jq), so the mod sends the progress reminders itself.
 // `jq --version` is run once a session, the first time it matters.
 async function rowShellHookDead($) {
   try {
-    if (rowState.hasJq === undefined) rowState.hasJq = await rowProbeJq($)
-    return rowState.hasJq === false
+    return (await rowJq($)) === false
   } catch (err) {
     return false // unknown: the shell hook keeps the job, so nobody is reminded twice
   }
@@ -1555,10 +1586,7 @@ async function rowCheckWanted($, force) {
     const surfaces = await $.session.surfaces()
     const platform = platformFromOs(await $.env.get('OS'))
     let hasJq = rowState.hasJq
-    if (hasJq === undefined && jqMatters({ mode, surfaces, platform })) {
-      hasJq = await rowProbeJq($)
-      rowState.hasJq = hasJq
-    }
+    if (hasJq === undefined && jqMatters({ mode, surfaces, platform })) hasJq = await rowJq($)
     wanted = rowWanted({ mode, surfaces, platform, hasJq })
   } catch (err) {
     wanted = false
@@ -1674,6 +1702,7 @@ function rowSessionStart($) {
   rowState = freshRow()
   // Not awaited: `jq --version` must not hold the session's start.
   rowCheckWanted($, true).catch(() => {})
+  rowJqHint($).catch(() => {})
 }
 
 function rowSessionEnd($) {

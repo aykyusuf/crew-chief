@@ -43,6 +43,7 @@ function harness(on: any, opts: Opts = {}) {
     CREW_CHIEF_COMPACT: 'off',
     CREW_CHIEF_ADVISOR_OFFER: 'off',
     CREW_CHIEF_ROW_MOD: 'off',
+    CREW_CHIEF_ROW: 'off', // no jq hint toast in these tests
     HOME: '/home/t',
     ...(opts.env ?? {}),
   })

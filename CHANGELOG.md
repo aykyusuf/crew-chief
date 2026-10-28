@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.2 (2026-10-28)
+- The progress reminder now says the no-op is a Bash command, not a separate tool. A subagent on Windows had read "run this no-op" as a tool it did not have and skipped the report, so no percentage showed.
+- Without `jq` the agent panel below the prompt cannot show each subagent's model and effort (that row is a shell script that needs it). crew-chief now says so once, in a toast (never a question): `winget install jqlang.jq` on Windows, `brew install jq` elsewhere. Not shown with no surface (`-p`, SDK) or `CREW_CHIEF_ROW=off`. A `jq`-free version of the panel row is planned, not built.
+
 ## 0.10.1 (2026-10-28)
 - Progress on Windows and wherever `jq` is missing: the mod counts each subagent's tool calls and `crew-progress` reports itself (in memory), so the status line shows `~40%` next to the model and effort, and the 10-call reminder reaches a subagent without `jq`. Where `jq` works the shell hook still does the reminding, so nobody is reminded twice.
 - Compaction after a "not now": `crew_compact_checkpoint` takes `user_requested: true`. When you ask for a compaction in your own words it works even right after you declined one (or chose "don't ask again"), instead of answering "not needed yet". The "not needed" answer now says so, and Claude is told not to send you to `/compact`.
