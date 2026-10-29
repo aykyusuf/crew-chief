@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.1 (2026-10-29)
+- **The crew-ui band is on by default, and quiet.** It draws nothing while there is nothing to say (no running subagent, no limit or context from 70 %, nothing the guard stopped, no compaction due), so an update adds nothing to a calm screen. A toast says so once; `/crew-ui off` turns it off and keeps it off, `CREW_CHIEF_UI=off` too. With it on, the plugin's own questions are asked in the band instead of a dialog, and the small touches (model and effort next to the spinner and the turn line) appear; both go away with `off`. This changes the default for everyone who updates.
+
 ## 0.11.0 (2026-10-29)
 - **crew-ui**, off until you run `/crew-ui on`: a band above the prompt (terminal and Desktop app) with one line per running subagent (model, a five-dot effort meter, progress bar, tokens, step), the context with a small graph, the 5 h and 7 d limits, the guard, the saver and a compact key. Quiet by default (shown only when something is worth a look; with a `statusLine` of your own in the terminal it leaves out the context and limits), `/crew-ui full` for everything, `/crew-ui style boxed|plain|color|pills` (default `boxed`), `/crew-ui demo on` for sample content. It never writes to `settings.json`.
 - **Questions in the band.** While the band is on, the plugin's own questions (compact, compact gate, limit and saver, advisor offer, limit reset, `/crew-tidy archive`) are asked as buttons in a lilac strip, answered with a digit key, instead of a dialog. The deadline, the safe default and the dialog fallback (VS Code, band off, more than four answers) are unchanged; Claude's own questions are never touched.

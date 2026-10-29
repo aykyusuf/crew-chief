@@ -45,7 +45,7 @@ function harness(on: any, opts: Opts = {}) {
     mtimes: { ...(opts.mtimes ?? {}) } as Record<string, number>,
   }
   const answers = opts.answers ?? [YES]
-  mock.env(on, { HOME: '/home/me', ...(opts.env ?? {}) })
+  mock.env(on, { CREW_CHIEF_UI: 'off', HOME: '/home/me', ...(opts.env ?? {}) })
   state.clock = mock.clock(on, { now: 3_600_000 })
   mock.store(on, opts.store ?? {})
   on('session.usage', () => ({

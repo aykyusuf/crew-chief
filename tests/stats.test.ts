@@ -15,7 +15,7 @@ function harness(on: any, opts: Opts = {}) {
     usages: [] as Usage[], // what the next requests report, in order
     contextTokens: 300_000,
   }
-  mock.env(on, { CREW_CHIEF_SAVER: 'off', CREW_CHIEF_COMPACT: 'off', ...(opts.env ?? {}) })
+  mock.env(on, { CREW_CHIEF_UI: 'off', CREW_CHIEF_SAVER: 'off', CREW_CHIEF_COMPACT: 'off', ...(opts.env ?? {}) })
   state.clock = mock.clock(on, { now: 3_600_000 })
   mock.store(on, opts.store ?? {})
   on('session.usage', () => ({

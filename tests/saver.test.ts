@@ -42,7 +42,7 @@ function harness(on: any, opts: Opts = {}) {
     commandRuns: [] as string[][],
     settings: { ...(opts.advisorOff ? {} : { advisorModel: 'opus' }), ...(opts.settings ?? {}) } as Record<string, unknown>,
   }
-  mock.env(on, opts.env ?? {})
+  mock.env(on, { CREW_CHIEF_UI: 'off', ...(opts.env ?? {}) })
   state.clock = mock.clock(on, { now: 3_600_000 })
   on('session.usage', () => ({ value: state.usage }))
   on('command.register', () => (opts.refuseCommand ? { deny: 'the name is taken' } : { value: undefined }))

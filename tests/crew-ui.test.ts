@@ -25,7 +25,7 @@ function harness(on: any, opts: Opts = {}) {
     submitted: [] as string[],
     stored: { ...(opts.store ?? {}) } as Record<string, unknown>,
   }
-  mock.env(on, { CREW_CHIEF_SAVER: 'off', CREW_CHIEF_COMPACT: 'off', CREW_CHIEF_ADVISOR_OFFER: 'off', CREW_CHIEF_GUARD: 'off', CREW_CHIEF_ROW: 'off', CREW_CHIEF_ROW_MOD: 'off', ...(opts.env ?? {}) })
+  mock.env(on, { CREW_CHIEF_SAVER: 'off', CREW_CHIEF_COMPACT: 'off', CREW_CHIEF_ADVISOR_OFFER: 'off', CREW_CHIEF_GUARD: 'off', CREW_CHIEF_ROW: 'off', CREW_CHIEF_ROW_MOD: 'off', CREW_CHIEF_UI: 'off', ...(opts.env ?? {}) })
   state.clock = mock.clock(on, { now: NOW })
   on('store.get', ($: any, e: any) => ({ value: state.stored[e.key] }))
   on('store.set', ($: any, e: any) => {
@@ -93,11 +93,33 @@ const PROPS = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100
 const mount = ($: any, over: Record<string, unknown> = {}) =>
   $.ui.mount({ plugin: 'crew-chief', surface: 'terminal', component: 'AbovePrompt', props: { ...PROPS, ...over }, viewport: { columns: 105, rows: 40, isFullscreen: false } })
 
-test('off by default: nothing of ours is drawn', async ($, on) => {
+test('CREW_CHIEF_UI=off: nothing of ours is drawn', async ($, on) => {
   harness(on)
   await start($)
   const ui = await mount($)
   expect(await ui.find({ type: 'Text', text: /ctx/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('on by default and quiet: a calm session draws nothing, a high week shows, and a toast says so once', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: '' }, tokens: 100_000 }) // no environment choice, no saved choice
+  await start($)
+  expect(s.toasts.filter((x: string) => x.includes('band above the prompt is on')).length).toBe(1)
+  const ui = await mount($)
+  expect(await ui.find({ type: 'Text', text: '96%' })).toBeDefined() // the harness week is at 96 %
+  expect(await ui.find({ type: 'Text', text: /ctx/ })).toBeUndefined() // quiet: the context is fine
+  await ui.unmount()
+  await $.session.end({ sessionId: 's1', reason: 'clear' })
+  await start($)
+  expect(s.toasts.filter((x: string) => x.includes('band above the prompt is on')).length).toBe(1) // not again
+})
+
+test('a saved "off" stays off and says nothing; /crew-ui off is saved', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: '' }, store: { crew_ui: 'off' } })
+  await start($)
+  expect(s.toasts.filter((x: string) => x.includes('band above the prompt is on')).length).toBe(0)
+  const ui = await mount($)
+  expect(await ui.find({ type: 'Text', text: '96%' })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -146,7 +168,7 @@ test('a survey wins: nothing of ours', async ($, on) => {
 })
 
 test('/crew-ui on and off are saved, status says which surfaces draw it', async ($, on) => {
-  const s = harness(on, { store: { crew_ui_mode: 'full' } })
+  const s = harness(on, { env: { CREW_CHIEF_UI: '' }, store: { crew_ui: 'off', crew_ui_mode: 'full' } })
   await start($)
   const status = await $.command.run({ command: 'crew-ui', args: 'status' })
   expect(JSON.stringify(status)).toContain('the band is off')
@@ -164,7 +186,7 @@ test('/crew-ui on and off are saved, status says which surfaces draw it', async 
 })
 
 test('a saved "on" is read at the next session start', async ($, on) => {
-  harness(on, { store: { crew_ui: 'on', crew_ui_mode: 'full' } })
+  harness(on, { env: { CREW_CHIEF_UI: '' }, store: { crew_ui: 'on', crew_ui_mode: 'full' } })
   await start($)
   const ui = await mount($)
   expect(await ui.find({ type: 'Text', text: /ctx/ })).toBeDefined()

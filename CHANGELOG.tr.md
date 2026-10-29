@@ -2,6 +2,9 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.11.1 (2026-10-29)
+- **crew-ui bandı varsayılan açık ve sessiz.** Söyleyecek bir şey yokken (çalışan alt ajan yok, %70'i geçen limit ya da context yok, guard'ın durdurduğu bir şey yok, vakti gelen compact yok) hiçbir şey çizmez; yani güncelleme sakin bir ekrana bir şey eklemez. Bir kez bildirimle söylenir; `/crew-ui off` kapatır ve kapalı tutar, `CREW_CHIEF_UI=off` da. Açıkken plugin'in kendi soruları dialog yerine band'da sorulur ve küçük dokunuşlar (spinner ve tur satırında model ve efor) görünür; ikisi de `off` ile gider. Bu, güncelleyen herkes için varsayılanı değiştirir.
+
 ## 0.11.0 (2026-10-29)
 - **crew-ui**, `/crew-ui on` diyene kadar kapalı: prompt'un üstünde (terminal ve Desktop uygulaması) çalışan her alt ajan için bir satır (model, beş noktalı efor ölçer, ilerleme çubuğu, token, adım), küçük grafikle context, 5 saat ve 7 gün limitleri, guard, saver ve bir compact tuşu olan band. Varsayılan sessiz (yalnızca bakmaya değer bir şey varken görünür; terminalde kendi `statusLine`'ın varsa context ve limitleri göstermez), her şey için `/crew-ui full`, `/crew-ui style boxed|plain|color|pills` (varsayılan `boxed`), örnek içerik için `/crew-ui demo on`. `settings.json`'a hiç yazmaz.
 - **Sorular band'da.** Band açıkken plugin'in kendi soruları (compact, compact kapısı, limit ve saver, advisor teklifi, limit sıfırlanması, `/crew-tidy archive`) dialog yerine lila bir şeritte düğmeler olarak sorulur, rakam tuşuyla cevaplanır. Süre sınırı, güvenli varsayılan ve dialog'a dönüş (VS Code, kapalı band, dörtten fazla cevap) aynı; Claude'un kendi soruları hiç değişmez.

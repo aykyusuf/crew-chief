@@ -38,7 +38,7 @@ function harness(on: any, opts: Opts = {}) {
     logs: [] as string[],
   }
   if (opts.file !== undefined) state.files[GUARD_PATH] = opts.file
-  mock.env(on, {
+  mock.env(on, { CREW_CHIEF_UI: 'off',
     CREW_CHIEF_SAVER: 'off',
     CREW_CHIEF_COMPACT: 'off',
     CREW_CHIEF_ADVISOR_OFFER: 'off',

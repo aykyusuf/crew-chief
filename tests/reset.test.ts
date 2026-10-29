@@ -21,7 +21,7 @@ function harness(on: any, opts: Opts = {}) {
     submitted: [] as string[],
   }
   // The saver would also ask at 90 percent; this file is about the reset flow only.
-  mock.env(on, { CREW_CHIEF_SAVER: 'off', ...(opts.env ?? {}) })
+  mock.env(on, { CREW_CHIEF_UI: 'off', CREW_CHIEF_SAVER: 'off', ...(opts.env ?? {}) })
   state.clock = mock.clock(on, { now: NOW })
   mock.store(on)
   on('session.usage', () => ({ value: { startedAt: NOW - 1000, context: { window: 1_000_000, tokens: 50_000, percent: 5 }, rateLimits: state.rateLimits } }))

@@ -15,7 +15,7 @@ function harness(on: any, opts: Opts = {}) {
     jqRuns: 0,
     usages: [] as unknown[],
   }
-  mock.env(on, { CREW_CHIEF_SAVER: 'off', CREW_CHIEF_COMPACT: 'off', CREW_CHIEF_ADVISOR_OFFER: 'off', ...(opts.env ?? {}) })
+  mock.env(on, { CREW_CHIEF_UI: 'off', CREW_CHIEF_SAVER: 'off', CREW_CHIEF_COMPACT: 'off', CREW_CHIEF_ADVISOR_OFFER: 'off', ...(opts.env ?? {}) })
   state.clock = mock.clock(on, { now: 3_600_000 })
   mock.store(on, {})
   on('session.usage', () => ({ value: { startedAt: 3_000_000, context: { window: 1_000_000, tokens: 1000, percent: 0 }, rateLimits: [], cost: { usd: 0 } } }))

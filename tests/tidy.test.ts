@@ -22,7 +22,7 @@ function harness(on: any, opts: Opts = {}) {
     questions: [] as string[],
     dirs: {} as Record<string, string[]>,
   }
-  mock.env(on, { HOME: '/home/me', CREW_CHIEF_SAVER: 'off', ...(opts.env ?? {}) })
+  mock.env(on, { CREW_CHIEF_UI: 'off', HOME: '/home/me', CREW_CHIEF_SAVER: 'off', ...(opts.env ?? {}) })
   mock.clock(on, { now: NOW })
   mock.store(on)
   const breakdown = opts.breakdown === null ? undefined : opts.breakdown

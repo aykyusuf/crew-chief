@@ -1,6 +1,6 @@
 // crew-chief crew-ui: a band above the prompt with what a long session needs at a glance. Part of the mod in
-// hooks/register.js (Claude Code 2.1.287+). Off until the person turns it on with /crew-ui on; it never writes
-// to settings.json (the person's own status line is left alone).
+// hooks/register.js (Claude Code 2.1.287+). On by default and quiet (it draws nothing while there is nothing to say);
+// /crew-ui off turns it off. It never writes to settings.json (the person's own status line is left alone).
 //
 // In the terminal, with a status line of the person's own set, the quiet band leaves out the context and the
 // limits (that line has them); on the Desktop app, or with `/crew-ui full`, they are shown.
@@ -34,6 +34,7 @@ const UI_MODE_KEY = 'crew_ui_mode' // 'quiet' (default) or 'full'
 const UI_STYLE_KEY = 'crew_ui_style' // boxed (default), plain (theme colours), color (hex), pills
 const UI_STYLES = ['plain', 'color', 'pills', 'boxed']
 const UI_WORDS_KEY = 'crew_ui_words' // 'on' or 'off' (default): calm spinner words by model
+const UI_NOTICE_KEY = 'crew_ui_notice' // set once the first-run notice was shown
 const UI_EXTRAS_KEY = 'crew_ui_extras' // 'on' (default) or 'off': the small touches outside the band
 const UI_MAX_LINES = 4
 const UI_SURFACES = ['terminal', 'desktop']
@@ -94,7 +95,8 @@ async function uiReadChoice($) {
   } catch (err) {
     saved = undefined
   }
-  return { on: saved === 'on', source: saved === undefined ? 'default' : 'saved choice' }
+  // On unless the person turned it off: the quiet band draws nothing while there is nothing to say.
+  return { on: saved !== 'off', source: saved === undefined ? 'default' : 'saved choice' }
 }
 
 // Called after each finished main turn with the usage: one more point for the context graph.
@@ -179,9 +181,26 @@ export function uiTouch($) {
   }
 }
 
+// The band is on by default, which changes what an updated install shows: say so once, in a toast (never a
+// question), and only where the band can be drawn.
+async function uiFirstNotice($, choice) {
+  try {
+    if (!choice.on || choice.source !== 'default') return
+    if ((await safeStoreGet($, UI_NOTICE_KEY)) !== undefined) return
+    const surfaces = await $.session.surfaces()
+    if (!Array.isArray(surfaces) || surfaces.length === 0 || !surfaces.every((s) => UI_SURFACES.includes(s))) return
+    await $.store.set(UI_NOTICE_KEY, 'shown')
+    const lang = await resolveLang($)
+    $.ui.toast(t(lang, 'ui_default_toast'), { timeoutMs: 20000 })
+  } catch (err) {
+    // The notice is a courtesy.
+  }
+}
+
 export async function uiSessionStart($) {
   try {
-    uiOn = (await uiReadChoice($)).on
+    const choice = await uiReadChoice($)
+    uiOn = choice.on
     uiFull = (await safeStoreGet($, UI_MODE_KEY)) === 'full'
     uiExtras = (await safeStoreGet($, UI_EXTRAS_KEY)) !== 'off'
     uiWords = (await safeStoreGet($, UI_WORDS_KEY)) === 'on'
@@ -189,6 +208,7 @@ export async function uiSessionStart($) {
     const savedStyle = await safeStoreGet($, UI_STYLE_KEY)
     uiStyle = UI_STYLES.includes(savedStyle) ? savedStyle : 'boxed'
     uiStatusLine = { at: -Infinity, has: false }
+    await uiFirstNotice($, choice)
     await $.command.register({ name: 'crew-ui', description: 'Show or hide the crew-chief band above the prompt', immediate: true, argumentHint: '[on|off|quiet|full|style <name>|demo on|demo off|words on|words off|extras on|extras off|status]' })
   } catch (err) {
     // The name is taken, or an older Claude Code: the band can still be switched with CREW_CHIEF_UI.
