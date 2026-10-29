@@ -15,7 +15,8 @@
 // `on` always (with a surface), `off` never. Any failure leaves the line alone and the turn untouched.
 import { resolveLang } from './lang.mjs'
 import { t } from './saver-i18n.mjs'
-import { progressPct } from './progress.mjs'
+import { uiCovers, uiTouch } from './crew-ui.mjs'
+import { progressInfo, progressPct } from './progress.mjs'
 import { formatRow, jqMatters, platformFromOs, rowWanted, usageTokens } from './row-logic.mjs'
 
 const ROW_LIVE = ['pending', 'running', 'waiting']
@@ -27,6 +28,7 @@ function freshRow() {
     agents: new Map(), // agentId -> { model, effort, tokens }
     done: new Set(), // agents whose turn ended (the list can still say running for a moment)
     wanted: undefined,
+    surfaces: undefined, // as last read, for the band
     checkedAt: undefined,
     hasJq: undefined, // probed once a session (rowJq)
     jqAnswer: undefined, // the promise of that one probe
@@ -64,6 +66,7 @@ function rowJq($) {
 async function rowJqHint($) {
   try {
     const surfaces = await $.session.surfaces()
+    rowState.surfaces = surfaces
     if (!Array.isArray(surfaces) || surfaces.length === 0) return
     if ((await $.env.get('CREW_CHIEF_ROW')) === 'off') return
     if (await $.store.get('jq_hint')) return
@@ -135,6 +138,11 @@ async function rowDraw($) {
       rowClear($)
       return
     }
+    // The band (hooks/src/crew-ui.js) says the same where it is drawn: no second line then.
+    if (uiCovers(rowState.surfaces)) {
+      rowClear($)
+      return
+    }
     let list
     try {
       list = await $.agent.list()
@@ -160,6 +168,62 @@ async function rowDraw($) {
   } catch (err) {
     // A missing line is better than a broken turn.
   }
+}
+
+// The surfaces as last read (for the band's questions).
+export function rowSurfaces() {
+  return rowState.surfaces
+}
+
+// The live subagents for the band: name, model, effort, tokens and the fresh progress report.
+export async function rowBandRows($) {
+  let list
+  try {
+    list = await $.agent.list()
+  } catch (err) {
+    list = []
+  }
+  const rows = []
+  for (const a of Array.isArray(list) ? list : []) {
+    if (!a || !ROW_LIVE.includes(a.status) || rowState.done.has(a.id)) continue
+    const info = rowState.agents.get(a.id) ?? {}
+    const prog = await progressInfo($, a.id)
+    rows.push({ name: rowAgentName(a), model: info.model, effort: info.effort, tokens: info.tokens, pct: prog?.pct, step: prog?.step })
+  }
+  return rows
+}
+
+// Every subagent of this session for the timeline pane: when it started, when it ended, its model, effort and
+// tokens, and whether it still runs or waits. Newest last, at most `max`.
+export async function rowTimeline($, max = 10) {
+  let list
+  try {
+    list = await $.agent.list()
+  } catch (err) {
+    list = []
+  }
+  const live = new Map((Array.isArray(list) ? list : []).filter((a) => a && typeof a.id === 'string').map((a) => [a.id, a]))
+  const rows = []
+  for (const [id, info] of rowState.agents) {
+    if (typeof info.startMs !== 'number') continue
+    const a = live.get(id)
+    if (a) info.name = rowAgentName(a)
+    const done = info.endMs !== undefined || rowState.done.has(id)
+    const prog = done ? undefined : await progressInfo($, id)
+    rows.push({
+      name: info.name ?? 'agent',
+      model: info.model,
+      effort: info.effort,
+      tokens: info.tokens,
+      status: done ? 'done' : a && a.status === 'waiting' ? 'waiting' : 'running',
+      startMs: info.startMs,
+      endMs: done ? info.endMs ?? info.startMs : undefined,
+      pct: prog?.pct,
+      step: prog?.step,
+    })
+  }
+  rows.sort((x, y) => x.startMs - y.startMs)
+  return rows.slice(-max)
 }
 
 // At most one redraw waits at a time; several requests in a burst draw once.
@@ -190,8 +254,9 @@ export async function rowStepStart($, request) {
   try {
     if (request.agentId === undefined) return
     const prev = rowState.agents.get(request.agentId) ?? {}
-    rowState.agents.set(request.agentId, { ...prev, model: request.model, effort: request.effort })
+    rowState.agents.set(request.agentId, { ...prev, model: request.model, effort: request.effort, startMs: prev.startMs ?? (await $.clock.now()) })
     rowState.done.delete(request.agentId)
+    uiTouch($)
     await rowMaybeSchedule($)
   } catch (err) {
     // Never in the way of a request.
@@ -206,6 +271,7 @@ export async function rowStepEnd($, request, result) {
     if (tokens === undefined) return
     const prev = rowState.agents.get(request.agentId) ?? {}
     rowState.agents.set(request.agentId, { ...prev, tokens })
+    uiTouch($)
     await rowMaybeSchedule($)
   } catch (err) {
     // Never in the way of a request.
@@ -231,7 +297,12 @@ export function rowSessionEnd($) {
 // is a second chance to clear a line that nothing else redraws.
 export async function rowTurnComplete($, e) {
   try {
-    if (e.agentId !== undefined) rowState.done.add(e.agentId)
+    if (e.agentId !== undefined) {
+      rowState.done.add(e.agentId)
+      const info = rowState.agents.get(e.agentId)
+      if (info && info.endMs === undefined) rowState.agents.set(e.agentId, { ...info, endMs: await $.clock.now() })
+    }
+    uiTouch($)
     if (rowState.shown || e.agentId !== undefined) await rowMaybeSchedule($)
   } catch (err) {
     // The turn ends either way.

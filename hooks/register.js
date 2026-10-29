@@ -59,6 +59,11 @@ import {
   toggleConfigText,
 } from './guard-logic.mjs'
 import {
+  guardPane,
+  taskPane,
+  timelinePane,
+} from './panes-logic.mjs'
+import {
   freshPct,
   nudgeText,
   observe,
@@ -119,6 +124,18 @@ import {
   memoryIndexLinks,
   summarizeMcp,
 } from './tidy-logic.mjs'
+import {
+  bandLines,
+  ctxChip,
+  demoContent,
+  modeLabels,
+  modelChip,
+  quietFacts,
+  spinnerWord,
+  statusSegments,
+  tailText,
+  windowChip,
+} from './ui-logic.mjs'
 
 // ===== lang ==================================================================
 // Which language the mod's messages are in, shared by hooks/register.js and hooks/compact-flow.mjs.
@@ -223,12 +240,21 @@ async function askWithDeadline($, question, answers, fallback) {
   } catch (err) {
     entry = undefined // no deadline then; the question itself still goes out
   }
-  if (entry === undefined) return $.ui.ask(question, answers)
+  if (entry === undefined) {
+    const band = uiAskStart($, question, answers)
+    if (band === undefined) return $.ui.ask(question, answers)
+    try {
+      return await band.promise
+    } finally {
+      band.close()
+    }
+  }
   const owner = !deadlines.has(question)
   if (owner) deadlines.set(question, entry)
   let timer
+  const band = uiAskStart($, question, answers)
   try {
-    const asked = $.ui.ask(question, answers)
+    const asked = band !== undefined ? band.promise : $.ui.ask(question, answers)
     asked.catch(() => {}) // dismissed after the deadline: nobody is listening any more
     const expired = new Promise((resolve) => {
       timer = $.clock.after(entry.ms, () => resolve(EXPIRED))
@@ -243,6 +269,7 @@ async function askWithDeadline($, question, answers, fallback) {
     } catch (err) {
       // Already fired.
     }
+    if (band !== undefined) band.close() // an expired question leaves the band
     if (owner && deadlines.get(question) === entry) deadlines.delete(question)
   }
 }
@@ -979,6 +1006,33 @@ async function advancePlan($) {
   }
 }
 
+// The question the person asked for (/crew-compact, or the band's compact key): clears "never", asks when the
+// loop is free (a command or a key must not hold the turn while the person answers).
+function compactAskLater($) {
+  ck.never = false
+  $.clock.after(300, async () => {
+    const outcome = await askAndPlan($, {})
+    if (outcome === 'approved') requestStateUpdate($)
+    else if (outcome === 'subagents') $.ui.toast(t(await resolveLang($), 'ck_wait_agents'), { timeoutMs: 10000 })
+  })
+}
+
+// For the band: the token count at which compaction is advised (the "ask" size), or undefined.
+async function compactAskAt($, usage) {
+  try {
+    if (await disabled($)) return undefined
+    return (await limits($, usage)).ask
+  } catch (err) {
+    return undefined
+  }
+}
+
+// The band's compact key. Does nothing while a question or compaction is already under way.
+function compactBandPress($) {
+  if (ck.plan || ck.compacting || ck.asking) return
+  compactAskLater($)
+}
+
 // Called after each finished main turn.
 // `reason` is how the turn ended. Only a turn that ended with an answer counts as a phase boundary: after an
 // interrupt (Esc) the update may be half done, and after an error or a refusal nothing was finished.
@@ -1236,13 +1290,7 @@ function registerCompact(on) {
     const lang = await resolveLang($)
     if (await disabled($)) return { text: t(lang, 'cmd_compact_off') }
     if (ck.plan || ck.compacting || ck.asking) return { text: t(lang, 'cmd_compact_busy') }
-    ck.never = false
-    // A command must not hold the turn while the person answers; ask when the loop is free.
-    $.clock.after(300, async () => {
-      const outcome = await askAndPlan($, {})
-      if (outcome === 'approved') requestStateUpdate($)
-      else if (outcome === 'subagents') $.ui.toast(t(await resolveLang($), 'ck_wait_agents'), { timeoutMs: 10000 })
-    })
+    compactAskLater($)
     return { text: t(lang, 'cmd_compact_ok') }
   })
 }
@@ -1475,6 +1523,19 @@ async function progressPct($, agentId) {
   }
 }
 
+// The fresh report of an agent as { pct, step }, or undefined (same freshness as progressPct).
+async function progressInfo($, agentId) {
+  try {
+    const entry = progressAgents.get(agentId)
+    if (!entry) return undefined
+    const pct = freshPct(entry, await $.clock.now())
+    if (pct === undefined) return undefined
+    return { pct, step: typeof entry.step === 'string' && entry.step !== '' ? entry.step : undefined }
+  } catch (err) {
+    return undefined
+  }
+}
+
 // After the call ran: the reminder rides with the result, next to what the guard may have added.
 function progressAfter(r, text) {
   try {
@@ -1510,6 +1571,7 @@ function freshRow() {
     agents: new Map(), // agentId -> { model, effort, tokens }
     done: new Set(), // agents whose turn ended (the list can still say running for a moment)
     wanted: undefined,
+    surfaces: undefined, // as last read, for the band
     checkedAt: undefined,
     hasJq: undefined, // probed once a session (rowJq)
     jqAnswer: undefined, // the promise of that one probe
@@ -1547,6 +1609,7 @@ function rowJq($) {
 async function rowJqHint($) {
   try {
     const surfaces = await $.session.surfaces()
+    rowState.surfaces = surfaces
     if (!Array.isArray(surfaces) || surfaces.length === 0) return
     if ((await $.env.get('CREW_CHIEF_ROW')) === 'off') return
     if (await $.store.get('jq_hint')) return
@@ -1618,6 +1681,11 @@ async function rowDraw($) {
       rowClear($)
       return
     }
+    // The band (hooks/src/crew-ui.js) says the same where it is drawn: no second line then.
+    if (uiCovers(rowState.surfaces)) {
+      rowClear($)
+      return
+    }
     let list
     try {
       list = await $.agent.list()
@@ -1643,6 +1711,62 @@ async function rowDraw($) {
   } catch (err) {
     // A missing line is better than a broken turn.
   }
+}
+
+// The surfaces as last read (for the band's questions).
+function rowSurfaces() {
+  return rowState.surfaces
+}
+
+// The live subagents for the band: name, model, effort, tokens and the fresh progress report.
+async function rowBandRows($) {
+  let list
+  try {
+    list = await $.agent.list()
+  } catch (err) {
+    list = []
+  }
+  const rows = []
+  for (const a of Array.isArray(list) ? list : []) {
+    if (!a || !ROW_LIVE.includes(a.status) || rowState.done.has(a.id)) continue
+    const info = rowState.agents.get(a.id) ?? {}
+    const prog = await progressInfo($, a.id)
+    rows.push({ name: rowAgentName(a), model: info.model, effort: info.effort, tokens: info.tokens, pct: prog?.pct, step: prog?.step })
+  }
+  return rows
+}
+
+// Every subagent of this session for the timeline pane: when it started, when it ended, its model, effort and
+// tokens, and whether it still runs or waits. Newest last, at most `max`.
+async function rowTimeline($, max = 10) {
+  let list
+  try {
+    list = await $.agent.list()
+  } catch (err) {
+    list = []
+  }
+  const live = new Map((Array.isArray(list) ? list : []).filter((a) => a && typeof a.id === 'string').map((a) => [a.id, a]))
+  const rows = []
+  for (const [id, info] of rowState.agents) {
+    if (typeof info.startMs !== 'number') continue
+    const a = live.get(id)
+    if (a) info.name = rowAgentName(a)
+    const done = info.endMs !== undefined || rowState.done.has(id)
+    const prog = done ? undefined : await progressInfo($, id)
+    rows.push({
+      name: info.name ?? 'agent',
+      model: info.model,
+      effort: info.effort,
+      tokens: info.tokens,
+      status: done ? 'done' : a && a.status === 'waiting' ? 'waiting' : 'running',
+      startMs: info.startMs,
+      endMs: done ? info.endMs ?? info.startMs : undefined,
+      pct: prog?.pct,
+      step: prog?.step,
+    })
+  }
+  rows.sort((x, y) => x.startMs - y.startMs)
+  return rows.slice(-max)
 }
 
 // At most one redraw waits at a time; several requests in a burst draw once.
@@ -1673,8 +1797,9 @@ async function rowStepStart($, request) {
   try {
     if (request.agentId === undefined) return
     const prev = rowState.agents.get(request.agentId) ?? {}
-    rowState.agents.set(request.agentId, { ...prev, model: request.model, effort: request.effort })
+    rowState.agents.set(request.agentId, { ...prev, model: request.model, effort: request.effort, startMs: prev.startMs ?? (await $.clock.now()) })
     rowState.done.delete(request.agentId)
+    uiTouch($)
     await rowMaybeSchedule($)
   } catch (err) {
     // Never in the way of a request.
@@ -1689,6 +1814,7 @@ async function rowStepEnd($, request, result) {
     if (tokens === undefined) return
     const prev = rowState.agents.get(request.agentId) ?? {}
     rowState.agents.set(request.agentId, { ...prev, tokens })
+    uiTouch($)
     await rowMaybeSchedule($)
   } catch (err) {
     // Never in the way of a request.
@@ -1714,7 +1840,12 @@ function rowSessionEnd($) {
 // is a second chance to clear a line that nothing else redraws.
 async function rowTurnComplete($, e) {
   try {
-    if (e.agentId !== undefined) rowState.done.add(e.agentId)
+    if (e.agentId !== undefined) {
+      rowState.done.add(e.agentId)
+      const info = rowState.agents.get(e.agentId)
+      if (info && info.endMs === undefined) rowState.agents.set(e.agentId, { ...info, endMs: await $.clock.now() })
+    }
+    uiTouch($)
     if (rowState.shown || e.agentId !== undefined) await rowMaybeSchedule($)
   } catch (err) {
     // The turn ends either way.
@@ -1758,6 +1889,8 @@ function guardFresh() {
     agentTypes: new Map(), // agentId -> read-only (true/false), once the agent list named it
     suggestions: [],
     suggestToasted: false,
+    held: 0, // first attempts stopped this session (for the band)
+    log: [], // { at, kind: 'held' | 'deny' | 'warn', text }, for the guard pane
     noted: false,
     defaults: false, // the loaded file is the first-run default
     toolRegistered: false,
@@ -1899,6 +2032,26 @@ async function guardEnsure($) {
   await st.loading
 }
 
+// For the band: whether the guard is on and how many first attempts it has stopped this session.
+// The events of this session for the guard pane, oldest first.
+function guardLogList() {
+  return guardState.log
+}
+
+async function guardLogPush($, kind, text) {
+  try {
+    const log = guardState.log
+    log.push({ at: await $.clock.now(), kind, text: clipText(text, 160) })
+    if (log.length > 50) log.splice(0, log.length - 50)
+  } catch (err) {
+    // The log is cosmetic.
+  }
+}
+
+function guardSummary() {
+  return { loaded: guardState.loaded, on: guardState.on, held: guardState.held }
+}
+
 async function guardSessionStart($) {
   guardState = guardFresh()
   try {
@@ -1979,6 +2132,7 @@ async function guardCheck($, e) {
   if (v !== null && v.level === 'deny') {
     $.ui.log('crew-chief guard: denied by rule ' + v.rule, { to: 'debug' })
     await guardToast($, 'guard_toast_deny', { text: clipText(v.text) })
+    await guardLogPush($, 'deny', v.text + ' [' + v.rule + ']')
     return { deny: ruleDenyMessage(v) }
   }
   const ssh = st.config.ssh
@@ -1990,6 +2144,7 @@ async function guardCheck($, e) {
   const readOnly = e.agentId !== undefined ? await guardReadOnlyAgent($, e.agentId) : false
   if (confirm && readOnly) {
     await guardToast($, 'guard_toast_deny', { text: clipText(v.text) })
+    await guardLogPush($, 'deny', v.text + ' (read-only agent)')
     return { deny: readOnlyDenyMessage(v) }
   }
   const now = await $.clock.now()
@@ -1997,6 +2152,7 @@ async function guardCheck($, e) {
   const d = touches.length > 0 ? gateDecide(st.gate, touches, { mode: ssh.mode, loop: e.agentId, readOnly, now, ttlMs: ssh.ttlMs, command: e.command }) : { action: 'pass' }
   if (d.action === 'deny' && d.kind === 'readonly') {
     await guardToast($, 'guard_toast_readonly', { host: clipText(d.hosts.join(', '), 40), cmd: clipText(e.command) })
+    await guardLogPush($, 'deny', 'ssh ' + d.hosts.join(', ') + ' (read-only agent)')
     return { deny: sshDenyMessage(d) }
   }
   const confirmDue = confirm && !isFresh(st.gate, key, now, st.config.confirmTtlMs)
@@ -2008,8 +2164,10 @@ async function guardCheck($, e) {
       gateRecord(st.gate, d, now)
     }
     markCommand(st.gate, key, now)
+    st.held += 1
     $.ui.log('crew-chief guard: first attempt held' + (confirmDue ? ' (' + v.rule + ')' : '') + (d.action === 'deny' ? ' (ssh ' + d.kind + ')' : ''), { to: 'debug' })
     const what = d.action === 'deny' ? 'ssh ' + d.hosts.join(', ') : v.text
+    await guardLogPush($, 'held', what)
     await guardToast($, 'guard_toast_confirm', { text: clipText(what, 50), cmd: clipText(e.command ?? e.file_path ?? '') })
     return { deny: checklistMessage(reasons, { loop: e.agentId, unknown: d.unknown }) }
   }
@@ -2032,6 +2190,7 @@ async function guardAfter($, e, g, r) {
     } catch (err) {
       // The context below still reaches the model.
     }
+    await guardLogPush($, 'warn', g.notes.join(' · '))
     const context = [...(r.context ?? []), ...g.contexts]
     // Keep every field the host sent: rebuilding the result by hand could change its shape.
     return { ...r, context }
@@ -2130,6 +2289,643 @@ function registerGuard(on) {
       text: guardStatusText({ on: guardState.on, why: guardState.why, config: guardState.config, contacted: guardState.gate.contacted.size, suggestions: guardState.suggestions.length }),
     }
   })
+}
+
+// ===== crew-ui ===============================================================
+// crew-chief crew-ui: a band above the prompt with what a long session needs at a glance. Part of the mod in
+// hooks/register.js (Claude Code 2.1.287+). Off until the person turns it on with /crew-ui on; it never writes
+// to settings.json (the person's own status line is left alone).
+//
+// In the terminal, with a status line of the person's own set, the quiet band leaves out the context and the
+// limits (that line has them); on the Desktop app, or with `/crew-ui full`, they are shown.
+// Quiet mode (the default) shows only what is worth a look; `/crew-ui full` shows everything all the time:
+//   ctx 52% 520k/1M   5h 4% ~4h20m   7d 96% ~5d13h   guard on · 1 held   saver on   [ 1 compact ]
+//   deep-reader        sonnet-5.5 ●●○○○ medium ▓▓░░░░ 40%  12k  reading auth
+//
+// The band is raised on the terminal and the Desktop app only (not VS Code, which keeps the status line of
+// hooks/src/agent-row.js). One hook draws the band, so another plugin's band and this one compete; a survey
+// always wins (hasSurvey). The layout is pure (hooks/ui-logic.mjs); this file reads the data and draws.
+//   - data: $.session.usage (context, windows), the subagents of agent-row.js and progress.js, the guard and
+//     the saver, and the compaction threshold of compact-flow.js;
+//   - redraw: uiTouch() asks for one after a turn, a measurement or an agent change ($.ui.invalidate folds
+//     bursts, ten a second at most);
+//   - the compact key shows only when compaction is advised (past the "ask" size). Its hotkey is a digit, the
+//     one key a band answers from an empty composer without being focused; so it must not exist all the time,
+//     or the first digit someone types would press it. Pressing it asks the usual question (/crew-compact).
+// The extras (on by default with the band, `/crew-ui extras off`): plain text added to the engine's own lines,
+// which take no colour: the model and effort after the spinner word and before the turn line, a note in the
+// footer's mode labels, a limit note after the prompt hint. Nothing is replaced, only added.
+// CREW_CHIEF_UI=on|off beats the saved choice. Any failure draws nothing (the engine's own band).
+const UI_STORE_KEY = 'crew_ui'
+const UI_MODE_KEY = 'crew_ui_mode' // 'quiet' (default) or 'full'
+const UI_STYLE_KEY = 'crew_ui_style' // boxed (default), plain (theme colours), color (hex), pills
+const UI_STYLES = ['plain', 'color', 'pills', 'boxed']
+const UI_WORDS_KEY = 'crew_ui_words' // 'on' or 'off' (default): calm spinner words by model
+const UI_EXTRAS_KEY = 'crew_ui_extras' // 'on' (default) or 'off': the small touches outside the band
+const UI_MAX_LINES = 4
+const UI_SURFACES = ['terminal', 'desktop']
+
+// Tones are meanings; these are the theme keys the surfaces know (any other colour string is the surface's
+// own business, so only theme keys are used).
+const UI_TONES = {
+  ok: { color: 'success' },
+  warn: { color: 'warning' },
+  hot: { color: 'claude' },
+  crit: { color: 'error' },
+  info: { color: 'suggestion' },
+  dim: { dimColor: true },
+  opus: { color: 'planMode' },
+  sonnet: { color: 'permission' },
+  haiku: { color: 'success' },
+  fable: { color: 'merged' },
+  max: { color: 'planMode' },
+  rb0: { color: 'error' },
+  rb1: { color: 'claude' },
+  rb2: { color: 'warning' },
+  rb3: { color: 'success' },
+  rb4: { color: 'suggestion' },
+  other: {},
+}
+
+let uiOn = false
+let uiFull = false
+let uiExtras = true
+let uiStyle = 'boxed'
+let uiStatusLine = { at: -Infinity, has: false } // is the person's own status line set (read at most once a minute)
+let uiDemo = false // sample content, not saved
+let uiWords = false
+let uiCtxHistory = [] // the context percent after each main turn, for the graph
+let uiQuestion // { text, answers, resolve }: the one question the band is asking
+const UI_ASK_MAX = 4 // answers that fit digit hotkeys
+let uiMain = { model: undefined, effort: undefined } // the main loop's last request
+
+// Whether the band replaces the status line of agent-row.js: only where the band is drawn.
+function uiCovers(surfaces) {
+  return uiOn && Array.isArray(surfaces) && surfaces.length > 0 && surfaces.every((s) => UI_SURFACES.includes(s))
+}
+
+async function safeStoreGet($, key) {
+  try {
+    return await $.store.get(key)
+  } catch (err) {
+    return undefined
+  }
+}
+
+async function uiReadChoice($) {
+  const env = String((await $.env.get('CREW_CHIEF_UI')) ?? '').trim().toLowerCase()
+  if (env === 'on' || env === 'off') return { on: env === 'on', source: 'CREW_CHIEF_UI' }
+  let saved
+  try {
+    saved = await $.store.get(UI_STORE_KEY)
+  } catch (err) {
+    saved = undefined
+  }
+  return { on: saved === 'on', source: saved === undefined ? 'default' : 'saved choice' }
+}
+
+// Called after each finished main turn with the usage: one more point for the context graph.
+function uiNoteContext(usage) {
+  const c = usage?.context
+  if (!c || typeof c.tokens !== 'number' || typeof c.window !== 'number' || c.window <= 0) return
+  uiCtxHistory = [...uiCtxHistory, Math.round((c.tokens / c.window) * 100)].slice(-24)
+}
+
+// Called from the mod's turn.step hook with the main loop's request: the model and effort the turn runs on.
+function uiNoteMainStep(e) {
+  if (typeof e.model === 'string' && e.model !== '') uiMain = { model: e.model, effort: e.effort }
+}
+
+async function uiMainChip($) {
+  let model = uiMain.model
+  if (!model) {
+    try {
+      model = await $.session.model()
+    } catch (err) {
+      model = undefined
+    }
+  }
+  return modelChip(model, uiMain.effort)
+}
+
+// Rewrites one prop of the engine's own drawing; the engine keeps drawing everything else.
+function uiRewrite(next, e, props) {
+  return next({ ...e, props: { ...e.props, ...props } })
+}
+
+// The plugin's questions go to the band, as buttons, when it can show them: no dialog opens and nothing holds
+// the turn (the deadline of ask.js still applies). `undefined` -> the caller opens the usual dialog. Only the
+// plugin's own questions come here; Claude's AskUserQuestion is never touched.
+function uiAskStart($, text, answers) {
+  try {
+    if (!uiCovers(rowSurfaces()) || uiQuestion !== undefined) return undefined
+    if (!Array.isArray(answers) || answers.length < 1 || answers.length > UI_ASK_MAX) return undefined
+    let resolve
+    const promise = new Promise((r) => {
+      resolve = r
+    })
+    const question = { text: String(text), answers: [...answers], resolve }
+    uiQuestion = question
+    try {
+      $.ui.invalidate('ui.render')
+    } catch (err) {
+      // The band draws on the next event.
+    }
+    resolveLang($)
+      .then((lang) => $.ui.toast(t(lang, 'band_ask_toast', { keys: answers.map((a, i) => i + 1).join(', ') }), { timeoutMs: 15000 }))
+      .catch(() => {})
+    return {
+      promise,
+      close() {
+        if (uiQuestion === question) {
+          uiQuestion = undefined
+          uiTouchNow($)
+        }
+      },
+    }
+  } catch (err) {
+    return undefined
+  }
+}
+
+function uiTouchNow($) {
+  try {
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    // Nothing to redraw.
+  }
+}
+
+// A redraw soon; $.ui.invalidate folds bursts. Free while the band is off.
+function uiTouch($) {
+  if (!uiOn) return
+  try {
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    // The band is cosmetic.
+  }
+}
+
+async function uiSessionStart($) {
+  try {
+    uiOn = (await uiReadChoice($)).on
+    uiFull = (await safeStoreGet($, UI_MODE_KEY)) === 'full'
+    uiExtras = (await safeStoreGet($, UI_EXTRAS_KEY)) !== 'off'
+    uiWords = (await safeStoreGet($, UI_WORDS_KEY)) === 'on'
+    uiCtxHistory = []
+    const savedStyle = await safeStoreGet($, UI_STYLE_KEY)
+    uiStyle = UI_STYLES.includes(savedStyle) ? savedStyle : 'boxed'
+    uiStatusLine = { at: -Infinity, has: false }
+    await $.command.register({ name: 'crew-ui', description: 'Show or hide the crew-chief band above the prompt', immediate: true, argumentHint: '[on|off|quiet|full|style <name>|demo on|demo off|words on|words off|extras on|extras off|status]' })
+  } catch (err) {
+    // The name is taken, or an older Claude Code: the band can still be switched with CREW_CHIEF_UI.
+  }
+}
+
+// Hex colours for the styles other than `plain` (which keeps to theme keys, the one thing every surface knows).
+const UI_HEX = {
+  ok: '#4ade80',
+  warn: '#facc15',
+  hot: '#fb923c',
+  crit: '#f87171',
+  info: '#7dd3fc',
+  dim: '#6b7280',
+  opus: '#c084fc',
+  sonnet: '#60a5fa',
+  haiku: '#34d399',
+  fable: '#f472b6',
+  max: '#e879f9',
+  rb0: '#f87171',
+  rb1: '#fb923c',
+  rb2: '#facc15',
+  rb3: '#4ade80',
+  rb4: '#e879f9',
+  other: '#d1d5db',
+}
+const UI_PILL_TEXT = '#0b1020'
+const UI_LILAC = '#e08ef0' // a question the band is asking: a band of this colour, and, in the boxed style, its frame
+const UI_FAMILIES = ['sonnet', 'opus', 'haiku', 'fable', 'other']
+
+// A status line is chips separated by a gap segment of three spaces; pills turns each chip into one coloured
+// block (the tone of its value on a background), the other styles keep the segments as they are.
+function uiChips(line) {
+  const chips = []
+  let cur = []
+  for (const s of line) {
+    if (s.t === '   ' && s.tone === 'dim') {
+      if (cur.length > 0) chips.push(cur)
+      cur = []
+    } else cur.push(s)
+  }
+  if (cur.length > 0) chips.push(cur)
+  return chips
+}
+
+function uiTree($, e, lines, onCompact, style, question) {
+  const { Box, Text, Button } = $.ui.resolve(e)
+  const hex = style !== 'plain'
+  const look = (tone) => (hex ? { color: UI_HEX[tone] ?? UI_HEX.other } : UI_TONES[tone] ?? {})
+  const text = (s) => {
+    const props = { ...look(s.tone), wrap: 'truncate-end', children: [s.t] }
+    if (s.bold) props.weight = 'bold'
+    return Text(props)
+  }
+  const button = () => Button({ label: '1 compact', hotkey: '1', variant: 'primary', onPress: onCompact })
+  const piece = (s) => (s.key === 'compact' ? button() : text(s))
+  const pill = (chip) => {
+    if (chip.some((s) => s.key === 'compact')) return button()
+    const value = chip.find((s) => s.tone !== 'dim') ?? chip[0]
+    const bg = UI_HEX[value.tone] ?? UI_HEX.other
+    return Text({ backgroundColor: bg, color: UI_PILL_TEXT, weight: 'bold', wrap: 'truncate-end', children: [' ' + chip.map((s) => s.t).join('') + ' '] })
+  }
+  const row = (line, i) => {
+    // The first line is the status line, unless it is an agent line (a model family tone gives that away).
+    const isStatus = i === 0 && !line.some((s) => UI_FAMILIES.includes(s.tone))
+    if (style === 'pills' && isStatus) return Box({ flexDirection: 'row', gap: 1, children: uiChips(line).map(pill) })
+    return Box({ flexDirection: 'row', children: line.map(piece) })
+  }
+  const askBlock = () => {
+    const q = question
+    const buttons = q.answers.map((answer, i) =>
+      Button({
+        key: 'ask-' + (i + 1),
+        label: `${i + 1} ${answer}`,
+        hotkey: String(i + 1),
+        variant: i === 0 ? 'primary' : 'secondary',
+        onPress: () => {
+          if (uiQuestion === q) {
+            uiQuestion = undefined
+            q.resolve(answer)
+            uiTouchNow($)
+          }
+        },
+      }),
+    )
+    return Box({
+      flexDirection: 'column',
+      children: [Text({ backgroundColor: UI_LILAC, color: UI_PILL_TEXT, weight: 'bold', wrap: 'wrap', children: [' crew-chief asks: ' + q.text + ' '] }), Box({ flexDirection: 'row', gap: 2, children: buttons })],
+    })
+  }
+  const body = Box({ flexDirection: 'column', children: [...(question ? [askBlock()] : []), ...lines.map(row)] })
+  if (style !== 'boxed') return body
+  return Box({ borderStyle: 'round', borderColor: question ? UI_LILAC : UI_HEX.dim, paddingX: 1, flexDirection: 'column', children: [body] })
+}
+
+function uiLilac() {
+  return UI_LILAC
+}
+
+// Lines of segments (hooks/ui-logic.mjs) as one column of rows, in the band's colours; for the panes.
+function uiLinesTree($, e, lines) {
+  const { Box, Text } = $.ui.resolve(e)
+  const hex = uiStyle !== 'plain'
+  const look = (tone) => (hex ? { color: UI_HEX[tone] ?? UI_HEX.other } : UI_TONES[tone] ?? {})
+  const text = (s) => {
+    const props = { ...look(s.tone), wrap: 'truncate-end', children: [s.t] }
+    if (s.bold) props.weight = 'bold'
+    return Text(props)
+  }
+  return Box({ flexDirection: 'column', children: lines.map((line) => Box({ flexDirection: 'row', children: line.map(text) })) })
+}
+
+// Whether the person has a status line of their own (settings.json `statusLine`). It most likely shows the
+// context and the limits already, so the band leaves those out of it in the terminal (the Desktop app has no
+// such line, and `/crew-ui full` shows everything).
+async function uiHasStatusLine($) {
+  const now = await $.clock.now()
+  if (now - uiStatusLine.at < 60_000) return uiStatusLine.has
+  let has = false
+  try {
+    const value = await $.settings.read({ key: 'statusLine' })
+    has = value !== undefined && value !== null && typeof value === 'object' && typeof value.command === 'string' && value.command !== ''
+  } catch (err) {
+    has = false
+  }
+  uiStatusLine = { at: now, has }
+  return has
+}
+
+async function uiFacts($, saverOn) {
+  const now = await $.clock.now()
+  const usage = await $.session.usage()
+  const askAt = await compactAskAt($, usage)
+  const guard = guardSummary()
+  return {
+    ctx: ctxChip(usage?.context, askAt, uiCtxHistory),
+    five: windowChip(usage?.rateLimits, 'five_hour', now),
+    week: windowChip(usage?.rateLimits, 'seven_day', now),
+    guard: guard.loaded ? { on: guard.on, held: guard.held } : undefined,
+    saver: saverOn,
+  }
+}
+
+function registerUi(on, saverOn) {
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    try {
+      if (!uiOn || e.props?.hasSurvey === true) return next(e)
+      const question = uiQuestion
+      const demo = uiDemo ? demoContent(await $.clock.now()) : undefined
+      const facts = demo ? demo.facts : await uiFacts($, saverOn())
+      if (!demo) facts.compactKey = facts.ctx?.past === true && question === undefined
+      const columns = typeof e.props?.bodyColumns === 'number' ? e.props.bodyColumns : 100
+      const rows = typeof e.props?.maxRows === 'number' ? e.props.maxRows : UI_MAX_LINES
+      const maxLines = Math.max(1, Math.min(UI_MAX_LINES, rows - (question ? 4 : 0)))
+      if (!demo && !uiFull && e.surface === 'terminal' && (await uiHasStatusLine($))) {
+        // The compact key was decided above from the context; only the figures the status line has are left out.
+        facts.ctx = undefined
+        facts.five = undefined
+        facts.week = undefined
+      }
+      const lines = bandLines({ status: statusSegments(uiFull || demo ? facts : quietFacts(facts)), agents: demo ? demo.agents : await rowBandRows($), maxLines, width: columns })
+      if (lines.length === 0 && question === undefined) return next(e)
+      return uiTree($, e, lines, () => compactBandPress($), uiStyle, question)
+    } catch (err) {
+      return next(e)
+    }
+  })
+
+  // The small touches: plain text added to the engine's own drawing (no colour there). Each leaves the
+  // drawing alone when it has nothing to add, and any failure draws the engine's own.
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    try {
+      if (!uiOn || !uiExtras || typeof e.props?.suffix !== 'string') return next(e)
+      const chip = await uiMainChip($)
+      const word = uiWords && e.props.message === null ? spinnerWord(uiMain.model) : undefined
+      if (chip === '' && word === undefined) return next(e)
+      return uiRewrite(next, e, { ...(word !== undefined ? { word } : {}), suffix: chip === '' ? e.props.suffix : e.props.suffix + ' ' + chip })
+    } catch (err) {
+      return next(e)
+    }
+  })
+
+  on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
+    try {
+      if (!uiOn || !uiExtras || e.props?.isExpanded === true || typeof e.props?.word !== 'string') return next(e)
+      const chip = await uiMainChip($)
+      return chip === '' ? next(e) : uiRewrite(next, e, { word: chip + ' · ' + e.props.word })
+    } catch (err) {
+      return next(e)
+    }
+  })
+
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    try {
+      if (!uiOn || !uiExtras || !Array.isArray(e.props?.modes)) return next(e)
+      const labels = modeLabels(await uiFacts($, saverOn()))
+      return labels.length === 0 ? next(e) : uiRewrite(next, e, { modes: [...e.props.modes, ...labels] })
+    } catch (err) {
+      return next(e)
+    }
+  })
+
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+    try {
+      if (!uiOn || !uiExtras || e.props?.isDraft === true) return next(e)
+      const tail = tailText(await uiFacts($, saverOn()))
+      return tail === '' ? next(e) : uiRewrite(next, e, { tail })
+    } catch (err) {
+      return next(e)
+    }
+  })
+
+  on('command.run', { command: 'crew-ui' }, async ($, e) => {
+    const word = String(e.args || '').trim().toLowerCase()
+    const choice = await uiReadChoice($)
+    if (word === 'on' || word === 'off') {
+      try {
+        await $.store.set(UI_STORE_KEY, word)
+      } catch (err) {
+        // Kept for this session only.
+      }
+      const envWins = choice.source === 'CREW_CHIEF_UI'
+      uiOn = envWins ? choice.on : word === 'on'
+      try {
+        $.ui.invalidate('ui.render')
+      } catch (err) {
+        // Nothing to redraw.
+      }
+      if (envWins && choice.on !== (word === 'on')) {
+        return { text: `crew-ui: CREW_CHIEF_UI=${choice.on ? 'on' : 'off'} is set in the environment and wins; your choice (${word}) is saved for when it is unset.` }
+      }
+      return { text: word === 'on' ? 'crew-ui: the band is on (terminal and Desktop app; VS Code keeps its status line). Turn it off with /crew-ui off. Nothing in settings.json was changed.' : 'crew-ui: the band is off.' }
+    }
+    if (word === 'words on' || word === 'words off') {
+      uiWords = word === 'words on'
+      try {
+        await $.store.set(UI_WORDS_KEY, uiWords ? 'on' : 'off')
+      } catch (err) {
+        // Kept for this session only.
+      }
+      return { text: uiWords ? 'crew-ui: words on: the spinner says Pondering (Opus), Working (Sonnet), Skimming (Haiku) instead of the engine\'s random word.' : 'crew-ui: words off: the engine picks the spinner word.' }
+    }
+    if (word.startsWith('style')) {
+      const name = word.slice(5).trim()
+      if (!UI_STYLES.includes(name)) return { text: `crew-ui: style is ${uiStyle}; choose one of ${UI_STYLES.join(', ')} (plain: theme colours; color: hex colours; pills: coloured blocks for the status line; boxed: a rounded frame). Try /crew-ui demo on first.` }
+      uiStyle = name
+      try {
+        await $.store.set(UI_STYLE_KEY, name)
+      } catch (err) {
+        // Kept for this session only.
+      }
+      try {
+        $.ui.invalidate('ui.render')
+      } catch (err) {
+        // Nothing to redraw.
+      }
+      return { text: `crew-ui: style ${name}.` }
+    }
+    if (word === 'demo on' || word === 'demo off') {
+      uiDemo = word === 'demo on'
+      try {
+        $.ui.invalidate('ui.render')
+      } catch (err) {
+        // Nothing to redraw.
+      }
+      return { text: uiDemo ? 'crew-ui: demo on: the band shows sample content (three agents, limits, guard, the compact key) so styles can be judged. /crew-ui demo off to stop; /crew-ui style plain|color|pills|boxed to change the look.' : 'crew-ui: demo off.' }
+    }
+    if (word === 'extras on' || word === 'extras off') {
+      uiExtras = word === 'extras on'
+      try {
+        await $.store.set(UI_EXTRAS_KEY, uiExtras ? 'on' : 'off')
+      } catch (err) {
+        // Kept for this session only.
+      }
+      try {
+        $.ui.invalidate('ui.render')
+      } catch (err) {
+        // Nothing to redraw.
+      }
+      return { text: uiExtras ? 'crew-ui: extras on: the model and effort next to the spinner and the turn line, crew-chief notes in the mode line, a limit note after the prompt hint.' : 'crew-ui: extras off: only the band is drawn.' }
+    }
+    if (word === 'full' || word === 'quiet') {
+      uiFull = word === 'full'
+      try {
+        await $.store.set(UI_MODE_KEY, word)
+      } catch (err) {
+        // Kept for this session only.
+      }
+      try {
+        $.ui.invalidate('ui.render')
+      } catch (err) {
+        // Nothing to redraw.
+      }
+      return { text: uiFull ? 'crew-ui: full mode: the context, both limit windows and the guard are always shown.' : 'crew-ui: quiet mode: the band shows only what is worth a look (a running subagent, a limit or the context from 70 %, something the guard stopped, a compaction due).' }
+    }
+    const surfaces = await $.session.surfaces()
+    return {
+      text: `crew-ui: the band is ${uiOn ? 'on' : 'off'} (${choice.source}), ${uiFull ? 'full' : 'quiet'} mode. Surfaces here: ${Array.isArray(surfaces) && surfaces.length > 0 ? surfaces.join(', ') : 'none'}; the band is drawn on ${UI_SURFACES.join(' and ')}. /crew-ui on | off | quiet | full | style <name> | demo on | words on | extras on | extras off.`,
+    }
+  })
+}
+
+// ===== crew-panes ============================================================
+// crew-chief panes. Part of the mod in hooks/register.js (Claude Code 2.1.287+). Nothing here opens by itself:
+// each pane opens when the person types its command.
+//
+//   /crew-panel tasks|agents|guard   a pane with the project's tasks.json, a timeline of this session's subagents,
+//                                    or what the command guard stopped; /crew-panel close shuts them
+//
+// The panes are text lines laid out in hooks/panes-logic.mjs and refreshed every two seconds while one is open.
+// A pane is closed with its mark, ctrl+x x, or the command; its timer stops with it. Any failure leaves the
+// engine's own drawing.
+const PANEL_IDS = { tasks: 'crew-tasks', agents: 'crew-agents', guard: 'crew-guard' }
+const PANEL_ROWS = 12
+const PANEL_REFRESH_MS = 2000
+
+let panelTimer
+const openPanels = new Set()
+
+function stopTimer(timer) {
+  try {
+    if (timer) timer.cancel()
+  } catch (err) {
+    // Already stopped.
+  }
+}
+
+function panelsStop() {
+  stopTimer(panelTimer)
+  panelTimer = undefined
+  openPanels.clear()
+}
+
+// Called when a session ends or a new one starts: timers do not outlive it.
+function panesReset() {
+  panelsStop()
+}
+
+function panelsStart($) {
+  if (panelTimer) return
+  panelTimer = $.clock.every(PANEL_REFRESH_MS, () => {
+    try {
+      $.ui.invalidate('ui.render')
+    } catch (err) {
+      // Nothing to redraw.
+    }
+  })
+}
+
+const pad2 = (n) => String(n).padStart(2, '0')
+const clockLabel = (ms) => {
+  const d = new Date(ms)
+  return pad2(d.getHours()) + ':' + pad2(d.getMinutes())
+}
+
+async function readTasks($) {
+  const h = await findHandoff($)
+  if (!h || !h.tasks) return undefined
+  try {
+    return await $.fs.read(h.tasks)
+  } catch (err) {
+    return undefined
+  }
+}
+
+async function panelTree($, e) {
+  const columns = typeof e.props?.bodyColumns === 'number' ? e.props.bodyColumns : 100
+  const maxLines = PANEL_ROWS - 2
+  let pane
+  if (e.requestId === PANEL_IDS.tasks) {
+    const text = await readTasks($)
+    pane = text === undefined ? { header: [{ t: 'tasks ', tone: 'dim' }, { t: 'no tasks.json found for this project', tone: 'dim' }], lines: [] } : taskPane(text, { width: columns, maxLines })
+    if (pane.error) pane = { header: [{ t: 'tasks ', tone: 'dim' }, { t: pane.error, tone: 'crit' }], lines: [] }
+  } else if (e.requestId === PANEL_IDS.agents) {
+    pane = timelinePane(await rowTimeline($), await $.clock.now(), { width: columns, barWidth: Math.max(10, Math.min(30, columns - 62)) })
+  } else {
+    pane = guardPane(guardLogList(), { width: columns, maxLines, clock: clockLabel })
+  }
+  const lines = [pane.header, ...pane.lines]
+  if (pane.lines.length === 0) lines.push([{ t: e.requestId === PANEL_IDS.guard ? 'nothing stopped or warned yet this session' : 'nothing to show yet', tone: 'dim' }])
+  return uiLinesTree($, e, lines)
+}
+
+function registerPanes(on) {
+  on('ui.render', { component: 'Pane' }, async ($, e, next) => {
+    try {
+      if (!Object.values(PANEL_IDS).includes(e.requestId)) return next(e)
+      return await panelTree($, e)
+    } catch (err) {
+      return next(e)
+    }
+  })
+
+  // Closed by the person (the mark, ctrl+x x) or by a command: the refresh timer goes when none is left.
+  on('ui.close', async ($, e, next) => {
+    try {
+      if (Object.values(PANEL_IDS).includes(e.id)) {
+        openPanels.delete(e.id)
+        if (openPanels.size === 0) {
+          stopTimer(panelTimer)
+          panelTimer = undefined
+        }
+      }
+    } catch (err) {
+      // The pane closes either way.
+    }
+    return next(e)
+  })
+
+  on('command.run', { command: 'crew-panel' }, async ($, e) => {
+    const word = String(e.args || '').trim().toLowerCase()
+    if (word === 'close') {
+      for (const id of Object.values(PANEL_IDS)) {
+        try {
+          await $.ui.close({ id })
+        } catch (err) {
+          // Not open.
+        }
+      }
+      panelsStop()
+      return { text: 'crew-panel: closed.' }
+    }
+    const id = PANEL_IDS[word]
+    if (id === undefined) return { text: 'crew-panel: tasks (tasks.json of this project) | agents (a timeline of this session\'s subagents) | guard (what the command guard stopped) | close.' }
+    let opened
+    try {
+      opened = await $.ui.open({ id, title: word[0].toUpperCase() + word.slice(1), focus: true, closeOnEscape: true, rows: PANEL_ROWS })
+    } catch (err) {
+      return { text: 'crew-panel: the pane could not be opened (' + String(err && err.message ? err.message : err).slice(0, 120) + ').' }
+    }
+    if (opened && opened.isPlaced === false) return { text: 'crew-panel: no room for the pane (' + String(opened.reason ?? 'unknown') + ').' }
+    openPanels.add(id)
+    panelsStart($)
+    return { text: `crew-panel: ${word} pane open (refreshes every 2 s; Esc or ctrl+x x closes it).` }
+  })
+}
+
+// Called from the mod's session.start: the commands exist from the first moment.
+async function panesSessionStart($) {
+  panesReset()
+  for (const [name, description, argumentHint] of [
+    ['crew-panel', 'Open a pane: tasks, agents, guard', '[tasks|agents|guard|close]'],
+  ]) {
+    try {
+      // immediate: the command also runs while a subagent works, which is when the agents pane is wanted.
+      await $.command.register({ name, description, argumentHint, immediate: true })
+    } catch (err) {
+      // The name is taken: the other commands still work.
+    }
+  }
 }
 
 // ===== register ==============================================================
@@ -2431,6 +3227,8 @@ export function register(on) {
     await statsSessionStart($)
     rowSessionStart($)
     await guardSessionStart($)
+    await uiSessionStart($)
+    await panesSessionStart($)
     return result
   })
 
@@ -2438,6 +3236,7 @@ export function register(on) {
     resetState()
     resetCompact()
     rowSessionEnd($)
+    panesReset()
     guardSessionEnd()
     return next(e)
   })
@@ -2461,6 +3260,7 @@ export function register(on) {
   })
 
   on('session.measure', async ($, e, next) => {
+    uiTouch($)
     await compactUpdate($, e)
     await resetOnUsage($, e)
     await evaluate($)
@@ -2474,7 +3274,9 @@ export function register(on) {
     await rowTurnComplete($, e)
     if (e.agentId === undefined) {
       lastCompleteAt = await $.clock.now()
+      uiTouch($)
       const usage = await $.session.usage()
+      uiNoteContext(usage)
       await compactTurnComplete($, usage, e.reason)
       await resetOnUsage($, usage)
       await evaluate($)
@@ -2491,6 +3293,7 @@ export function register(on) {
     if (e.agentId === undefined) {
       lastStepAt = await $.clock.now()
       compactNoteActivity()
+      uiNoteMainStep(e)
     }
     await statsStepStart($, e)
     // Debug log only (claude --debug-file): what the host hands this hook for a subagent request.
@@ -2573,6 +3376,8 @@ export function register(on) {
 
   registerAsk(on)
   registerCompact(on)
+  registerUi(on, () => saver)
+  registerPanes(on)
   registerReset(on)
   registerTidy(on)
   registerStats(on)

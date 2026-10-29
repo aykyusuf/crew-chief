@@ -2,6 +2,14 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.11.0 (2026-10-29)
+- **crew-ui**, `/crew-ui on` diyene kadar kapalı: prompt'un üstünde (terminal ve Desktop uygulaması) çalışan her alt ajan için bir satır (model, beş noktalı efor ölçer, ilerleme çubuğu, token, adım), küçük grafikle context, 5 saat ve 7 gün limitleri, guard, saver ve bir compact tuşu olan band. Varsayılan sessiz (yalnızca bakmaya değer bir şey varken görünür; terminalde kendi `statusLine`'ın varsa context ve limitleri göstermez), her şey için `/crew-ui full`, `/crew-ui style boxed|plain|color|pills` (varsayılan `boxed`), örnek içerik için `/crew-ui demo on`. `settings.json`'a hiç yazmaz.
+- **Sorular band'da.** Band açıkken plugin'in kendi soruları (compact, compact kapısı, limit ve saver, advisor teklifi, limit sıfırlanması, `/crew-tidy archive`) dialog yerine lila bir şeritte düğmeler olarak sorulur, rakam tuşuyla cevaplanır. Süre sınırı, güvenli varsayılan ve dialog'a dönüş (VS Code, kapalı band, dörtten fazla cevap) aynı; Claude'un kendi soruları hiç değişmez.
+- **Küçük dokunuşlar** (`/crew-ui extras off` kaldırır): spinner ve tur satırının yanında model ve efor, footer'ın mod etiketlerinde bir crew-chief notu, prompt ipucunun sonunda bir limit notu; `/crew-ui words on` (varsayılan kapalı) spinner'a modele göre sakin bir kelime verir.
+- **Beş seviyeli efor ölçer.** `low` `●○○○○`, `medium` `●●○○○`, `high` `●●●○○`, `xhigh` `●●●●○`, `max` `●●●●●` (renk çizilen yerde gökkuşağı). `max` daha önce `xhigh` gibi çiziliyordu.
+- **Paneller**: `/crew-panel tasks` (tasks.json), `/crew-panel agents` (bu oturumdaki alt ajanların zaman çizelgesi), `/crew-panel guard` (guard'ın durdurduğu, reddettiği ya da uyardığı şeyler). Komut bir alt ajan çalışırken de çalışır (`immediate`).
+- Terminalde canlı görüldü: band, sessiz ve tam modlar, `boxed` tarzı, tur satırındaki dokunuş ve efor ölçer. Şimdilik yalnızca testlerle kapsanıyor: band'daki sorular, paneller, spinner kelimeleri, `color` ve `pills` tarzları.
+
 ## 0.10.3 (2026-10-28)
 - `jq` kurulu bir Windows artık prompt'un üstünde fazladan `⚠crew-chief: ...` satırı almıyor: altındaki panel satırı (model, efor, token, süre, yüzde) orada da çalışıyor, o satır tekrar oluyordu. Windows'ta yalnızca `jq` yoksa çizilir, diğer terminallerdeki gibi (`CREW_CHIEF_ROW_MOD=on` yine zorlar). `jq` 1.8.2'li Windows'ta görüldü: panel satırı ve `~NN%` ikisi de çalışıyor.
 

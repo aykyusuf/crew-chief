@@ -349,6 +349,33 @@ async function advancePlan($) {
   }
 }
 
+// The question the person asked for (/crew-compact, or the band's compact key): clears "never", asks when the
+// loop is free (a command or a key must not hold the turn while the person answers).
+function compactAskLater($) {
+  ck.never = false
+  $.clock.after(300, async () => {
+    const outcome = await askAndPlan($, {})
+    if (outcome === 'approved') requestStateUpdate($)
+    else if (outcome === 'subagents') $.ui.toast(t(await resolveLang($), 'ck_wait_agents'), { timeoutMs: 10000 })
+  })
+}
+
+// For the band: the token count at which compaction is advised (the "ask" size), or undefined.
+export async function compactAskAt($, usage) {
+  try {
+    if (await disabled($)) return undefined
+    return (await limits($, usage)).ask
+  } catch (err) {
+    return undefined
+  }
+}
+
+// The band's compact key. Does nothing while a question or compaction is already under way.
+export function compactBandPress($) {
+  if (ck.plan || ck.compacting || ck.asking) return
+  compactAskLater($)
+}
+
 // Called after each finished main turn.
 // `reason` is how the turn ended. Only a turn that ended with an answer counts as a phase boundary: after an
 // interrupt (Esc) the update may be half done, and after an error or a refusal nothing was finished.
@@ -606,13 +633,7 @@ export function registerCompact(on) {
     const lang = await resolveLang($)
     if (await disabled($)) return { text: t(lang, 'cmd_compact_off') }
     if (ck.plan || ck.compacting || ck.asking) return { text: t(lang, 'cmd_compact_busy') }
-    ck.never = false
-    // A command must not hold the turn while the person answers; ask when the loop is free.
-    $.clock.after(300, async () => {
-      const outcome = await askAndPlan($, {})
-      if (outcome === 'approved') requestStateUpdate($)
-      else if (outcome === 'subagents') $.ui.toast(t(await resolveLang($), 'ck_wait_agents'), { timeoutMs: 10000 })
-    })
+    compactAskLater($)
     return { text: t(lang, 'cmd_compact_ok') }
   })
 }

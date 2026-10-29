@@ -37,6 +37,8 @@ import { askWithDeadline, registerAsk } from './ask.mjs'
 import { rowSessionEnd, rowSessionStart, rowStepEnd, rowStepStart, rowTurnComplete } from './agent-row.mjs'
 import { addLanguageVote, resetLang, resolveLang } from './lang.mjs'
 import { progressAfter, progressObserve, progressReset } from './progress.mjs'
+import { panesReset, panesSessionStart, registerPanes } from './crew-panes.mjs'
+import { registerUi, uiNoteContext, uiNoteMainStep, uiSessionStart, uiTouch } from './crew-ui.mjs'
 import { guardAfter, guardCheck, guardNudge, guardSessionEnd, guardSessionStart, guardWants, registerGuard } from './guard.mjs'
 import {
   compactNoteActivity,
@@ -331,6 +333,8 @@ export function register(on) {
     await statsSessionStart($)
     rowSessionStart($)
     await guardSessionStart($)
+    await uiSessionStart($)
+    await panesSessionStart($)
     return result
   })
 
@@ -338,6 +342,7 @@ export function register(on) {
     resetState()
     resetCompact()
     rowSessionEnd($)
+    panesReset()
     guardSessionEnd()
     return next(e)
   })
@@ -361,6 +366,7 @@ export function register(on) {
   })
 
   on('session.measure', async ($, e, next) => {
+    uiTouch($)
     await compactUpdate($, e)
     await resetOnUsage($, e)
     await evaluate($)
@@ -374,7 +380,9 @@ export function register(on) {
     await rowTurnComplete($, e)
     if (e.agentId === undefined) {
       lastCompleteAt = await $.clock.now()
+      uiTouch($)
       const usage = await $.session.usage()
+      uiNoteContext(usage)
       await compactTurnComplete($, usage, e.reason)
       await resetOnUsage($, usage)
       await evaluate($)
@@ -391,6 +399,7 @@ export function register(on) {
     if (e.agentId === undefined) {
       lastStepAt = await $.clock.now()
       compactNoteActivity()
+      uiNoteMainStep(e)
     }
     await statsStepStart($, e)
     // Debug log only (claude --debug-file): what the host hands this hook for a subagent request.
@@ -473,6 +482,8 @@ export function register(on) {
 
   registerAsk(on)
   registerCompact(on)
+  registerUi(on, () => saver)
+  registerPanes(on)
   registerReset(on)
   registerTidy(on)
   registerStats(on)

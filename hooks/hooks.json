@@ -1,5 +1,5 @@
 {
-  "description": "crew-chief: routing policy at session start; read-only guard for the scanner, deep-reader, and reviewer agents; solo mode enforcement; update notices; agent panel row installer; skill hints and a one-time skill offer; per-subagent progress for the panel row; limit-aware token saver, compact flow and a subagent status line for Desktop, VS Code and Windows (mod); an opt-in command guard with an ssh first-contact gate (mod); after a compaction, the pinned constraints and open tasks are put back from the handoff files",
+  "description": "crew-chief: routing policy at session start; read-only guard for the scanner, deep-reader, and reviewer agents; solo mode enforcement; update notices; agent panel row installer; skill hints and a one-time skill offer; per-subagent progress for the panel row; limit-aware token saver, compact flow and a subagent status line for Desktop, VS Code and Windows (mod); an opt-in command guard with an ssh first-contact gate (mod); an opt-in band above the prompt with the plugin's questions as buttons, and panes for tasks, agents and the guard (mod); after a compaction, the pinned constraints and open tasks are put back from the handoff files",
   "modules": [
     "./register.js"
   ],

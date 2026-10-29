@@ -70,6 +70,8 @@ function guardFresh() {
     agentTypes: new Map(), // agentId -> read-only (true/false), once the agent list named it
     suggestions: [],
     suggestToasted: false,
+    held: 0, // first attempts stopped this session (for the band)
+    log: [], // { at, kind: 'held' | 'deny' | 'warn', text }, for the guard pane
     noted: false,
     defaults: false, // the loaded file is the first-run default
     toolRegistered: false,
@@ -211,6 +213,26 @@ async function guardEnsure($) {
   await st.loading
 }
 
+// For the band: whether the guard is on and how many first attempts it has stopped this session.
+// The events of this session for the guard pane, oldest first.
+export function guardLogList() {
+  return guardState.log
+}
+
+async function guardLogPush($, kind, text) {
+  try {
+    const log = guardState.log
+    log.push({ at: await $.clock.now(), kind, text: clipText(text, 160) })
+    if (log.length > 50) log.splice(0, log.length - 50)
+  } catch (err) {
+    // The log is cosmetic.
+  }
+}
+
+export function guardSummary() {
+  return { loaded: guardState.loaded, on: guardState.on, held: guardState.held }
+}
+
 export async function guardSessionStart($) {
   guardState = guardFresh()
   try {
@@ -291,6 +313,7 @@ export async function guardCheck($, e) {
   if (v !== null && v.level === 'deny') {
     $.ui.log('crew-chief guard: denied by rule ' + v.rule, { to: 'debug' })
     await guardToast($, 'guard_toast_deny', { text: clipText(v.text) })
+    await guardLogPush($, 'deny', v.text + ' [' + v.rule + ']')
     return { deny: ruleDenyMessage(v) }
   }
   const ssh = st.config.ssh
@@ -302,6 +325,7 @@ export async function guardCheck($, e) {
   const readOnly = e.agentId !== undefined ? await guardReadOnlyAgent($, e.agentId) : false
   if (confirm && readOnly) {
     await guardToast($, 'guard_toast_deny', { text: clipText(v.text) })
+    await guardLogPush($, 'deny', v.text + ' (read-only agent)')
     return { deny: readOnlyDenyMessage(v) }
   }
   const now = await $.clock.now()
@@ -309,6 +333,7 @@ export async function guardCheck($, e) {
   const d = touches.length > 0 ? gateDecide(st.gate, touches, { mode: ssh.mode, loop: e.agentId, readOnly, now, ttlMs: ssh.ttlMs, command: e.command }) : { action: 'pass' }
   if (d.action === 'deny' && d.kind === 'readonly') {
     await guardToast($, 'guard_toast_readonly', { host: clipText(d.hosts.join(', '), 40), cmd: clipText(e.command) })
+    await guardLogPush($, 'deny', 'ssh ' + d.hosts.join(', ') + ' (read-only agent)')
     return { deny: sshDenyMessage(d) }
   }
   const confirmDue = confirm && !isFresh(st.gate, key, now, st.config.confirmTtlMs)
@@ -320,8 +345,10 @@ export async function guardCheck($, e) {
       gateRecord(st.gate, d, now)
     }
     markCommand(st.gate, key, now)
+    st.held += 1
     $.ui.log('crew-chief guard: first attempt held' + (confirmDue ? ' (' + v.rule + ')' : '') + (d.action === 'deny' ? ' (ssh ' + d.kind + ')' : ''), { to: 'debug' })
     const what = d.action === 'deny' ? 'ssh ' + d.hosts.join(', ') : v.text
+    await guardLogPush($, 'held', what)
     await guardToast($, 'guard_toast_confirm', { text: clipText(what, 50), cmd: clipText(e.command ?? e.file_path ?? '') })
     return { deny: checklistMessage(reasons, { loop: e.agentId, unknown: d.unknown }) }
   }
@@ -344,6 +371,7 @@ export async function guardAfter($, e, g, r) {
     } catch (err) {
       // The context below still reaches the model.
     }
+    await guardLogPush($, 'warn', g.notes.join(' · '))
     const context = [...(r.context ?? []), ...g.contexts]
     // Keep every field the host sent: rebuilding the result by hand could change its shape.
     return { ...r, context }

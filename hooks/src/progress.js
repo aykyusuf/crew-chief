@@ -40,6 +40,19 @@ export async function progressPct($, agentId) {
   }
 }
 
+// The fresh report of an agent as { pct, step }, or undefined (same freshness as progressPct).
+export async function progressInfo($, agentId) {
+  try {
+    const entry = progressAgents.get(agentId)
+    if (!entry) return undefined
+    const pct = freshPct(entry, await $.clock.now())
+    if (pct === undefined) return undefined
+    return { pct, step: typeof entry.step === 'string' && entry.step !== '' ? entry.step : undefined }
+  } catch (err) {
+    return undefined
+  }
+}
+
 // After the call ran: the reminder rides with the result, next to what the guard may have added.
 export function progressAfter(r, text) {
   try {

@@ -192,6 +192,19 @@ Yeni oturum öncekini hatırlamaz; projeyi baştan keşfeder: ne çalışıyor, 
 
 **Kurulum ne yapar** (`/crew-chief:crew-handoff` ya da sadece "devir dosyalarını kur"): önce benzer dosyaları arar, varsa yanına ikinci bir set kurmak yerine onları kullanmayı önerir; dosyaları ve depodan doğrulanabilen bilgilerle doldurulmuş önizlemeyi gösterir (doğrulanamayanı "doğrulanmadı" diye işaretler); sadece eksik dosyaları oluşturur, `CLAUDE.md` bloğunu ekler; hiçbir şeyin üzerine yazmaz, adını değiştirmez, commit atmaz. `/crew-chief:crew-setup --handoff` proje kurulumundan sonra aynı adımları çalıştırır.
 
+## crew-ui: band, sorular ve paneller
+
+**Sen isteyene kadar kapalı.** `/crew-ui on` prompt'un üstünde bir band çizer (terminal ve Desktop uygulaması; VS Code kendi durum satırında kalır). `settings.json`'a hiç yazmaz. Mod'un küçük bir parçası (`hooks/src/crew-ui.js`, düzeni `hooks/ui-logic.mjs`).
+
+- **Ne gösterir.** Çalışan her alt ajan için bir satır (`deep-reader  sonnet-5.5 ●●○○○ medium ▓▓░░░░ 40%  12k  reading auth`) ve context (son turların küçük grafiğiyle), 5 saat ve 7 gün limitleri, guard, saver ve compact tuşunun olduğu bir durum satırı. Efor ölçerin her seviye (`low`'dan `max`'a) için bir noktası var, yani beş nokta; renk çizilen yerde `max` gökkuşağı olur.
+- **Varsayılan sessiz.** Band yalnızca bakmaya değer olanı gösterir: çalışan bir alt ajan, %70'i geçen limit ya da context, guard'ın durdurduğu bir şey, vakti gelen compact. Söyleyecek bir şey yoksa çizilmez. `/crew-ui full` her şeyi hep gösterir. Terminalde kendi `statusLine`'ın varsa sessiz band context ve limitleri göstermez (o satırda var); Desktop'ta böyle bir satır olmadığı için onlar da gösterilir.
+- **Görünüm.** `/crew-ui style boxed|plain|color|pills` (varsayılan `boxed`: yuvarlak çerçeve); `/crew-ui demo on` meşgul bir oturum beklemeden tarzı görmek için örnek içerik çizer.
+- **Soruların düğme olarak gelir.** Band açıkken plugin'in kendi soruları (compact, compact kapısı, limit ve saver, advisor teklifi, limit sıfırlanması, `/crew-tidy archive`) dialog yerine band'da sorulur: `1 Evet  2 Şimdi değil ...` yazan lila bir şerit. Prompt boşken rakama bas (ya da `ctrl+x tab`, sonra tuş). Hiçbir şey bloklanmaz; cevaplanmazsa her zamanki 20 dakikadan sonra güvenli cevapla sona erer. VS Code, kapalı band ya da dörtten fazla cevap eski dialog'u kullanır. Claude'un kendi soruları (AskUserQuestion) hiç değişmez.
+- **Küçük dokunuşlar** (`/crew-ui extras off` ile kalkar): spinner kelimesinden sonra ve tur satırından önce model ve efor (`opus ●●○○○ · Baked for 3s`), saver açıkken ya da guard bir şey durdurduğunda footer'ın mod etiketlerinde bir not, prompt ipucunun sonunda bir limit notu. `/crew-ui words on` spinner kelimesini de modele göre sakin bir kelimeyle değiştirir (`Pondering`, `Working`, `Skimming`); varsayılan kapalı.
+- **Paneller.** `/crew-panel tasks` projenin `tasks.json`'unu listeler, `/crew-panel agents` bu oturumdaki alt ajanların zaman çizelgesini çizer (ne zaman başladı, bitti, model, efor, token), `/crew-panel guard` komut korumasının durdurduğu, reddettiği ya da uyardığı şeyleri listeler. İstendiğinde açılır, iki saniyede bir yenilenir, `ctrl+x x` ya da `/crew-panel close` ile kapanır ve bir alt ajan çalışırken de çalışır.
+- **Nerede görüldü.** Band, sessiz ve tam modlar, `boxed` tarzı, tur satırındaki dokunuş ve efor ölçer terminalde canlı görüldü. Band'daki sorular, paneller, spinner kelimeleri, `color` ve `pills` şimdilik yalnızca testlerle kapsanıyor.
+- **Ortam.** `CREW_CHIEF_UI=on|off` kayıtlı seçimi geçersiz kılar.
+
 ## Ne çalıştırır
 Her şey bu repoda okunabilir shell ve küçük bir JavaScript modu (`hooks/register.js`) olarak duruyor. Ağa hiçbir şey göndermez.
 - `session-policy.sh`: oturum açılırken yaklaşık 2 KB'lık politikayı bağlama ekler. Devir dosyası olmayan bir git reposunda yeni oturumda bir kezlik [devir önerisini](#oturum-devri) de ekler; kendisi dosya yazmaz.

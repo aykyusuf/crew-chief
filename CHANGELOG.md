@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0 (2026-10-29)
+- **crew-ui**, off until you run `/crew-ui on`: a band above the prompt (terminal and Desktop app) with one line per running subagent (model, a five-dot effort meter, progress bar, tokens, step), the context with a small graph, the 5 h and 7 d limits, the guard, the saver and a compact key. Quiet by default (shown only when something is worth a look; with a `statusLine` of your own in the terminal it leaves out the context and limits), `/crew-ui full` for everything, `/crew-ui style boxed|plain|color|pills` (default `boxed`), `/crew-ui demo on` for sample content. It never writes to `settings.json`.
+- **Questions in the band.** While the band is on, the plugin's own questions (compact, compact gate, limit and saver, advisor offer, limit reset, `/crew-tidy archive`) are asked as buttons in a lilac strip, answered with a digit key, instead of a dialog. The deadline, the safe default and the dialog fallback (VS Code, band off, more than four answers) are unchanged; Claude's own questions are never touched.
+- **Small touches** (`/crew-ui extras off` removes them): model and effort next to the spinner and the turn line, a crew-chief note in the footer's mode labels, a limit note after the prompt hint; `/crew-ui words on` (off by default) gives the spinner a calm word by model.
+- **Effort meter with five levels.** `low` `●○○○○`, `medium` `●●○○○`, `high` `●●●○○`, `xhigh` `●●●●○`, `max` `●●●●●` (a rainbow where colour is drawn). `max` was drawn like `xhigh` before.
+- **Panes**: `/crew-panel tasks` (tasks.json), `/crew-panel agents` (a timeline of this session's subagents), `/crew-panel guard` (what the guard stopped, denied or warned). The command also runs while a subagent works (`immediate`).
+- Seen live in a terminal: the band, the quiet and full modes, the `boxed` style, the turn-line touch and the effort meter. Covered by tests only so far: the questions in the band, the panes, the spinner words, the `color` and `pills` styles.
+
 ## 0.10.3 (2026-10-28)
 - Windows with `jq` installed no longer gets the extra `⚠crew-chief: ...` line above the prompt: the panel row below it (model, effort, tokens, time, percent) works there too, so the line was a duplicate. It is drawn on Windows only when `jq` is missing, like on every other terminal (`CREW_CHIEF_ROW_MOD=on` still forces it). Seen on Windows with `jq` 1.8.2: the panel row and the `~NN%` both work.
 

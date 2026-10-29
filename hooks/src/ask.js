@@ -8,6 +8,7 @@
 // (That hook is only reached while the asking hook still runs; see askWithDeadline for the other case.)
 // Only questions noted here are raced: an AskUserQuestion that Claude raises itself passes through.
 // CREW_CHIEF_ASK_TIMEOUT_MIN sets the minutes (default 20, at most 30; "off" or "0" = no deadline).
+import { uiAskStart } from './crew-ui.mjs'
 import { resolveLang } from './lang.mjs'
 import { t } from './saver-i18n.mjs'
 import { minutesLabel, parseAskTimeout, pickFallback } from './ask-logic.mjs'
@@ -37,12 +38,21 @@ export async function askWithDeadline($, question, answers, fallback) {
   } catch (err) {
     entry = undefined // no deadline then; the question itself still goes out
   }
-  if (entry === undefined) return $.ui.ask(question, answers)
+  if (entry === undefined) {
+    const band = uiAskStart($, question, answers)
+    if (band === undefined) return $.ui.ask(question, answers)
+    try {
+      return await band.promise
+    } finally {
+      band.close()
+    }
+  }
   const owner = !deadlines.has(question)
   if (owner) deadlines.set(question, entry)
   let timer
+  const band = uiAskStart($, question, answers)
   try {
-    const asked = $.ui.ask(question, answers)
+    const asked = band !== undefined ? band.promise : $.ui.ask(question, answers)
     asked.catch(() => {}) // dismissed after the deadline: nobody is listening any more
     const expired = new Promise((resolve) => {
       timer = $.clock.after(entry.ms, () => resolve(EXPIRED))
@@ -57,6 +67,7 @@ export async function askWithDeadline($, question, answers, fallback) {
     } catch (err) {
       // Already fired.
     }
+    if (band !== undefined) band.close() // an expired question leaves the band
     if (owner && deadlines.get(question) === entry) deadlines.delete(question)
   }
 }
