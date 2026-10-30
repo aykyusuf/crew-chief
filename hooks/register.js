@@ -64,9 +64,12 @@ import {
   timelinePane,
 } from './panes-logic.mjs'
 import {
+  INTRO_AT_CALL,
   freshPct,
+  introText,
   nudgeText,
   observe,
+  parseReport,
 } from './progress-logic.mjs'
 import {
   addStep,
@@ -1027,6 +1030,14 @@ async function compactAskAt($, usage) {
   }
 }
 
+// For the band: whether the compact key should show. Not while a question, a plan or a compaction is under way,
+// not after "don't ask again", and not after "not now" until the context has grown by another 100k (the flow
+// re-arms then), so a "not now" is not answered by a button that stays.
+function compactKeyDue(tokens) {
+  if (typeof tokens !== 'number') return false
+  return !ck.never && !ck.plan && !ck.compacting && !ck.asking && tokens >= ck.rearmAt
+}
+
 // The band's compact key. Does nothing while a question or compaction is already under way.
 function compactBandPress($) {
   if (ck.plan || ck.compacting || ck.asking) return
@@ -1494,19 +1505,34 @@ function registerTidy(on) {
 //     but only when jq is missing, so an agent never gets it twice.
 // Any failure leaves the call alone.
 let progressAgents = new Map()
+let progressMissed = new Map() // agentId -> reminders sent since its last report
 
 function progressReset() {
   progressAgents = new Map()
+  progressMissed = new Map()
 }
 
-// Called from the mod's tool.call hook with the call as it goes out. Returns the reminder text, or undefined.
+// Called from the mod's tool.call hook with the call as it goes out. Returns the note to add to the call's result,
+// or undefined: the rule at the agent's second call when it has not reported, then a reminder every 10 calls
+// without a report, louder each time one goes unanswered. It never stops a call.
 async function progressObserve($, e) {
   try {
     if (typeof e.agentId !== 'string' || e.agentId === '') return undefined
     const now = await $.clock.now()
+    const report = e.tool === 'Bash' && parseReport(e.command) !== null
     const due = observe(progressAgents, e.agentId, e.tool, e.command, now)
-    if (due === 0) return undefined
-    return (await rowShellHookDead($)) ? nudgeText(due) : undefined
+    if (report) {
+      progressMissed.delete(e.agentId)
+      return undefined
+    }
+    const entry = progressAgents.get(e.agentId)
+    if (due > 0) {
+      const missed = progressMissed.get(e.agentId) ?? 0
+      progressMissed.set(e.agentId, missed + 1)
+      return nudgeText(due, missed)
+    }
+    if (entry && entry.tools === INTRO_AT_CALL && entry.reported !== true) return introText()
+    return undefined
   } catch (err) {
     return undefined
   }
@@ -1521,6 +1547,12 @@ async function progressPct($, agentId) {
   } catch (err) {
     return undefined
   }
+}
+
+// How many tool calls an agent has made (counted by this module), or undefined.
+function progressStats(agentId) {
+  const entry = progressAgents.get(agentId)
+  return entry ? { calls: entry.tools } : undefined
 }
 
 // The fresh report of an agent as { pct, step }, or undefined (same freshness as progressPct).
@@ -1571,6 +1603,7 @@ function freshRow() {
     agents: new Map(), // agentId -> { model, effort, tokens }
     done: new Set(), // agents whose turn ended (the list can still say running for a moment)
     wanted: undefined,
+    seen: new Map(), // agentId -> when the band first saw it running (for agents whose first request we missed)
     surfaces: undefined, // as last read, for the band
     checkedAt: undefined,
     hasJq: undefined, // probed once a session (rowJq)
@@ -1621,16 +1654,6 @@ async function rowJqHint($) {
     $.ui.toast(t(lang, 'row_jq_hint', { install }), { timeoutMs: 20000 })
   } catch (err) {
     // A missing hint is no problem.
-  }
-}
-
-// True when the shell progress hook cannot work here (no jq), so the mod sends the progress reminders itself.
-// `jq --version` is run once a session, the first time it matters.
-async function rowShellHookDead($) {
-  try {
-    return (await rowJq($)) === false
-  } catch (err) {
-    return false // unknown: the shell hook keeps the job, so nobody is reminded twice
   }
 }
 
@@ -1727,11 +1750,25 @@ async function rowBandRows($) {
     list = []
   }
   const rows = []
+  const now = await $.clock.now()
   for (const a of Array.isArray(list) ? list : []) {
     if (!a || !ROW_LIVE.includes(a.status) || rowState.done.has(a.id)) continue
     const info = rowState.agents.get(a.id) ?? {}
     const prog = await progressInfo($, a.id)
-    rows.push({ name: rowAgentName(a), model: info.model, effort: info.effort, tokens: info.tokens, pct: prog?.pct, step: prog?.step })
+    if (!rowState.seen.has(a.id)) rowState.seen.set(a.id, now)
+    const since = info.startMs ?? rowState.seen.get(a.id)
+    rows.push({
+      name: rowAgentName(a),
+      model: info.model,
+      effort: info.effort,
+      tokens: info.tokens,
+      pct: prog?.pct,
+      step: prog?.step,
+      calls: progressStats(a.id)?.calls,
+      elapsedMs: now - since,
+      // No request of this agent ever reached the mod and it has run a while (it started before the mod loaded).
+      unknown: info.model === undefined && now - since >= 15_000,
+    })
   }
   return rows
 }
@@ -2323,7 +2360,8 @@ const UI_STYLES = ['plain', 'color', 'pills', 'boxed']
 const UI_WORDS_KEY = 'crew_ui_words' // 'on' or 'off' (default): calm spinner words by model
 const UI_NOTICE_KEY = 'crew_ui_notice' // set once the first-run notice was shown
 const UI_EXTRAS_KEY = 'crew_ui_extras' // 'on' (default) or 'off': the small touches outside the band
-const UI_MAX_LINES = 4
+const UI_MAX_LINES = 8 // lines of the band at most; the engine's room (maxRows, half the terminal) is the other limit
+const UI_DEFAULT_ROWS = 6 // when the engine does not say
 const UI_SURFACES = ['terminal', 'desktop']
 
 // Tones are meanings; these are the theme keys the surfaces know (any other colour string is the surface's
@@ -2631,6 +2669,7 @@ async function uiFacts($, saverOn) {
   const askAt = await compactAskAt($, usage)
   const guard = guardSummary()
   return {
+    tokens: usage?.context?.tokens,
     ctx: ctxChip(usage?.context, askAt, uiCtxHistory),
     five: windowChip(usage?.rateLimits, 'five_hour', now),
     week: windowChip(usage?.rateLimits, 'seven_day', now),
@@ -2646,10 +2685,11 @@ function registerUi(on, saverOn) {
       const question = uiQuestion
       const demo = uiDemo ? demoContent(await $.clock.now()) : undefined
       const facts = demo ? demo.facts : await uiFacts($, saverOn())
-      if (!demo) facts.compactKey = facts.ctx?.past === true && question === undefined
+      if (!demo) facts.compactKey = facts.ctx?.past === true && question === undefined && compactKeyDue(facts.tokens)
       const columns = typeof e.props?.bodyColumns === 'number' ? e.props.bodyColumns : 100
-      const rows = typeof e.props?.maxRows === 'number' ? e.props.maxRows : UI_MAX_LINES
-      const maxLines = Math.max(1, Math.min(UI_MAX_LINES, rows - (question ? 4 : 0)))
+      // The room the engine gives the band, less the frame (boxed: two rows) and a question (the strip and its buttons).
+      const rows = typeof e.props?.maxRows === 'number' ? e.props.maxRows : UI_DEFAULT_ROWS
+      const maxLines = Math.max(1, Math.min(UI_MAX_LINES, rows - (uiStyle === 'boxed' ? 2 : 0) - (question ? 4 : 0)))
       if (!demo && !uiFull && e.surface === 'terminal' && (await uiHasStatusLine($))) {
         // The compact key was decided above from the context; only the figures the status line has are left out.
         facts.ctx = undefined

@@ -259,34 +259,44 @@ test('no report, no percentage; a stale report (25 calls) drops it again', async
   expect(s.status.at(-1)).toBe('Explore sonnet-5.5·high')
 })
 
-test('Windows without jq: the mod reminds a subagent after 10 calls, once per 10', async ($, on) => {
-  const s = harness(on, { surfaces: ['terminal'], env: { OS: 'Windows_NT' }, jq: 'missing' })
+test('a subagent gets the rule at its second call and a reminder every 10 calls without a report, louder when ignored', async ($, on) => {
+  const s = harness(on, { surfaces: ['terminal'], jq: 'yes' }) // with or without jq: the mod sends it
   await start($)
-  for (let i = 1; i <= 9; i++) expect(contextOf(await call($, 'a1'))).toBe('[]')
+  expect(contextOf(await call($, 'a1'))).toBe('[]')
+  expect(contextOf(await call($, 'a1'))).toContain('crew-chief progress rule')
+  for (let i = 3; i <= 9; i++) expect(contextOf(await call($, 'a1'))).toBe('[]')
   const tenth = await call($, 'a1')
   expect(contextOf(tenth)).toContain('10 tool calls since your last progress report')
   expect(contextOf(tenth)).toContain('crew-progress NN')
+  expect(contextOf(tenth)).not.toContain('reminder 2')
   for (let i = 11; i <= 19; i++) expect(contextOf(await call($, 'a1'))).toBe('[]')
-  expect(contextOf(await call($, 'a1'))).toContain('20 tool calls')
-  expect(s.jqRuns).toBe(1)
+  const twentieth = contextOf(await call($, 'a1'))
+  expect(twentieth).toContain('reminder 2')
+  expect(twentieth).toContain('20 tool calls')
+  expect(s.jqRuns).toBeLessThanOrEqual(1)
 })
 
-test('a report restarts the count; the main session is never counted or reminded', async ($, on) => {
+test('a report restarts the count and the escalation; the main session is never counted or reminded', async ($, on) => {
   const s = harness(on, { surfaces: ['terminal'], env: { OS: 'Windows_NT' }, jq: 'missing' })
   await start($)
   for (let i = 0; i < 9; i++) await call($, 'a1')
   await call($, 'a1', REPORT)
-  for (let i = 0; i < 9; i++) expect(contextOf(await call($, 'a1'))).toBe('[]')
+  for (let i = 0; i < 9; i++) expect(contextOf(await call($, 'a1'))).toBe('[]') // reported: no rule, no reminder yet
   for (let i = 0; i < 30; i++) expect(contextOf(await call($, undefined))).toBe('[]')
-  expect(contextOf(await call($, 'a1'))).toContain('10 tool calls')
-  expect(s.jqRuns).toBe(1)
+  const next = contextOf(await call($, 'a1'))
+  expect(next).toContain('10 tool calls')
+  expect(next).not.toContain('reminder 2') // the earlier reminder was answered by the report
+  expect(s.jqRuns).toBeLessThanOrEqual(1)
 })
 
-test('where jq works the shell hook does the reminding, so the mod stays quiet', async ($, on) => {
+test('an agent that reported on its own is not given the rule', async ($, on) => {
+  await (async () => {})()
   const s = harness(on, { surfaces: ['terminal'], jq: 'yes' })
   await start($)
-  for (let i = 0; i < 25; i++) expect(contextOf(await call($, 'a1'))).toBe('[]')
-  expect(s.jqRuns).toBe(1)
+  await call($, 'a1')
+  await call($, 'a1', REPORT) // reported before its second counted call
+  expect(contextOf(await call($, 'a1'))).toBe('[]')
+  expect(s.jqRuns).toBeLessThanOrEqual(1)
 })
 
 // ---- the one-time jq install hint --------------------------------------------------------------------------

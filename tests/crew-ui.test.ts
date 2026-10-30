@@ -67,6 +67,7 @@ function harness(on: any, opts: Opts = {}) {
     state.submitted.push(e.text)
     return { text: e.text }
   })
+  on('tool.call', () => ({ result: 'ok' }))
   on('session.start', () => ({ cwd: '/work' }))
   on('session.end', ($: any, e: any) => ({ sessionId: e.sessionId }))
   on('turn.complete', () => ({ text: '' }))
@@ -444,4 +445,86 @@ test('words off by default, and the command saves the choice', async ($, on) => 
   await spinner.unmount()
   expect(JSON.stringify(await $.command.run({ command: 'crew-ui', args: 'words on' }))).toContain('words on')
   expect(s.stored.crew_ui_words).toBe('on')
+})
+
+test('"Not now" takes the compact key away until the context has grown another 100k, "never" for good', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_COMPACT: 'on' }, tokens: 500_000 })
+  await start($)
+  const before = await mount($)
+  expect(await before.find({ type: 'Button' })).toBeDefined() // due: the key shows
+  await before.unmount()
+  await $.command.run({ command: 'crew-compact', args: '' })
+  await s.clock.advance(400)
+  await settle()
+  const asking = await mount($)
+  await asking.press({ key: 'ask-2' }) // not now
+  await settle()
+  await asking.unmount()
+  const after = await mount($)
+  expect(await after.find({ type: 'Button' })).toBeUndefined() // the key does not stay
+  await after.unmount()
+  s.tokens = 640_000 // another 100k on top
+  const later = await mount($)
+  expect(await later.find({ type: 'Button' })).toBeDefined()
+  await later.unmount()
+  await $.command.run({ command: 'crew-compact', args: '' })
+  await s.clock.advance(400)
+  await settle()
+  const again = await mount($)
+  await again.press({ key: 'ask-3' }) // never
+  await settle()
+  await again.unmount()
+  s.tokens = 900_000
+  const never = await mount($)
+  expect(await never.find({ type: 'Button' })).toBeUndefined()
+  await never.unmount()
+})
+
+test('an agent the band never saw start says "starting" for a few seconds, then just its name, calls and time', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on' } })
+  await start($)
+  s.agents.push({ id: 'a1', type: 'crew-chief:implementer-hard', status: 'running', description: 'x' })
+  const young = await mount($)
+  expect(await young.find({ type: 'Text', text: /starting/ })).toBeDefined()
+  await young.unmount()
+  await s.clock.advance(20_000)
+  const old = await mount($)
+  expect(await old.find({ type: 'Text', text: /implementer-hard/ })).toBeDefined()
+  expect(await old.find({ type: 'Text', text: /starting/ })).toBeUndefined()
+  expect(await old.find({ type: 'Text', text: /20s/ })).toBeDefined()
+  await old.unmount()
+})
+
+test('without a reported percentage the agent line shows its calls and time', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on' } })
+  await start($)
+  s.agents.push({ id: 'a1', type: 'Explore', status: 'running', description: 'x' })
+  await step($, s, 'a1', 'claude-haiku-5-5', 'low')
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Read', file_path: '/work/a', agentId: 'a1' })
+  await s.clock.advance(45_000)
+  const ui = await mount($)
+  expect(await ui.find({ type: 'Text', text: /3 calls/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /45s/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('every running agent is drawn while there is room, not just the first two', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on' } })
+  await start($)
+  for (let i = 1; i <= 5; i++) s.agents.push({ id: 'a' + i, type: 'worker-' + i, status: 'running', description: 'x' })
+  const ui = await mount($, { maxRows: 10 }) // room for the frame and eight lines
+  for (let i = 1; i <= 5; i++) expect(await ui.find({ type: 'Text', text: new RegExp('worker-' + i) })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /more agents/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('when the engine gives little room the rest becomes "+N more agents"', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on' } })
+  await start($)
+  for (let i = 1; i <= 5; i++) s.agents.push({ id: 'a' + i, type: 'worker-' + i, status: 'running', description: 'x' })
+  const ui = await mount($, { maxRows: 5 }) // the frame takes two, three lines are left: the status line, one agent, the rest
+  expect(await ui.find({ type: 'Text', text: /worker-1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /worker-5/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /\+4 more agents/ })).toBeDefined()
+  await ui.unmount()
 })

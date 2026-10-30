@@ -172,13 +172,26 @@ function clip(text, n) {
 
 // One subagent: name, model family+version, effort meter, progress bar, tokens, current step.
 // agent: { name, model, effort, tokens, pct, step }
+// 4m12s, 38s, 1h05m: how long something has run.
+export function elapsedLabel(ms) {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 1000) return ''
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  return m < 60 ? `${m}m${String(s % 60).padStart(2, '0')}s` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`
+}
+
 export function agentSegments(agent, width = 100) {
   const out = [seg(clip(String(agent.name ?? 'agent').replace(/^.*:/, ''), 18).padEnd(18), 'info', true), seg(' ', 'dim')]
-  const model = String(agent.model ?? '').replace(/^claude-/, '').replace(/\[[^\]]*\]$/, '').replace(/-([0-9]+)-([0-9]+)(-[0-9]{8})?$/, '-$1.$2') || 'starting'
-  out.push(seg(clip(model, 14), familyOf(agent.model)))
-  const meter = effortMeter(agent.effort)
-  if (meter && meter.rainbow) out.push(seg(' ', 'dim'), ...RAINBOW.map((tone) => seg('●', tone)), seg(' ', 'dim'), seg(meter.label, 'max', true))
-  else if (meter) out.push(seg(' ' + meter.glyph + ' ', meter.tone), seg(meter.label, 'dim'))
+  // `unknown`: the agent has run a while and its model never reached us (it started before the mod loaded), so
+  // no model or effort is drawn rather than a "starting" that stays.
+  if (!agent.unknown) {
+    const model = String(agent.model ?? '').replace(/^claude-/, '').replace(/\[[^\]]*\]$/, '').replace(/-([0-9]+)-([0-9]+)(-[0-9]{8})?$/, '-$1.$2') || 'starting'
+    out.push(seg(clip(model, 14), familyOf(agent.model)))
+    const meter = effortMeter(agent.effort)
+    if (meter && meter.rainbow) out.push(seg(' ', 'dim'), ...RAINBOW.map((tone) => seg('●', tone)), seg(' ', 'dim'), seg(meter.label, 'max', true))
+    else if (meter) out.push(seg(' ' + meter.glyph + ' ', meter.tone), seg(meter.label, 'dim'))
+  }
   if (typeof agent.pct === 'number') {
     const b = bar(agent.pct)
     const filled = b.indexOf('░') === -1 ? b.length : b.indexOf('░')
@@ -186,6 +199,13 @@ export function agentSegments(agent, width = 100) {
   }
   const tok = tokenLabel(agent.tokens)
   if (tok) out.push(seg('  ' + tok, 'dim'))
+  // Most agents never report a percentage. What is known for sure is how long one has run and how many tool calls
+  // it made (the calls only while no percentage stands in their place).
+  const tempo = []
+  if (typeof agent.pct !== 'number' && typeof agent.calls === 'number' && agent.calls > 0) tempo.push(`${agent.calls} calls`)
+  const elapsed = elapsedLabel(agent.elapsedMs)
+  if (elapsed) tempo.push(elapsed)
+  if (tempo.length > 0) out.push(seg('  ' + tempo.join(' · '), 'dim'))
   const used = out.reduce((n, s) => n + s.t.length, 0)
   const room = width - used - 2
   if (agent.step && room >= 8) out.push(seg('  ' + clip(agent.step, room), 'dim'))
@@ -222,8 +242,8 @@ export function demoContent(now) {
       compactKey: true,
     },
     agents: [
-      { name: 'deep-reader', model: 'claude-sonnet-5-5', effort: 'medium', tokens: 48_100, pct: 40, step: 'reading auth module' },
-      { name: 'implementer-hard', model: 'claude-opus-5-5', effort: 'high', tokens: 212_000, pct: 75, step: 'running the test suite' },
+      { name: 'deep-reader', model: 'claude-sonnet-5-5', effort: 'medium', tokens: 48_100, pct: 40, elapsedMs: 130_000, step: 'reading auth module' },
+      { name: 'implementer-hard', model: 'claude-opus-5-5', effort: 'high', tokens: 212_000, calls: 34, elapsedMs: 252_000, step: 'running the test suite' },
       { name: 'scanner', model: 'claude-haiku-5-5', effort: 'low', tokens: 9_300, pct: 90, step: 'grep routes' },
     ],
   }

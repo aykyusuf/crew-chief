@@ -25,7 +25,7 @@
 import { rowBandRows, rowSurfaces } from './agent-row.mjs'
 import { resolveLang } from './lang.mjs'
 import { t } from './saver-i18n.mjs'
-import { compactAskAt, compactBandPress } from './compact-flow.mjs'
+import { compactAskAt, compactBandPress, compactKeyDue } from './compact-flow.mjs'
 import { guardSummary } from './guard.mjs'
 import { bandLines, ctxChip, demoContent, modeLabels, modelChip, quietFacts, spinnerWord, statusSegments, tailText, windowChip } from './ui-logic.mjs'
 
@@ -36,7 +36,8 @@ const UI_STYLES = ['plain', 'color', 'pills', 'boxed']
 const UI_WORDS_KEY = 'crew_ui_words' // 'on' or 'off' (default): calm spinner words by model
 const UI_NOTICE_KEY = 'crew_ui_notice' // set once the first-run notice was shown
 const UI_EXTRAS_KEY = 'crew_ui_extras' // 'on' (default) or 'off': the small touches outside the band
-const UI_MAX_LINES = 4
+const UI_MAX_LINES = 8 // lines of the band at most; the engine's room (maxRows, half the terminal) is the other limit
+const UI_DEFAULT_ROWS = 6 // when the engine does not say
 const UI_SURFACES = ['terminal', 'desktop']
 
 // Tones are meanings; these are the theme keys the surfaces know (any other colour string is the surface's
@@ -344,6 +345,7 @@ async function uiFacts($, saverOn) {
   const askAt = await compactAskAt($, usage)
   const guard = guardSummary()
   return {
+    tokens: usage?.context?.tokens,
     ctx: ctxChip(usage?.context, askAt, uiCtxHistory),
     five: windowChip(usage?.rateLimits, 'five_hour', now),
     week: windowChip(usage?.rateLimits, 'seven_day', now),
@@ -359,10 +361,11 @@ export function registerUi(on, saverOn) {
       const question = uiQuestion
       const demo = uiDemo ? demoContent(await $.clock.now()) : undefined
       const facts = demo ? demo.facts : await uiFacts($, saverOn())
-      if (!demo) facts.compactKey = facts.ctx?.past === true && question === undefined
+      if (!demo) facts.compactKey = facts.ctx?.past === true && question === undefined && compactKeyDue(facts.tokens)
       const columns = typeof e.props?.bodyColumns === 'number' ? e.props.bodyColumns : 100
-      const rows = typeof e.props?.maxRows === 'number' ? e.props.maxRows : UI_MAX_LINES
-      const maxLines = Math.max(1, Math.min(UI_MAX_LINES, rows - (question ? 4 : 0)))
+      // The room the engine gives the band, less the frame (boxed: two rows) and a question (the strip and its buttons).
+      const rows = typeof e.props?.maxRows === 'number' ? e.props.maxRows : UI_DEFAULT_ROWS
+      const maxLines = Math.max(1, Math.min(UI_MAX_LINES, rows - (uiStyle === 'boxed' ? 2 : 0) - (question ? 4 : 0)))
       if (!demo && !uiFull && e.surface === 'terminal' && (await uiHasStatusLine($))) {
         // The compact key was decided above from the context; only the figures the status line has are left out.
         facts.ctx = undefined

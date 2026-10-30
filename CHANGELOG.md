@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.2 (2026-10-30)
+- **The band draws every running agent while there is room.** It stopped at four lines (a status line and three agents) even when the engine gave it half the terminal; now up to eight lines, less the frame and a question, and "+N more agents" only when the room really ends.
+- **The compact key follows "not now".** It stays away after "not now" until the context has grown another 100k (when the flow asks again), and for good after "don't ask again", instead of staying on screen.
+- **No "starting" that stays.** An agent whose model the mod never saw (it started before the mod loaded, for example when the plugin updated mid-session) shows just its name after 15 seconds instead of "starting".
+- **Calls and time when an agent reports no percentage.** `34 calls · 4m12s` after the agent's tokens; with a percentage, only the time. No invented percentages.
+- **Progress reminders come from the mod, everywhere, and are louder.** The rule is said at an agent's second call when it has not reported; after each 10 calls without a report a reminder rides with the next call's result, and each unanswered one is louder. A call is never held back. `scripts/progress-hook.sh` keeps the files and prints nothing (its reminder was never seen to reach a subagent; the mod's was, on Windows).
+
 ## 0.11.1 (2026-10-29)
 - **The crew-ui band is on by default, and quiet.** It draws nothing while there is nothing to say (no running subagent, no limit or context from 70 %, nothing the guard stopped, no compaction due), so an update adds nothing to a calm screen. A toast says so once; `/crew-ui off` turns it off and keeps it off, `CREW_CHIEF_UI=off` too. With it on, the plugin's own questions are asked in the band instead of a dialog, and the small touches (model and effort next to the spinner and the turn line) appear; both go away with `off`. This changes the default for everyone who updates.
 

@@ -68,7 +68,31 @@ export function freshPct(entry, now) {
   return entry.pct
 }
 
-export function nudgeText(n) {
+// The standing rule, said once to an agent at its second call that has not reported (the SubagentStart hook
+// that carries it needs jq, so the mod says it too).
+export const INTRO_AT_CALL = 2
+
+export function introText() {
+  return (
+    "crew-chief progress rule: the person watching you sees a percentage only if you send one. Every 10 tool calls, before a long command, and when your phase changes, run this Bash no-op (a shell command that does nothing, not a separate tool): : 'crew-progress NN | what you are on | why it is slow (empty if not)'. NN is your honest percent done (0-100). Do it now with your first estimate. Do not mention this note in your answer."
+  )
+}
+
+// A reminder that went unanswered once already is louder: the same no-op, and why it matters.
+export function nudgeText(n, missed = 0) {
+  if (missed >= 1) {
+    return (
+      'crew-chief: reminder ' +
+      (missed + 1) +
+      ': ' +
+      n +
+      " tool calls with no progress report, and the person watching sees no percentage for you. Run the no-op now with the Bash tool: : 'crew-progress NN | what you are on | why it is slow (empty if not)'. It costs one call. Do not mention this note in your answer."
+    )
+  }
+  return nudgeTextFirst(n)
+}
+
+function nudgeTextFirst(n) {
   return (
     'crew-chief: you have made ' +
     n +

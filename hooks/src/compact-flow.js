@@ -370,6 +370,14 @@ export async function compactAskAt($, usage) {
   }
 }
 
+// For the band: whether the compact key should show. Not while a question, a plan or a compaction is under way,
+// not after "don't ask again", and not after "not now" until the context has grown by another 100k (the flow
+// re-arms then), so a "not now" is not answered by a button that stays.
+export function compactKeyDue(tokens) {
+  if (typeof tokens !== 'number') return false
+  return !ck.never && !ck.plan && !ck.compacting && !ck.asking && tokens >= ck.rearmAt
+}
+
 // The band's compact key. Does nothing while a question or compaction is already under way.
 export function compactBandPress($) {
   if (ck.plan || ck.compacting || ck.asking) return

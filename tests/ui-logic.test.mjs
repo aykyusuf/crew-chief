@@ -7,6 +7,7 @@ import {
   demoContent,
   ctxChip,
   effortMeter,
+  elapsedLabel,
   familyOf,
   lineText,
   modeLabels,
@@ -242,4 +243,28 @@ test('an agent on max effort draws five dots in five colours, then the word in i
   assert.equal(lineText(line), 'implementer-hard   opus-5.5 ●●●●● max')
   assert.equal(line.at(-1).tone, 'max')
   assert.equal(agentSegments({ name: 'a', model: 'claude-opus-5-5', effort: 'xhigh' }).filter((s) => s.tone.startsWith('rb')).length, 0)
+})
+
+test('elapsedLabel: seconds, minutes, hours; nothing under a second or for a non-number', () => {
+  assert.equal(elapsedLabel(38_000), '38s')
+  assert.equal(elapsedLabel(252_000), '4m12s')
+  assert.equal(elapsedLabel(3_900_000), '1h05m')
+  assert.equal(elapsedLabel(400), '')
+  assert.equal(elapsedLabel(undefined), '')
+  assert.equal(elapsedLabel(NaN), '')
+})
+
+test('an agent whose model never reached us draws no model or effort, not a "starting" that stays', () => {
+  const line = agentSegments({ name: 'implementer-hard', unknown: true, calls: 34, elapsedMs: 252_000 })
+  assert.equal(lineText(line), 'implementer-hard     34 calls · 4m12s')
+  assert.ok(!lineText(line).includes('starting'))
+  assert.ok(lineText(agentSegments({ name: 'Explore' })).includes('starting')) // a young agent still says so
+})
+
+test('tempo: calls and time when no percentage was reported, only the time when one was', () => {
+  const none = lineText(agentSegments({ name: 'a', model: 'claude-haiku-5-5', calls: 12, elapsedMs: 75_000 }))
+  assert.ok(none.endsWith('  12 calls · 1m15s'), none)
+  const reported = lineText(agentSegments({ name: 'a', model: 'claude-haiku-5-5', calls: 12, pct: 40, elapsedMs: 75_000 }))
+  assert.ok(reported.includes('40%') && reported.endsWith('1m15s') && !reported.includes('calls'), reported)
+  assert.ok(!lineText(agentSegments({ name: 'a', model: 'claude-haiku-5-5', calls: 0, elapsedMs: 500 })).includes('calls'))
 })

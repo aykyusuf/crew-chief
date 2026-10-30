@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { FRESH_CALLS, FRESH_MS, freshPct, nudgeText, observe, parseReport } from '../hooks/progress-logic.mjs'
+import { FRESH_CALLS, FRESH_MS, INTRO_AT_CALL, freshPct, introText, nudgeText, observe, parseReport } from '../hooks/progress-logic.mjs'
 
 const REPORT = ": 'crew-progress 40 | reading auth | slow tests'"
 
@@ -59,4 +59,16 @@ test('freshPct: only a number, under 25 calls and 10 minutes old', () => {
 test('the reminder text is the one the shell hook sends', () => {
   assert.match(nudgeText(10), /you have made 10 tool calls since your last progress report/)
   assert.match(nudgeText(10), /'crew-progress NN \| what you are on \| why it is slow \(empty if not\)'/)
+})
+
+test('the rule is said at the second call, the reminder gets louder when ignored', () => {
+  assert.equal(INTRO_AT_CALL, 2)
+  assert.match(introText(), /crew-chief progress rule/)
+  assert.match(introText(), /Bash no-op \(a shell command that does nothing, not a separate tool\)/)
+  assert.match(introText(), /crew-progress NN \| what you are on/)
+  assert.match(nudgeText(10), /you have made 10 tool calls since your last progress report/)
+  assert.doesNotMatch(nudgeText(10, 0), /reminder/)
+  assert.match(nudgeText(20, 1), /reminder 2: 20 tool calls with no progress report/)
+  assert.match(nudgeText(30, 2), /reminder 3: 30 tool calls/)
+  assert.match(nudgeText(20, 1), /crew-progress NN \| what you are on \| why it is slow/)
 })

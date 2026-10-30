@@ -95,26 +95,17 @@ check("corrupt file replaced", load("a1")["tools"] == 1, load("a1"))
 r = subprocess.run(["sh", HOOK], input="garbage", capture_output=True, text=True, env={"PATH": os.environ["PATH"], "TMPDIR": scratch})
 check("garbage input is harmless", r.returncode == 0 and r.stdout == "", r)
 
-# Nudge: every 10 calls since the last report, once per count, never for a report or the main session.
-outs = [bash("n1", "ls") for _ in range(9)]
-check("silent up to 9 calls", all(o == "" for o in outs), outs)
-o = bash("n1", "ls")
-msg = json.loads(o)["hookSpecificOutput"] if o else {}
-check("nudge at exactly 10 calls", msg.get("hookEventName") == "PostToolUse" and "10 tool calls" in msg.get("additionalContext", "")
-      and "crew-progress NN" in msg["additionalContext"], o)
-check("nudge marker stored, no temp field", load("n1")["nudged"] == 10 and "nudge" not in load("n1"), load("n1"))
-check("silent right after a nudge", bash("n1", "ls") == "")
+# Counting: calls are counted, a report restarts the count, the hook never prints (the mod sends the reminder).
+outs = [bash("n1", "ls") for _ in range(10)]
+check("never prints, not even at 10 calls", all(o == "" for o in outs), outs)
+check("the calls are counted", load("n1")["tools"] == 10, load("n1"))
 o = bash("n1", ": 'crew-progress 30 | halfway'")
-check("a report call never nudges", o == "" and load("n1")["rtools"] == 11, o)
-outs = [bash("n1", "ls") for _ in range(9)]
-check("counting restarts at the report", all(o == "" for o in outs), outs)
-check("second nudge 10 calls after the report", "10 tool calls" in bash("n1", "ls"))
-outs = [bash("n1", "ls") for _ in range(9)]
-check("an ignored nudge repeats at 20", "20 tool calls" in bash("n1", "ls") and all(o == "" for o in outs), outs)
+check("a report call prints nothing and restarts the count", o == "" and load("n1")["rtools"] == 10 and load("n1")["pct"] == 30, load("n1"))
+outs = [bash("n1", "ls") for _ in range(12)]
+check("still silent after the report", all(o == "" for o in outs), outs)
 check("main session input prints nothing", all(fire({"tool_name": "Bash", "tool_input": {"command": "ls"}}) == "" for _ in range(12)))
 outs = [fire({"agent_id": "n2", "tool_name": "Read", "tool_input": {"file_path": "/x"}}) for _ in range(10)]
-check("non-Bash tools nudge too", outs[:9] == [""] * 9 and "10 tool calls" in outs[9], outs)
-check("old file without rtools counts from zero", bash("n3", "ls") == "" and "nudge" not in load("n3"))
+check("non-Bash tools are counted too, silently", all(o == "" for o in outs) and load("n2")["tools"] == 10, outs)
 r = subprocess.run(["sh", HOOK], input="garbage", capture_output=True, text=True, env={"PATH": os.environ["PATH"], "TMPDIR": scratch})
 check("garbage input prints nothing", r.stdout == "" and r.returncode == 0)
 

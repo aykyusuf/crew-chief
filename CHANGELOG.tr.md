@@ -2,6 +2,13 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.11.2 (2026-10-30)
+- **Band, yer olduğu sürece çalışan her ajanı çiziyor.** Motor ona terminalin yarısını verse bile dört satırda (bir durum satırı ve üç ajan) duruyordu; artık çerçeve ve soru için yer ayırıp sekiz satıra kadar çiziyor, "+N more agents" yalnızca yer gerçekten bitince çıkıyor.
+- **Compact tuşu "şimdi değil"i dinliyor.** "Şimdi değil"den sonra context bir 100k daha büyüyene kadar (akış yeniden sorana kadar), "bir daha sorma"dan sonra kalıcı olarak ekranda durmuyor.
+- **Kalıcı "starting" yok.** Modelini mod'un hiç görmediği bir ajan (örneğin plugin oturum ortasında güncellenince, mod yüklenmeden başlamış) 15 saniye sonra "starting" yerine sadece adını gösteriyor.
+- **Ajan yüzde bildirmezse çağrı sayısı ve süre.** Ajanın token'ından sonra `34 calls · 4m12s`; yüzde varsa yalnızca süre. Uydurma yüzde yok.
+- **İlerleme hatırlatmaları her yerde mod'dan geliyor ve daha sert.** Kural, rapor vermemiş bir ajanın ikinci çağrısında söyleniyor; rapor vermeden geçen her 10 çağrıdan sonra bir sonraki çağrının sonucuyla bir hatırlatma gidiyor ve cevapsız kalan her biri daha sert. Hiçbir çağrı engellenmiyor. `scripts/progress-hook.sh` dosyaları tutuyor ve hiçbir şey yazdırmıyor (hatırlatmasının bir alt ajana ulaştığı hiç görülmedi; mod'unki Windows'ta görüldü).
+
 ## 0.11.1 (2026-10-29)
 - **crew-ui bandı varsayılan açık ve sessiz.** Söyleyecek bir şey yokken (çalışan alt ajan yok, %70'i geçen limit ya da context yok, guard'ın durdurduğu bir şey yok, vakti gelen compact yok) hiçbir şey çizmez; yani güncelleme sakin bir ekrana bir şey eklemez. Bir kez bildirimle söylenir; `/crew-ui off` kapatır ve kapalı tutar, `CREW_CHIEF_UI=off` da. Açıkken plugin'in kendi soruları dialog yerine band'da sorulur ve küçük dokunuşlar (spinner ve tur satırında model ve efor) görünür; ikisi de `off` ile gider. Bu, güncelleyen herkes için varsayılanı değiştirir.
 

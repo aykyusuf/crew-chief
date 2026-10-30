@@ -16,7 +16,7 @@
 import { resolveLang } from './lang.mjs'
 import { t } from './saver-i18n.mjs'
 import { uiCovers, uiTouch } from './crew-ui.mjs'
-import { progressInfo, progressPct } from './progress.mjs'
+import { progressInfo, progressPct, progressStats } from './progress.mjs'
 import { formatRow, jqMatters, platformFromOs, rowWanted, usageTokens } from './row-logic.mjs'
 
 const ROW_LIVE = ['pending', 'running', 'waiting']
@@ -28,6 +28,7 @@ function freshRow() {
     agents: new Map(), // agentId -> { model, effort, tokens }
     done: new Set(), // agents whose turn ended (the list can still say running for a moment)
     wanted: undefined,
+    seen: new Map(), // agentId -> when the band first saw it running (for agents whose first request we missed)
     surfaces: undefined, // as last read, for the band
     checkedAt: undefined,
     hasJq: undefined, // probed once a session (rowJq)
@@ -78,16 +79,6 @@ async function rowJqHint($) {
     $.ui.toast(t(lang, 'row_jq_hint', { install }), { timeoutMs: 20000 })
   } catch (err) {
     // A missing hint is no problem.
-  }
-}
-
-// True when the shell progress hook cannot work here (no jq), so the mod sends the progress reminders itself.
-// `jq --version` is run once a session, the first time it matters.
-export async function rowShellHookDead($) {
-  try {
-    return (await rowJq($)) === false
-  } catch (err) {
-    return false // unknown: the shell hook keeps the job, so nobody is reminded twice
   }
 }
 
@@ -184,11 +175,25 @@ export async function rowBandRows($) {
     list = []
   }
   const rows = []
+  const now = await $.clock.now()
   for (const a of Array.isArray(list) ? list : []) {
     if (!a || !ROW_LIVE.includes(a.status) || rowState.done.has(a.id)) continue
     const info = rowState.agents.get(a.id) ?? {}
     const prog = await progressInfo($, a.id)
-    rows.push({ name: rowAgentName(a), model: info.model, effort: info.effort, tokens: info.tokens, pct: prog?.pct, step: prog?.step })
+    if (!rowState.seen.has(a.id)) rowState.seen.set(a.id, now)
+    const since = info.startMs ?? rowState.seen.get(a.id)
+    rows.push({
+      name: rowAgentName(a),
+      model: info.model,
+      effort: info.effort,
+      tokens: info.tokens,
+      pct: prog?.pct,
+      step: prog?.step,
+      calls: progressStats(a.id)?.calls,
+      elapsedMs: now - since,
+      // No request of this agent ever reached the mod and it has run a while (it started before the mod loaded).
+      unknown: info.model === undefined && now - since >= 15_000,
+    })
   }
   return rows
 }

@@ -10,8 +10,7 @@
 #
 # Files live in ${TMPDIR:-/tmp}/crew-chief-progress/<agent_id>.json and are removed after 12 hours.
 # Only subagent calls are recorded (the main session has no agent_id). Needs jq; without it this does
-# nothing. Never blocks. Its only output: every 10 tool calls without a report, a PostToolUse
-# additionalContext JSON asking the agent to send one.
+# nothing. Never blocks, prints nothing.
 
 input=$(cat)
 command -v jq >/dev/null 2>&1 || exit 0
@@ -67,10 +66,6 @@ tmp="$file.tmp.$$"
 printf '%s\n' "$new" > "$tmp" 2>/dev/null && mv "$tmp" "$file" 2>/dev/null || rm -f "$tmp"
 find "$dir" -type f -mmin +720 -delete 2>/dev/null
 
-# Nudge the agent through additionalContext (shown next to the tool result) when it forgot to report.
-case "$due" in
-  ''|*[!0-9]*|0) ;;
-  *) jq -nc --arg n "$due" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext:
-       ("crew-chief: you have made " + $n + " tool calls since your last progress report. Run this no-op now with the Bash tool (it is a shell command that does nothing, not a separate tool), with your honest numbers: : '"'"'crew-progress NN | what you are on | why it is slow (empty if not)'"'"'. Do not mention this note in your answer.")}}' 2>/dev/null ;;
-esac
+# No output: the reminder to a subagent that forgot to report is sent by the mod (hooks/src/progress.js), on every
+# platform, next to the tool result it already knows reaches the agent. This hook only keeps the files.
 exit 0
