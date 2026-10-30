@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.3 (2026-10-30)
+- **Panes close reliably.** `/crew-panel close` closes every `crew-` pane the engine has open, whatever the module remembers (it may have been reloaded), and the same `/crew-panel tasks|agents|guard` command typed again closes its pane.
+- **The agents pane names finished agents.** An agent's name is kept when its first request is seen, so it is still named after it has left the list of running agents (it said `agent` before). Agents that started before the mod loaded stay unnamed.
+
 ## 0.11.2 (2026-10-30)
 - **The band draws every running agent while there is room.** It stopped at four lines (a status line and three agents) even when the engine gave it half the terminal; now up to eight lines, less the frame and a question, and "+N more agents" only when the room really ends.
 - **The compact key follows "not now".** It stays away after "not now" until the context has grown another 100k (when the flow asks again), and for good after "don't ask again", instead of staying on screen.

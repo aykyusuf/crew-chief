@@ -46,6 +46,7 @@ function harness(on: any, placed = true) {
     const { Box, Text } = $.ui.resolve(e)
     return Box({ children: [Text({ children: ['engine ' + e.component + ' ' + String(e.requestId)] })] })
   })
+  on('ui.panes', () => ({ value: s.opened.filter((o: any) => !s.closed.includes(o.id)).map((o: any) => ({ id: o.id, title: o.title ?? o.id, isShown: true, isFocused: false, isPlaced: true })) }))
   on('ui.open', ($: any, e: any) => {
     s.opened.push(e)
     return { value: placed ? { isPlaced: true } : { isPlaced: false, reason: 'no room' } }
@@ -137,4 +138,34 @@ test('a pane that cannot be placed says why', async ($, on) => {
   harness(on, false)
   await start($)
   expect(JSON.stringify(await run($, 'crew-panel', 'tasks'))).toContain('no room')
+})
+
+test('the agents pane still names an agent after it has left the list', async ($, on) => {
+  const s = harness(on)
+  await start($)
+  s.agents.push({ id: 'a1', type: 'crew-chief:deep-reader', status: 'running', description: 'x' })
+  s.usages.push({ model: 'claude-sonnet-5-5', input_tokens: 400, cache_read_input_tokens: 10_000, cache_creation_input_tokens: 2000, output_tokens: 600 })
+  const stream = $.turn.step({ turnId: 't1', index: 0, model: 'claude-sonnet-5-5', effort: 'medium', messageCount: 1, agentId: 'a1' })
+  let piece = await stream.next()
+  while (piece.done !== true) piece = await stream.next()
+  s.agents.length = 0 // the agent ended and is no longer listed
+  await run($, 'crew-panel', 'agents')
+  const ui = await mountPane($, 'crew-agents')
+  expect(await ui.find({ type: 'Text', text: /deep-reader/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the same /crew-panel command again closes its pane; close shuts every pane of ours the engine has open', async ($, on) => {
+  const s = harness(on)
+  await start($)
+  await run($, 'crew-panel', 'tasks')
+  expect(s.opened.map((o: any) => o.id)).toEqual(['crew-tasks'])
+  const again = await run($, 'crew-panel', 'tasks')
+  expect(JSON.stringify(again)).toContain('pane closed')
+  expect(s.closed).toContain('crew-tasks')
+  expect(s.opened.length).toBe(1) // not opened a second time
+  await run($, 'crew-panel', 'agents')
+  await run($, 'crew-panel', 'guard')
+  await run($, 'crew-panel', 'close')
+  expect(s.closed).toEqual(expect.arrayContaining(['crew-agents', 'crew-guard']))
 })

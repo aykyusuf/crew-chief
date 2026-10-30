@@ -50,6 +50,16 @@ function panelsStart($) {
   })
 }
 
+// The ids of this plugin's panes the engine has open (its record, which survives a reload of the module).
+async function openPaneIds($) {
+  try {
+    const list = await $.ui.panes()
+    return (Array.isArray(list) ? list : []).map((pane) => pane && pane.id).filter((id) => typeof id === 'string')
+  } catch (err) {
+    return []
+  }
+}
+
 const pad2 = (n) => String(n).padStart(2, '0')
 const clockLabel = (ms) => {
   const d = new Date(ms)
@@ -113,7 +123,9 @@ export function registerPanes(on) {
   on('command.run', { command: 'crew-panel' }, async ($, e) => {
     const word = String(e.args || '').trim().toLowerCase()
     if (word === 'close') {
-      for (const id of Object.values(PANEL_IDS)) {
+      // Every pane of ours the engine has open, whatever this module remembers (it may have been reloaded).
+      const ids = new Set([...Object.values(PANEL_IDS), ...(await openPaneIds($)).filter((id) => id.startsWith('crew-'))])
+      for (const id of ids) {
         try {
           await $.ui.close({ id })
         } catch (err) {
@@ -124,6 +136,17 @@ export function registerPanes(on) {
       return { text: 'crew-panel: closed.' }
     }
     const id = PANEL_IDS[word]
+    // The same command again closes its pane: no second command to remember.
+    if (id !== undefined && (await openPaneIds($)).includes(id)) {
+      try {
+        await $.ui.close({ id })
+      } catch (err) {
+        // Gone already.
+      }
+      openPanels.delete(id)
+      if (openPanels.size === 0) panelsStop()
+      return { text: `crew-panel: ${word} pane closed.` }
+    }
     if (id === undefined) return { text: 'crew-panel: tasks (tasks.json of this project) | agents (a timeline of this session\'s subagents) | guard (what the command guard stopped) | close.' }
     let opened
     try {

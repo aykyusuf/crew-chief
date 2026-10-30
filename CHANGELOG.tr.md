@@ -2,6 +2,10 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.11.3 (2026-10-30)
+- **Paneller güvenilir kapanıyor.** `/crew-panel close` motorun açık gördüğü bütün `crew-` panellerini, mod'un neyi hatırladığına bakmadan (yeniden yüklenmiş olabilir) kapatıyor; `/crew-panel tasks|agents|guard` aynı komut tekrar yazılınca kendi panelini kapatıyor.
+- **Ajan paneli biten ajanları adıyla gösteriyor.** Ajanın adı ilk isteği görülünce saklanıyor, böylece çalışan ajanlar listesinden çıktıktan sonra da adıyla görünüyor (eskiden `agent` yazıyordu). Mod yüklenmeden başlayan ajanlar adsız kalıyor.
+
 ## 0.11.2 (2026-10-30)
 - **Band, yer olduğu sürece çalışan her ajanı çiziyor.** Motor ona terminalin yarısını verse bile dört satırda (bir durum satırı ve üç ajan) duruyordu; artık çerçeve ve soru için yer ayırıp sekiz satıra kadar çiziyor, "+N more agents" yalnızca yer gerçekten bitince çıkıyor.
 - **Compact tuşu "şimdi değil"i dinliyor.** "Şimdi değil"den sonra context bir 100k daha büyüyene kadar (akış yeniden sorana kadar), "bir daha sorma"dan sonra kalıcı olarak ekranda durmuyor.

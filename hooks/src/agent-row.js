@@ -259,7 +259,19 @@ export async function rowStepStart($, request) {
   try {
     if (request.agentId === undefined) return
     const prev = rowState.agents.get(request.agentId) ?? {}
-    rowState.agents.set(request.agentId, { ...prev, model: request.model, effort: request.effort, startMs: prev.startMs ?? (await $.clock.now()) })
+    // The name is learned while the agent is in the list (once, at its first request), so the timeline can still
+    // name it after it has ended and left the list.
+    let name = prev.name
+    if (name === undefined && prev.startMs === undefined) {
+      try {
+        const list = await $.agent.list()
+        const found = (Array.isArray(list) ? list : []).find((a) => a && a.id === request.agentId)
+        if (found) name = rowAgentName(found)
+      } catch (err) {
+        // The name stays unknown; the timeline says "agent".
+      }
+    }
+    rowState.agents.set(request.agentId, { ...prev, name, model: request.model, effort: request.effort, startMs: prev.startMs ?? (await $.clock.now()) })
     rowState.done.delete(request.agentId)
     uiTouch($)
     await rowMaybeSchedule($)
