@@ -7,6 +7,7 @@
 
 ## During the session
 When the user gives a rule meant to last (do not touch X, no commits, ask before Y), copy it word for word under Constraints in `STATUS.md` right away.
+When a failure's cause is confirmed (not guessed), turn it into one short rule under Decisions in `STATUS.md` and put it in the briefs of later work, so the same break is not met twice.
 
 ## Session end (when work is done or before the context fills up)
 1. In `tasks.json`, update only `status` and `evidence` (see its `_rule`; `done` needs every part of `done_when`, sign-offs included).

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.4 (2026-11-01)
+- **Routing skill: dependency test before chaining.** Before steps are run in sequence, Claude asks whether the second really reads the first one's output; if no variable crosses, they run in parallel.
+- **Routing skill: return the unit, not the batch.** A failed piece goes back alone with verdict, reason, evidence and a scope line; the pieces that passed are not redone. The same unit failing three corrections means the brief or the split is wrong, so Claude stops escalating tiers.
+- **Handoff: a confirmed failure cause becomes a rule.** The STATUS template and the CLAUDE.md routine ask for one short rule under Decisions, which later briefs carry.
 ## 0.11.3 (2026-10-30)
 - **Panes close reliably.** `/crew-panel close` closes every `crew-` pane the engine has open, whatever the module remembers (it may have been reloaded), and the same `/crew-panel tasks|agents|guard` command typed again closes its pane.
 - **The agents pane names finished agents.** An agent's name is kept when its first request is seen, so it is still named after it has left the list of running agents (it said `agent` before). Agents that started before the mod loaded stay unnamed.

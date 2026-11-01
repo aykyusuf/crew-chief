@@ -20,6 +20,8 @@ Delegate only when the work is self-contained **and** at least one holds:
 - Its output (search hits, logs, test runs, file dumps) would flood your context.
 - A cheaper tier can do it as well as you.
 
+**Is it an edge or just an "and then"?** Before chaining two steps, ask: does the second one actually read the first one's output? If you cannot name the variable, file, or result that crosses from one to the other, there is no dependency: run them in parallel (or drop the wait). Writing steps in the order you thought of them is not a dependency.
+
 Multi-agent setups cost several times the tokens of one session, and most coding work is tightly coupled. When in doubt, do it yourself.
 
 ## 2. Pick the tier
@@ -84,6 +86,10 @@ Vague briefs lead to duplicated work and gaps. Independent briefs go out in one 
 - `implementer` says stopped → hand the same brief plus its report to `implementer-hard`.
 - `implementer-hard` says stopped → take it into the main session. If it is a product decision, do not stop the whole job to wait for an answer: finish what does not depend on it and put the question in your final answer (ask on the spot only when the user is clearly present and nothing else can proceed).
 - Do not re-run the same tier with the same brief hoping for a different result.
+
+**Send back the unit, not the batch.** When one piece of a split job fails, return only that piece. Do not redo or re-verify the pieces that passed. The return carries: the unit, the verdict (red), the reason (which check), the evidence (expected vs actual, `path:line`), and a scope line ("fix this file only, do not touch other units"). Without the scope line a returned agent opens neighbouring files and a one-unit fix becomes an unreviewed multi-file diff.
+
+**Three strikes means the plan is wrong.** If the same unit fails three corrections (counting across tiers), stop escalating: the problem is in the brief or the split that produced it, which no retry can see. Re-cut the unit, fix the brief, or take it to the user.
 
 Escalate on evidence, not only on the agent's own "stopped". Treat these as stopped too: the check was not run or still fails, files changed outside the brief, or the run ended at `maxTurns` with partial output. Verify a "done" yourself with the diff and the check before relying on it.
 

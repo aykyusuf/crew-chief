@@ -2,6 +2,11 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.11.4 (2026-11-01)
+- **Routing skill: zincirlemeden önce bağımlılık testi.** Adımlar sıraya dizilmeden önce Claude "ikincisi birincinin çıktısını gerçekten okuyor mu?" diye soruyor; aralarından hiçbir değişken geçmiyorsa paralel çalışıyorlar.
+- **Routing skill: batch'i değil birimi geri gönder.** Fail eden parça tek başına, verdict, sebep, kanıt ve scope satırıyla geri gidiyor; geçen parçalar tekrar yapılmıyor. Aynı birim üç düzeltmede de fail ederse sorun brief'te ya da bölmede demektir, Claude tier yükseltmeyi bırakıyor.
+- **Handoff: doğrulanmış hata sebebi kurala dönüyor.** STATUS şablonu ve CLAUDE.md rutini Decisions altına kısa bir kural yazılmasını istiyor; sonraki brief'ler bunu taşıyor.
+
 ## 0.11.3 (2026-10-30)
 - **Paneller güvenilir kapanıyor.** `/crew-panel close` motorun açık gördüğü bütün `crew-` panellerini, mod'un neyi hatırladığına bakmadan (yeniden yüklenmiş olabilir) kapatıyor; `/crew-panel tasks|agents|guard` aynı komut tekrar yazılınca kendi panelini kapatıyor.
 - **Ajan paneli biten ajanları adıyla gösteriyor.** Ajanın adı ilk isteği görülünce saklanıyor, böylece çalışan ajanlar listesinden çıktıktan sonra da adıyla görünüyor (eskiden `agent` yazıyordu). Mod yüklenmeden başlayan ajanlar adsız kalıyor.
