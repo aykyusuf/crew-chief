@@ -243,6 +243,7 @@ async function askWithDeadline($, question, answers, fallback) {
   } catch (err) {
     entry = undefined // no deadline then; the question itself still goes out
   }
+  await rowRefreshSurfaces($)
   if (entry === undefined) {
     const band = uiAskStart($, question, answers)
     if (band === undefined) return $.ui.ask(question, answers)
@@ -710,6 +711,8 @@ const MAX_RETRIES = 3
 const SUMMARIES_KEPT = 5
 const TRANSCRIPTS_KEPT = 3
 const MAX_UPDATE_RETRIES = 2
+// A handoff file written up to this long before the approval counts as already updated (Claude had just done it).
+const FRESH_BEFORE_MS = 10 * 60_000
 const AGENT_WAIT_MS = 5000
 const MAX_AGENT_WAITS = 36
 // How long the session must stay quiet after a clean turn end before the compaction question opens.
@@ -814,14 +817,16 @@ async function mtimeOf($, path) {
   return stat ? stat.mtimeMs : undefined
 }
 
-// The gate: the main handoff file has been written since the person approved. A project without
-// handoff files has nothing to wait for.
+// The gate: a handoff file (STATUS.md, tasks.json or PROGRESS.md) has been written since the person approved, or
+// just before it (Claude had already updated them). A project without handoff files has nothing to wait for.
 async function gateSatisfied($, plan) {
   const h = await findHandoff($)
   if (!h) return true
-  const main = h.status ?? h.tasks
-  const changed = await mtimeOf($, main)
-  return changed !== undefined && changed > plan.approvedAt
+  for (const file of [h.status, h.tasks, h.progress]) {
+    const changed = await mtimeOf($, file)
+    if (changed !== undefined && changed > plan.approvedAt - FRESH_BEFORE_MS) return true
+  }
+  return false
 }
 
 // ---- thresholds and the one-time note -------------------------------------------------------
@@ -978,6 +983,12 @@ async function advancePlan($) {
   const plan = ck.plan
   if (!plan || ck.asking || open.saver || open.reset) return
   if (await gateSatisfied($, plan)) {
+    scheduleCompaction($)
+    return
+  }
+  // Claude was already asked to update and its turn is over with the files untouched: it found them current.
+  // Asking the same question again only loops, so the compaction goes on.
+  if (plan.retries > 0) {
     scheduleCompaction($)
     return
   }
@@ -1670,6 +1681,8 @@ async function rowCheckWanted($, force) {
   try {
     const mode = await $.env.get('CREW_CHIEF_ROW_MOD')
     const surfaces = await $.session.surfaces()
+    // The band's questions read these too; keep them as fresh as the row's own check (a client may connect later).
+    if (Array.isArray(surfaces) && surfaces.length > 0) rowState.surfaces = surfaces
     const platform = platformFromOs(await $.env.get('OS'))
     let hasJq = rowState.hasJq
     if (hasJq === undefined && jqMatters({ mode, surfaces, platform })) hasJq = await rowJq($)
@@ -1739,6 +1752,18 @@ async function rowDraw($) {
 // The surfaces as last read (for the band's questions).
 function rowSurfaces() {
   return rowState.surfaces
+}
+
+// Reads the surfaces again when the start-up read gave none (it ran before the host knew them, or failed):
+// without it, the band never takes a question and every one opens the old dialog for the whole session.
+async function rowRefreshSurfaces($) {
+  if (Array.isArray(rowState.surfaces) && rowState.surfaces.length > 0) return
+  try {
+    const surfaces = await $.session.surfaces()
+    if (Array.isArray(surfaces) && surfaces.length > 0) rowState.surfaces = surfaces
+  } catch (err) {
+    // The dialog is the fallback.
+  }
 }
 
 // The live subagents for the band: name, model, effort, tokens and the fresh progress report.

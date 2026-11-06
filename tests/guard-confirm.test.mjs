@@ -33,6 +33,11 @@ test('every built-in rule has the level the owner chose', () => {
     ['sql-destructive', 'confirm', 'Bash', { command: 'psql -c "DROP TABLE t"' }],
     ['git-force-push', 'confirm', 'Bash', { command: 'git push --force' }],
     ['git-reset-hard', 'confirm', 'Bash', { command: 'git reset --hard' }],
+    ['git-push-delete', 'confirm', 'Bash', { command: 'git push origin --delete old' }],
+    ['git-branch-delete', 'confirm', 'Bash', { command: 'git branch -D old' }],
+    ['git-clean', 'confirm', 'Bash', { command: 'git clean -fd' }],
+    ['git-discard', 'confirm', 'Bash', { command: 'git checkout -- .' }],
+    ['git-rewrite', 'confirm', 'Bash', { command: 'git commit --amend' }],
     ['key-write', 'confirm', 'Edit', { file_path: '/k/a.pem' }],
     ['key-read', 'confirm', 'Read', { file_path: '/k/id_rsa' }],
     ['key-access', 'confirm', 'Bash', { command: 'cat /k/a.pem' }],
@@ -181,4 +186,45 @@ test('/crew-guard texts: status and paste-ready suggestions', () => {
   assert.match(s, /360 min/)
   assert.match(guardStatusText({ on: false, why: 'CREW_CHIEF_GUARD=off', config: undefined, contacted: 0, suggestions: 0 }), /off \(CREW_CHIEF_GUARD=off\)/)
   assert.match(GUARD_NOTE, /crew_guard_suggest/)
+})
+
+test('local git work passes; destructive git and history rewrites are confirm', () => {
+  const pass = [
+    'git add -A', 'git add .', 'git commit -m "x"', 'git commit', 'git push', 'git push -u origin main',
+    'git pull', 'git pull --rebase', 'git merge main', 'git checkout main', 'git checkout feature/x', 'git switch main',
+    'git stash', 'git stash pop', 'git stash list', 'git restore --staged f', 'git rebase --abort', 'git rebase --continue',
+    'git branch -d merged', 'git clean -n', 'git clean -nd', 'git reset --soft HEAD~1', 'git reset f', 'git fetch --prune',
+  ]
+  for (const c of pass) assert.equal(bash(c), null, c)
+  const ask = [
+    ['git push origin :old', 'git-push-delete'], ['git push --mirror', 'git-push-delete'], ['git push origin +main', 'git-force-push'],
+    ['git branch --delete --force x', 'git-branch-delete'], ['git clean -f', 'git-clean'], ['git clean -fdx', 'git-clean'],
+    ['git checkout .', 'git-discard'], ['git checkout -f main', 'git-discard'], ['git restore f', 'git-discard'],
+    ['git restore --staged --worktree f', 'git-discard'], ['git stash drop', 'git-discard'], ['git stash clear', 'git-discard'],
+    ['git rebase main', 'git-rewrite'], ['git rebase -i HEAD~3', 'git-rewrite'], ['git filter-branch --all', 'git-rewrite'],
+    ['git reflog expire --expire=now --all', 'git-rewrite'], ['git gc --prune=now', 'git-rewrite'],
+  ]
+  for (const [c, rule] of ask) assert.deepEqual([classify('Bash', { command: c })?.rule, bash(c)], [rule, 'confirm'], c)
+})
+
+test('text that only talks about git does not stop a commit', () => {
+  assert.equal(bash('git commit -m "revert: git reset --hard was too blunt"'), null)
+  assert.equal(bash("git commit -m 'drop git clean -fd and git rebase from the docs'"), null)
+  assert.equal(bash('git commit -F - <<\'EOF\'\nfix git reset --hard handling\nEOF'), null)
+  assert.equal(bash('git add -A && git commit -q -F - <<EOF\nnotes about git push --force\nEOF\ngit push'), null)
+  assert.equal(bash('git commit -m "x" && git reset --hard HEAD~1'), 'confirm')
+})
+
+test('a glob or a regex naming key files is not a key access; a template .env is not a secret', () => {
+  assert.equal(bash('find . -type f \\( -iname "*.pem" -o -iname "*.key" \\) | head'), null)
+  assert.equal(bash("git ls-files | grep -E 'tp-?pass|\\.p12|\\.pfx|\\.pem|\\.key$'"), null)
+  assert.equal(bash('cat /k/a.pem | head'), 'confirm')
+  assert.equal(bash('cp "/k/my dir/server.pem" /tmp'), 'confirm')
+  assert.equal(bash('cat ~/.ssh/id_rsa'), 'confirm')
+  assert.equal(lv('Read', { file_path: '/p/.env.example' }), null)
+  assert.equal(lv('Write', { file_path: '/p/.env.sample' }), null)
+  assert.equal(bash('git add -A .env.example'), null)
+  assert.equal(bash('cat .env.example'), null)
+  assert.equal(bash('git add .env'), 'warn')
+  assert.equal(lv('Read', { file_path: '/p/.env.production' }), 'warn')
 })

@@ -843,3 +843,40 @@ test('an AskUserQuestion that Claude raises itself is never given a deadline', a
   expect(settled).toBe(false)
   expect(s.toasts.some((t) => t.startsWith('No answer'))).toBe(false)
 })
+
+test('the gate: after "ask Claude first" and a turn that left the files alone, the compaction goes on instead of asking again', async ($, on) => {
+  const s = harness(on, { answers: [YES, RETRY], files: FILES, mtimes: { '/work/STATUS.md': 1_000 } })
+  await start($)
+  await approvedPlan($, s)
+  await finishTurn($, s) // unchanged -> asks (2nd question), the answer is RETRY
+  await settle()
+  expect(s.submitted.length).toBe(2)
+  expect(s.questions.length).toBe(2)
+  await finishTurn($, s) // Claude found them current and wrote nothing
+  await runClock(s, 1500)
+  expect(s.questions.length).toBe(2) // no third question
+  expect(s.compactCalls.length).toBe(1)
+})
+
+test('the gate: any handoff file written after the approval, or just before it, counts as updated', async ($, on) => {
+  const files = { ...FILES, '/work/PROGRESS.md': '# progress' }
+  // tasks.json written during the turn, STATUS.md untouched
+  const a = harness(on, { answers: [YES], files, mtimes: { '/work/STATUS.md': 1_000 } })
+  await start($)
+  await approvedPlan($, a)
+  a.mtimes['/work/tasks.json'] = 9_000_000
+  await finishTurn($, a)
+  await runClock(a, 1500)
+  expect(a.questions.length).toBe(1)
+  expect(a.compactCalls.length).toBe(1)
+})
+
+test('the gate: STATUS.md written minutes before the approval (Claude had just updated it) does not ask', async ($, on) => {
+  const s = harness(on, { answers: [YES], files: FILES, mtimes: { '/work/STATUS.md': 3_600_000 - 120_000 } })
+  await start($)
+  await approvedPlan($, s)
+  await finishTurn($, s)
+  await runClock(s, 1500)
+  expect(s.questions.length).toBe(1)
+  expect(s.compactCalls.length).toBe(1)
+})

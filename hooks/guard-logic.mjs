@@ -28,6 +28,11 @@ export const BUILTIN_RULES = [
   'sql-destructive',
   'git-force-push',
   'git-reset-hard',
+  'git-push-delete',
+  'git-branch-delete',
+  'git-clean',
+  'git-discard',
+  'git-rewrite',
   'key-write',
   'key-read',
   'key-access',
@@ -47,6 +52,27 @@ const BUILD_DIRS = /^(\.\/)?(node_modules|build|dist|\.dart_tool|\.next|__pycach
 // Generic private key names only; a .pub next to it is a public key and stays allowed.
 const KEY_FILE = /(\.pem|\.p12|\.pfx|id_rsa(?!\.pub)|id_ed25519(?!\.pub))/i
 const ENV_FILE = /(^|\/)\.env(\.|$)/
+// A template next to the real file (.env.example) holds no secrets.
+const ENV_SAMPLE = /\.env\.(example|sample|template|dist)\b/g
+const isEnvFile = (p) => ENV_FILE.test(String(p).replace(ENV_SAMPLE, ''))
+const GLOB_CHARS = /[*?|\\^$()[\]{}]/
+
+// A word of the command that really names a private key file: a glob or regex such as `-iname "*.pem"`
+// or `grep '\.pem|\.key$'` only searches for names and never opens one.
+function namesKeyFile(cmd) {
+  return cmd.split(/\s+/).some((t) => {
+    const w = t.replace(/^["'=]+|["';]+$/g, '')
+    return w && KEY_FILE.test(w) && !GLOB_CHARS.test(w)
+  })
+}
+
+// The command without text that is only data: heredoc bodies and a commit message, so a message that talks
+// about `git reset --hard` does not stop the commit.
+function bareGit(cmd) {
+  return cmd
+    .replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2\b/g, ' ')
+    .replace(/(^|\s)(-m|--message)(\s+|=)("[^"]*"|'[^']*')/g, ' $2 ')
+}
 
 export function clipText(text, n = CLIP) {
   const s = String(text ?? '').replace(/\s+/g, ' ').trim()
@@ -82,12 +108,12 @@ function builtinMatches(tool, input) {
   if (FILE_TOOLS.includes(tool)) {
     if (isConfigPath(file)) out.push({ level: 'deny', rule: 'guard-config', text: CONFIG_TEXT })
     if (KEY_FILE.test(file)) out.push({ level: 'confirm', rule: 'key-write', text: `write to a private key file (${file})` })
-    if (ENV_FILE.test(file)) out.push({ level: 'warn', rule: 'env-write', text: `edit of ${file}` })
+    if (isEnvFile(file)) out.push({ level: 'warn', rule: 'env-write', text: `edit of ${file}` })
     return out
   }
   if (tool === 'Read') {
     if (KEY_FILE.test(file)) out.push({ level: 'confirm', rule: 'key-read', text: `read of a private key file (${file})` })
-    if (ENV_FILE.test(file)) out.push({ level: 'warn', rule: 'env-read', text: `read of ${file}` })
+    if (isEnvFile(file)) out.push({ level: 'warn', rule: 'env-read', text: `read of ${file}` })
     return out
   }
   if (tool !== 'Bash' || !cmd) return out
@@ -95,12 +121,31 @@ function builtinMatches(tool, input) {
   const rm = rmVerdict(cmd)
   if (rm?.level === 'deny') out.push(rm)
   if (/\bDROP\s+(TABLE|DATABASE|SCHEMA|INDEX|VIEW)\b|\bTRUNCATE\b/i.test(cmd)) out.push({ level: 'confirm', rule: 'sql-destructive', text: 'DROP or TRUNCATE statement' })
-  if (/\bgit\s+push\b[^;&|\n]*(--force\b|--force-with-lease\b|\s-f\b)/.test(cmd)) out.push({ level: 'confirm', rule: 'git-force-push', text: 'git push --force' })
-  if (/\bgit\s+reset\s+--hard\b/.test(cmd)) out.push({ level: 'confirm', rule: 'git-reset-hard', text: 'git reset --hard' })
-  if (KEY_FILE.test(cmd) && /\b(cat|less|more|head|tail|cp|mv|scp|rsync|base64|xxd|curl|git\s+add|git\s+commit\s+-a)\b/.test(cmd)) {
+  const git = bareGit(cmd)
+  if (/\bgit\s+push\b[^;&|\n]*(--force\b|--force-with-lease\b|\s-f\b|\s\+\S)/.test(git)) out.push({ level: 'confirm', rule: 'git-force-push', text: 'git push --force' })
+  if (/\bgit\s+reset\s+--hard\b/.test(git)) out.push({ level: 'confirm', rule: 'git-reset-hard', text: 'git reset --hard' })
+  if (/\bgit\s+push\b[^;&|\n]*(--delete\b|--mirror\b|\s-d\s|\s:\S)/.test(git)) out.push({ level: 'confirm', rule: 'git-push-delete', text: 'git push that deletes a remote branch or tag, or mirrors' })
+  if (/\bgit\s+branch\b[^;&|\n]*(\s-D\b|--delete\s+--force|--force\s+--delete|\s-d\s+-f\b)/.test(git)) out.push({ level: 'confirm', rule: 'git-branch-delete', text: 'git branch -D: deletes a branch even if it is not merged' })
+  if (/\bgit\s+clean\b[^;&|\n]*(\s-[a-z]*f|--force\b)/.test(git)) out.push({ level: 'confirm', rule: 'git-clean', text: 'git clean -f: deletes untracked files for good' })
+  if (
+    /\bgit\s+(checkout|switch)\b[^;&|\n]*(\s--\s|\s\.\s*($|[;&|])|\s-f\b|--force\b|--discard-changes\b)/.test(git) ||
+    (/\bgit\s+restore\b/.test(git) && !(/\s--staged\b/.test(git) && !/\s(--worktree|-W)\b/.test(git))) ||
+    /\bgit\s+stash\s+(drop|clear)\b/.test(git)
+  ) {
+    out.push({ level: 'confirm', rule: 'git-discard', text: 'throws away uncommitted work (checkout --, restore, stash drop/clear)' })
+  }
+  if (
+    (/\bgit\s+rebase\b/.test(git) && !/\bgit\s+rebase\s+--(abort|continue|skip|quit)\b/.test(git)) ||
+    /\bgit\s+commit\b[^;&|\n]*--amend\b/.test(git) ||
+    /\bgit\s+(filter-branch|filter-repo)\b|\bgit\s+reflog\s+expire\b|\bgit\s+gc\b[^;&|\n]*--prune|\bgit\s+update-ref\s+-d\b/.test(git)
+  ) {
+    out.push({ level: 'confirm', rule: 'git-rewrite', text: 'rewrites git history (rebase, --amend, filter-branch, reflog expire, gc --prune)' })
+  }
+  if (namesKeyFile(cmd) && /\b(cat|less|more|head|tail|cp|mv|scp|rsync|base64|xxd|curl|git\s+add|git\s+commit\s+-a)\b/.test(cmd)) {
     out.push({ level: 'confirm', rule: 'key-access', text: 'command reads, copies or stages a private key file' })
   }
-  if (/\bgit\s+add\b[^;&|\n]*(\.env\b|\s-A\b|\s\.\s*$)/.test(cmd) && /\.env/.test(cmd)) out.push({ level: 'warn', rule: 'env-stage', text: 'git add of a .env file: it holds secrets, check it is not going into the repo' })
+  const noSample = cmd.replace(ENV_SAMPLE, '')
+  if (/\bgit\s+add\b[^;&|\n]*(\.env\b|\s-A\b|\s\.\s*$)/.test(noSample) && /\.env/.test(noSample)) out.push({ level: 'warn', rule: 'env-stage', text: 'git add of a .env file: it holds secrets, check it is not going into the repo' })
   if (rm !== null && rm.level !== 'deny') out.push(rm)
   if (/\bssh\b/.test(cmd) && /\b(mysql|mariadb|psql|sqlcmd|sqlite3|mongosh|redis-cli)\b|\b(UPDATE|DELETE\s+FROM|INSERT\s+INTO|ALTER\s+TABLE)\b/i.test(cmd)) {
     out.push({ level: 'confirm', rule: 'ssh-db', text: 'database command over ssh: confirm the target server, and that a backup exists' })
@@ -112,7 +157,7 @@ function builtinMatches(tool, input) {
   if (/\b(pm2\s+(restart|stop|delete|reload)|docker\s+compose\s+(down|rm|stop)|docker\s+(rm|stop|kill)\b|systemctl\s+(stop|restart|disable))\b/.test(cmd)) {
     out.push({ level: 'confirm', rule: 'service-control', text: 'stops, restarts or disables a service' })
   }
-  if (/\b(cat|less|head|tail|grep|cp|scp)\b[^;&|\n]*(^|[\s/])\.env\b/.test(cmd)) out.push({ level: 'warn', rule: 'env-access', text: 'access to a .env file' })
+  if (/\b(cat|less|head|tail|grep|cp|scp)\b[^;&|\n]*(^|[\s/])\.env\b/.test(noSample)) out.push({ level: 'warn', rule: 'env-access', text: 'access to a .env file' })
   return out
 }
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.5 (2026-11-06)
+- **The guard knows git.** New `confirm` rules (first attempt stopped, the identical retry passes): `git-push-delete` (`push --delete`, `push origin :ref`, `--mirror`), `git-branch-delete` (`branch -D`), `git-clean` (`clean -f`), `git-discard` (`checkout -- .`, `checkout -f`, `restore`, `stash drop/clear`), `git-rewrite` (`rebase`, `commit --amend`, `filter-branch`, `reflog expire`, `gc --prune`). `+ref` force pushes are caught too. Local work (`add`, `commit`, `pull`, `merge`, `checkout <branch>`, a plain `push`) is never stopped, so the `ask` list for git in `settings.json` is no longer needed.
+- **Less noise from the guard.** `key-access` looks at words that really name a key file: a glob or regex such as `-iname "*.pem"` or `grep '\.pem|\.key$'` no longer stops a `git add`/`cat` command. `.env.example`, `.env.sample`, `.env.template` and `.env.dist` are templates, not secrets (no `env-*` warning). The git rules ignore heredoc bodies and `-m` messages, so a commit message that mentions a destructive git command is not stopped.
+- **Compact gate no longer asks twice.** The "files have not changed since you approved" question now counts STATUS.md, tasks.json and PROGRESS.md, and a file written up to ten minutes before the approval (Claude had just updated it). If the person chose "ask Claude to update first" and Claude's turn ended with nothing to change (it found the files current), the compaction goes on instead of repeating the question.
+- **The band keeps its questions on.** The surfaces the band relies on were read once at session start; if that read came back empty (or the client connected later), every plugin question opened the old dialog for the whole session. The surfaces are now read again on the row's check and before a question is asked.
+
 ## 0.11.4 (2026-11-01)
 - **Routing skill: dependency test before chaining.** Before steps are run in sequence, Claude asks whether the second really reads the first one's output; if no variable crosses, they run in parallel.
 - **Routing skill: return the unit, not the batch.** A failed piece goes back alone with verdict, reason, evidence and a scope line; the pieces that passed are not redone. The same unit failing three corrections means the brief or the split is wrong, so Claude stops escalating tiers.

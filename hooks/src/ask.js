@@ -8,6 +8,7 @@
 // (That hook is only reached while the asking hook still runs; see askWithDeadline for the other case.)
 // Only questions noted here are raced: an AskUserQuestion that Claude raises itself passes through.
 // CREW_CHIEF_ASK_TIMEOUT_MIN sets the minutes (default 20, at most 30; "off" or "0" = no deadline).
+import { rowRefreshSurfaces } from './agent-row.mjs'
 import { uiAskStart } from './crew-ui.mjs'
 import { resolveLang } from './lang.mjs'
 import { t } from './saver-i18n.mjs'
@@ -38,6 +39,7 @@ export async function askWithDeadline($, question, answers, fallback) {
   } catch (err) {
     entry = undefined // no deadline then; the question itself still goes out
   }
+  await rowRefreshSurfaces($)
   if (entry === undefined) {
     const band = uiAskStart($, question, answers)
     if (band === undefined) return $.ui.ask(question, answers)

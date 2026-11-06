@@ -95,6 +95,8 @@ async function rowCheckWanted($, force) {
   try {
     const mode = await $.env.get('CREW_CHIEF_ROW_MOD')
     const surfaces = await $.session.surfaces()
+    // The band's questions read these too; keep them as fresh as the row's own check (a client may connect later).
+    if (Array.isArray(surfaces) && surfaces.length > 0) rowState.surfaces = surfaces
     const platform = platformFromOs(await $.env.get('OS'))
     let hasJq = rowState.hasJq
     if (hasJq === undefined && jqMatters({ mode, surfaces, platform })) hasJq = await rowJq($)
@@ -164,6 +166,18 @@ async function rowDraw($) {
 // The surfaces as last read (for the band's questions).
 export function rowSurfaces() {
   return rowState.surfaces
+}
+
+// Reads the surfaces again when the start-up read gave none (it ran before the host knew them, or failed):
+// without it, the band never takes a question and every one opens the old dialog for the whole session.
+export async function rowRefreshSurfaces($) {
+  if (Array.isArray(rowState.surfaces) && rowState.surfaces.length > 0) return
+  try {
+    const surfaces = await $.session.surfaces()
+    if (Array.isArray(surfaces) && surfaces.length > 0) rowState.surfaces = surfaces
+  } catch (err) {
+    // The dialog is the fallback.
+  }
 }
 
 // The live subagents for the band: name, model, effort, tokens and the fresh progress report.

@@ -2,6 +2,12 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.11.5 (2026-11-06)
+- **Guard artık git'i tanıyor.** Yeni `confirm` kuralları (ilk deneme durur, aynı komut tekrarında geçer): `git-push-delete` (`push --delete`, `push origin :ref`, `--mirror`), `git-branch-delete` (`branch -D`), `git-clean` (`clean -f`), `git-discard` (`checkout -- .`, `checkout -f`, `restore`, `stash drop/clear`), `git-rewrite` (`rebase`, `commit --amend`, `filter-branch`, `reflog expire`, `gc --prune`). `+ref` ile force push da yakalanıyor. Yerel işler (`add`, `commit`, `pull`, `merge`, `checkout <branch>`, düz `push`) hiç durdurulmaz; bu yüzden `settings.json`'daki git `ask` listesine artık gerek yok.
+- **Guard'dan daha az gürültü.** `key-access` yalnızca gerçekten bir key dosyasını adlandıran kelimelere bakıyor: `-iname "*.pem"` ya da `grep '\.pem|\.key$'` gibi glob/regex artık `git add`/`cat` komutunu durdurmuyor. `.env.example`, `.env.sample`, `.env.template`, `.env.dist` şablon sayılır, secret değil (`env-*` uyarısı yok). Git kuralları heredoc gövdesini ve `-m` mesajını yok sayıyor; mesajında yıkıcı bir git komutu geçen commit durdurulmaz.
+- **Compact kapısı iki kez sormuyor.** "Onayından beri dosyalar değişmedi" sorusu artık STATUS.md, tasks.json ve PROGRESS.md'ye bakıyor, onaydan on dakika öncesine kadar yazılmış dosyayı da güncel sayıyor. "Önce Claude güncellesin" seçilip Claude'un turu değiştirecek bir şey bulmadan (dosyaları güncel bulup) bittiyse soru tekrarlanmaz, compact devam eder.
+- **Band soruları bırakmıyor.** Band'ın dayandığı yüzey listesi oturum başında bir kez okunuyordu; o okuma boş dönerse (ya da istemci sonradan bağlanırsa) tüm oturum boyunca her plugin sorusu eski diyalogla açılıyordu. Yüzeyler artık satır kontrolünde ve soru sorulmadan önce yeniden okunuyor.
+
 ## 0.11.4 (2026-11-01)
 - **Routing skill: zincirlemeden önce bağımlılık testi.** Adımlar sıraya dizilmeden önce Claude "ikincisi birincinin çıktısını gerçekten okuyor mu?" diye soruyor; aralarından hiçbir değişken geçmiyorsa paralel çalışıyorlar.
 - **Routing skill: batch'i değil birimi geri gönder.** Fail eden parça tek başına, verdict, sebep, kanıt ve scope satırıyla geri gidiyor; geçen parçalar tekrar yapılmıyor. Aynı birim üç düzeltmede de fail ederse sorun brief'te ya da bölmede demektir, Claude tier yükseltmeyi bırakıyor.
