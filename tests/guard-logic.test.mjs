@@ -557,3 +557,35 @@ test('messages and clipping', () => {
   assert.equal(clipText('a\n b'), 'a b')
   assert.match(ruleDenyMessage({ rule: 'rm-rf', text: 'rm -rf on /' }), /^crew-chief guard \[rm-rf\] BLOCKED: rm -rf on \/\. Do not retry/)
 })
+
+// ---- the lanes example: by how costly a mistake is to undo -----------------------------------------
+
+const LANES = compileConfig(readFileSync(new URL('../docs/examples/crew-chief-guard-lanes.example.json', import.meta.url), 'utf8'))
+
+test('the lanes example is valid, has unique ids, and sorts commands into deny / confirm / nothing', () => {
+  assert.equal(LANES.ok, true)
+  assert.deepEqual(LANES.problems, [])
+  const ids = LANES.config.rules.map((r) => r.id)
+  assert.equal(new Set(ids).size, ids.length)
+  const cases = [
+    ['prisma migrate deploy', 'confirm', 'lane-migrate-apply'],
+    ['alembic upgrade head', 'confirm', 'lane-migrate-apply'],
+    ['prisma migrate reset --force', 'deny', 'lane-migrate-destroy'],
+    ['rails db:drop', 'deny', 'lane-migrate-destroy'],
+    ['terraform apply -auto-approve', 'confirm', 'lane-infra-apply'],
+    ['kubectl delete pod web-1', 'confirm', 'lane-infra-apply'],
+    ['terraform destroy', 'deny', 'lane-infra-destroy'],
+    ['curl -X POST https://api.stripe.com/v1/refunds -d charge=ch_1', 'confirm', 'lane-money'],
+    ['npm test', null, null],
+    ['git status', null, null],
+    ['terraform plan', null, null],
+    ['alembic history', null, null],
+  ]
+  for (const [command, want, rule] of cases) {
+    const v = classify('Bash', { command }, LANES.config)
+    assert.equal(level(v), want, `${command} (${v?.rule})`)
+    if (rule) assert.equal(v.rule, rule, command)
+  }
+  assert.equal(level(classify('Write', { file_path: '/app/.env.production' }, LANES.config)), 'confirm')
+  assert.equal(level(classify('Write', { file_path: '/app/.env.example' }, LANES.config)), null)
+})

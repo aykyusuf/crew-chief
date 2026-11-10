@@ -12,7 +12,8 @@ import { rowRefreshSurfaces } from './agent-row.mjs'
 import { uiAskStart } from './crew-ui.mjs'
 import { resolveLang } from './lang.mjs'
 import { t } from './saver-i18n.mjs'
-import { minutesLabel, parseAskTimeout, pickFallback } from './ask-logic.mjs'
+import { minutesLabel, pickFallback } from './ask-logic.mjs'
+import { cfgGet } from './config.mjs'
 
 // question text -> { fallback, ms, lang, announced }
 const deadlines = new Map()
@@ -27,7 +28,7 @@ const EXPIRED = Symbol('expired')
 export async function askWithDeadline($, question, answers, fallback) {
   let entry
   try {
-    const ms = parseAskTimeout(await $.env.get('CREW_CHIEF_ASK_TIMEOUT_MIN'))
+    const ms = (await cfgGet($, 'ask.timeout')) * 60_000
     const label = pickFallback(answers, fallback)
     if (ms > 0 && label === undefined) {
       $.ui.log('crew-chief: no safe default for a question, it has no deadline: ' + String(fallback), { to: 'debug' })

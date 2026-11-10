@@ -24,8 +24,11 @@ export function parseTokens(text) {
 // did not, so ask the person between turns). `ask` is always above `arm`.
 export function compactThresholds(windowTokens, overrides = {}) {
   const win = typeof windowTokens === 'number' && windowTokens > 0 ? windowTokens : undefined
-  let arm = overrides.arm ?? (win ? Math.min(ARM_TOKENS, Math.round(win * ARM_FRACTION)) : ARM_TOKENS)
-  let ask = overrides.ask ?? (win ? Math.min(ASK_TOKENS, Math.round(win * ASK_FRACTION)) : ASK_TOKENS)
+  const armFraction = overrides.armFraction ?? ARM_FRACTION
+  const askFraction = overrides.askFraction ?? ASK_FRACTION
+  // A size the person set (overrides.arm / .ask) wins outright, as it always did; the defaults scale down on a small window.
+  let arm = overrides.arm ?? (win ? Math.min(ARM_TOKENS, Math.round(win * armFraction)) : ARM_TOKENS)
+  let ask = overrides.ask ?? (win ? Math.min(ASK_TOKENS, Math.round(win * askFraction)) : ASK_TOKENS)
   if (ask <= arm) ask = Math.round(arm * 1.25)
   return { arm, ask }
 }

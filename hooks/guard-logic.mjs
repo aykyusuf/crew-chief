@@ -12,7 +12,7 @@
 // scripts, variables, ssh config aliases or other tools. The README says so and lists the server-side
 // controls that do protect a server.
 
-export const READONLY_AGENTS = ['scanner', 'deep-reader', 'reviewer', 'ui-smoke']
+export const READONLY_AGENTS = ['scanner', 'deep-reader', 'reviewer', 'ui-smoke', 'planner']
 export const MAX_RULES = 100
 export const MAX_PATTERN = 300
 export const MAX_STATE = 500

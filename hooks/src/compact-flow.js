@@ -24,6 +24,7 @@ import { open } from './coord.mjs'
 import { findHandoff } from './handoff.mjs'
 import { statsNoteBoundary } from './stats-flow.mjs'
 import { resolveLang } from './lang.mjs'
+import { cfgGet, cfgState } from './config.mjs'
 import { askWithDeadline } from './ask.mjs'
 import { t } from './saver-i18n.mjs'
 import { tokensLabel } from './saver-logic.mjs'
@@ -35,7 +36,6 @@ import {
   compactThresholds,
   openTasks,
   parseStatus,
-  parseTokens,
   pluginDataDir,
   projectDirName,
   withFocus,
@@ -43,7 +43,8 @@ import {
 
 export const TOOL_NAME = 'crew_compact_checkpoint'
 const TOOL_MATCH = /^mcp__.+__crew_compact_checkpoint$/
-const REARM_GROWTH_TOKENS = 100_000
+// Stands in for ck.askTimer while the quiet time is being read.
+const PENDING_TIMER = { cancel() {} }
 const COMPACT_DELAY_MS = 1200
 const RETRY_MS = 3000
 const MAX_RETRIES = 3
@@ -54,8 +55,6 @@ const MAX_UPDATE_RETRIES = 2
 const FRESH_BEFORE_MS = 10 * 60_000
 const AGENT_WAIT_MS = 5000
 const MAX_AGENT_WAITS = 36
-// How long the session must stay quiet after a clean turn end before the compaction question opens.
-const GRACE_MS = 10_000
 // `waiting` is a subagent held on background work it owns (a server it started), on a plan's approval or
 // on another agent: none of these is work that a compaction would cut in half, and a subagent that left a
 // dev server running stays `waiting` for as long as the server lives, so it must never hold a compaction back.
@@ -139,9 +138,9 @@ export function compactNoteActivity() {
   ck.activity += 1
 }
 
-// A mod must spell environment variable names as literals in $.env.get, so each switch is written out.
+// compact.enabled (/crew-config, or CREW_CHIEF_COMPACT=off in the environment).
 async function disabled($) {
-  return (await safe(() => $.env.get('CREW_CHIEF_COMPACT'), undefined)) === 'off'
+  return (await safe(() => cfgGet($, 'compact.enabled'), 'on')) === 'off'
 }
 
 async function focusOff($) {
@@ -171,9 +170,17 @@ async function gateSatisfied($, plan) {
 // ---- thresholds and the one-time note -------------------------------------------------------
 
 async function limits($, usage) {
-  const arm = parseTokens(await safe(() => $.env.get('CREW_CHIEF_COMPACT_ARM'), undefined))
-  const ask = parseTokens(await safe(() => $.env.get('CREW_CHIEF_COMPACT_ASK'), undefined))
-  return compactThresholds(usage?.context?.window, { arm, ask })
+  // The sizes come from /crew-config or the environment. Only a size the person set is passed on, so it wins on a
+  // small window too; the defaults scale down there, and compact.armpct / askpct set how far.
+  const sized = async (key) => {
+    const st = await safe(() => cfgState($, key), undefined)
+    return st && st.source !== 'default' ? st.value : undefined
+  }
+  const arm = await sized('compact.arm')
+  const ask = await sized('compact.ask')
+  const armPct = await safe(() => cfgGet($, 'compact.armpct'), undefined)
+  const askPct = await safe(() => cfgGet($, 'compact.askpct'), undefined)
+  return compactThresholds(usage?.context?.window, { arm, ask, armFraction: armPct ? armPct / 100 : undefined, askFraction: askPct ? askPct / 100 : undefined })
 }
 
 // Called after every measurement and finished turn. Arms the flow at the arm size; after a "not now"
@@ -275,7 +282,7 @@ async function askAndPlan($, why) {
       return 'never'
     }
     ck.armed = false
-    ck.rearmAt = (typeof tokens === 'number' ? tokens : 0) + REARM_GROWTH_TOKENS
+    ck.rearmAt = (typeof tokens === 'number' ? tokens : 0) + (await safe(() => cfgGet($, 'compact.reask'), 100_000))
     return 'declined'
   } finally {
     ck.asking = false
@@ -289,12 +296,15 @@ async function requestStateUpdate($) {
   $.prompt.submit({ text }).catch(() => {})
 }
 
-// After a clean turn end: wait GRACE_MS, then ask if nothing started meanwhile. At most one timer.
-function scheduleAsk($) {
+// After a clean turn end: wait compact.quiet seconds, then ask if nothing started meanwhile. At most one timer.
+async function scheduleAsk($) {
   if (ck.askTimer) return
+  ck.askTimer = PENDING_TIMER // a second call during the read below must not start a second timer
   const cycle = ck
   const seen = ck.activity
-  ck.askTimer = $.clock.after(GRACE_MS, () => {
+  const graceMs = (await safe(() => cfgGet($, 'compact.quiet'), 10)) * 1000
+  if (cycle !== ck || ck.askTimer !== PENDING_TIMER) return // /clear, /resume, a new session or a cancel since
+  ck.askTimer = $.clock.after(graceMs, () => {
     if (cycle !== ck) return // /clear, /resume or a new session since
     ck.askTimer = null
     return askAfterGrace($, seen)
@@ -355,7 +365,7 @@ async function advancePlan($) {
     const tokens = usage?.context?.tokens
     ck.plan = null
     ck.armed = false
-    ck.rearmAt = (typeof tokens === 'number' ? tokens : 0) + REARM_GROWTH_TOKENS
+    ck.rearmAt = (typeof tokens === 'number' ? tokens : 0) + (await safe(() => cfgGet($, 'compact.reask'), 100_000))
   }
 }
 
@@ -408,7 +418,7 @@ export async function compactTurnComplete($, usage, reason) {
   if (!clean) return
   const tokens = usage?.context?.tokens
   if (!ck.armed || ck.never || ck.compacting || ck.asking) return
-  if (!ck.wantAsk && !ck.askedFallback && typeof tokens === 'number' && tokens >= (await limits($, usage)).ask) {
+  if (!ck.wantAsk && !ck.askedFallback && typeof tokens === 'number' && tokens >= (await limits($, usage)).ask && (await safe(() => cfgGet($, 'compact.fallback'), 'on')) === 'on') {
     // Claude never called the tool: ask anyway, once per cycle.
     ck.askedFallback = true
     ck.wantAsk = {}

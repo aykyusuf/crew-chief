@@ -1,0 +1,23 @@
+{
+  "_note": "Tasks for compare.py. Each runs in a fresh temp folder built by `setup` (shell), is given to Claude as `prompt`, and passes when `check` (shell, run in that folder) exits 0. Keep tasks small and checkable: the point is cost per finished task, not breadth.",
+  "tasks": [
+    {
+      "id": "rename-fn",
+      "setup": "mkdir -p src && printf 'def calc_total(x):\\n    return x\\n' > src/a.py && printf 'from a import calc_total\\nprint(calc_total(2))\\n' > src/b.py",
+      "prompt": "Rename the function calc_total to compute_total everywhere in src/. Run python3 src/b.py to check it still prints 2.",
+      "check": "! grep -rq calc_total src && [ \"$(cd src && python3 b.py)\" = \"2\" ]"
+    },
+    {
+      "id": "fix-bug",
+      "setup": "printf 'def add(a, b):\\n    return a - b\\n' > calc.py && printf 'from calc import add\\nassert add(2, 3) == 5\\nprint(\"ok\")\\n' > test_calc.py",
+      "prompt": "test_calc.py fails. Find the bug in calc.py, fix it, and run python3 test_calc.py to show it passes.",
+      "check": "[ \"$(python3 test_calc.py)\" = \"ok\" ]"
+    },
+    {
+      "id": "count-todos",
+      "setup": "mkdir -p src && printf '# TODO a\\n' > src/a.py && printf '# TODO b\\n# TODO c\\n' > src/b.py",
+      "prompt": "Count the TODO comments under src/ and write just the number into answer.txt.",
+      "check": "[ \"$(tr -d '[:space:]' < answer.txt)\" = \"3\" ]"
+    }
+  ]
+}

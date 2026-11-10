@@ -90,7 +90,7 @@ def file_tool_cases(failures):
             failures.append(f"file tool: expected {code}, got {got}: {label}")
 
     try:
-        for agent in ("crew-chief:deep-reader", "crew-chief:reviewer", "crew-chief:scanner", "crew-chief:ui-smoke"):
+        for agent in ("crew-chief:deep-reader", "crew-chief:reviewer", "crew-chief:scanner", "crew-chief:ui-smoke", "crew-chief:planner"):
             expect(0, f"{agent} report", "Write", {"file_path": rd + "/review.md"}, agent_type=agent)
             expect(0, f"{agent} nested report", "Write", {"file_path": rd + "/sub/dir/r.md"}, agent_type=agent)
             expect(2, f"{agent} elsewhere", "Write", {"file_path": scratch + "/notes.md"}, agent_type=agent)
@@ -154,17 +154,17 @@ def main():
         if got != code:
             failures.append(f"expected {code}, got {got}: {command!r} {kw}")
 
-    for agent in ("crew-chief:scanner", "crew-chief:deep-reader", "crew-chief:reviewer", "crew-chief:ui-smoke"):
+    for agent in ("crew-chief:scanner", "crew-chief:deep-reader", "crew-chief:reviewer", "crew-chief:ui-smoke", "crew-chief:planner"):
         for c in ALLOWED:
             expect(0, c, agent_type=agent)
         for c in BLOCKED:
             expect(2, c, agent_type=agent)
     # Writing agents, the main session, and other plugins' agents are never touched.
-    for agent in (None, "crew-chief:implementer", "crew-chief:implementer-hard", "crew-chief:ui-tester", "reviewer", "other:scanner"):
+    for agent in (None, "crew-chief:implementer", "crew-chief:implementer-hard", "crew-chief:ui-tester", "crew-chief:mechanic", "reviewer", "other:scanner"):
         for c in BLOCKED:
             expect(0, c, agent_type=agent)
     # --project (settings hook from /crew-setup) matches bare agent names only.
-    for agent in ("scanner", "deep-reader", "reviewer", "ui-smoke"):
+    for agent in ("scanner", "deep-reader", "reviewer", "ui-smoke", "planner"):
         for c in BLOCKED:
             expect(2, c, agent_type=agent, project=True)
         for c in ALLOWED:

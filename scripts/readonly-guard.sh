@@ -12,9 +12,9 @@
 #
 # Usage:
 #   readonly-guard.sh            plugin hook: acts only when agent_type is
-#                                crew-chief:scanner, :deep-reader, :reviewer, or :ui-smoke
+#                                crew-chief:scanner, :deep-reader, :reviewer, :ui-smoke, or :planner
 #   readonly-guard.sh --project  project settings hook (/crew-setup install):
-#                                acts when agent_type is scanner, deep-reader,
+#                                acts when agent_type is scanner, deep-reader, planner,
 #                                reviewer, or ui-smoke
 #   readonly-guard.sh --always   acts on every call it receives (for a hook in
 #                                an agent's own frontmatter)
@@ -47,12 +47,12 @@ case "$1" in
   --always) ;;
   --project)
     case "$(field agent_type)" in
-      scanner|deep-reader|reviewer|ui-smoke) ;;
+      scanner|deep-reader|reviewer|ui-smoke|planner) ;;
       *) exit 0 ;;
     esac ;;
   *)
     case "$(field agent_type)" in
-      crew-chief:scanner|crew-chief:deep-reader|crew-chief:reviewer|crew-chief:ui-smoke) ;;
+      crew-chief:scanner|crew-chief:deep-reader|crew-chief:reviewer|crew-chief:ui-smoke|crew-chief:planner) ;;
       *) exit 0 ;;
     esac ;;
 esac

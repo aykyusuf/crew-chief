@@ -21,6 +21,21 @@ export function addStep(stats, { role, family, usage, usd }) {
   stats.set(key, row)
 }
 
+// One tally per subagent run (by its agent id), so the report can show which runs cost the most: a few
+// hard runs usually carry most of the spend.
+export function addRun(runs, { id, family, usage, usd }) {
+  if (typeof id !== 'string' || id === '') return
+  const row = runs.get(id) ?? { id, family, requests: 0, output: 0, usd: 0 }
+  row.requests += 1
+  row.output += Number(usage?.output_tokens) || 0
+  row.usd += typeof usd === 'number' && usd > 0 ? usd : 0
+  runs.set(id, row)
+}
+
+export function topRuns(runs, n = 3) {
+  return [...runs.values()].sort((a, b) => b.usd - a.usd || b.output - a.output).slice(0, n).filter((r) => r.usd > 0 || r.output > 0)
+}
+
 export function statsRows(stats) {
   return [...stats.values()].sort((a, b) => b.usd - a.usd || b.output - a.output)
 }

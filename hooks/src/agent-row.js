@@ -26,6 +26,8 @@ const ROW_DRAW_DELAY_MS = 50
 function freshRow() {
   return {
     agents: new Map(), // agentId -> { model, effort, tokens }
+    types: new Set(), // agent types the band has already seen run in this session
+    fresh: new Set(), // agents that are the first of their type in this session (the band marks their first run)
     done: new Set(), // agents whose turn ended (the list can still say running for a moment)
     wanted: undefined,
     seen: new Map(), // agentId -> when the band first saw it running (for agents whose first request we missed)
@@ -194,7 +196,12 @@ export async function rowBandRows($) {
     if (!a || !ROW_LIVE.includes(a.status) || rowState.done.has(a.id)) continue
     const info = rowState.agents.get(a.id) ?? {}
     const prog = await progressInfo($, a.id)
-    if (!rowState.seen.has(a.id)) rowState.seen.set(a.id, now)
+    if (!rowState.seen.has(a.id)) {
+      rowState.seen.set(a.id, now)
+      // The first run of a type in this session is a probation run: watch it before trusting it unattended.
+      if (typeof a.type === 'string' && a.type !== '' && !rowState.types.has(a.type)) rowState.fresh.add(a.id)
+      if (typeof a.type === 'string') rowState.types.add(a.type)
+    }
     const since = info.startMs ?? rowState.seen.get(a.id)
     rows.push({
       name: rowAgentName(a),
@@ -204,6 +211,7 @@ export async function rowBandRows($) {
       pct: prog?.pct,
       step: prog?.step,
       calls: progressStats(a.id)?.calls,
+      fresh: rowState.fresh.has(a.id),
       elapsedMs: now - since,
       // No request of this agent ever reached the mod and it has run a while (it started before the mod loaded).
       unknown: info.model === undefined && now - since >= 15_000,

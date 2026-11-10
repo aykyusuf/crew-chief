@@ -81,3 +81,18 @@ test('parseHint reads what nextHint wrote, and refuses junk', () => {
   assert.deepEqual(parseHint('not json'), {})
   assert.deepEqual(parseHint(JSON.stringify({ expiredMs: -5, aliveMs: 'x' })), { expiredMs: undefined, aliveMs: undefined })
 })
+
+import { addRun, topRuns } from '../hooks/report-logic.mjs'
+
+test('runs: tallied per agent id, the most expensive first, empty ones left out', () => {
+  const runs = new Map()
+  addRun(runs, { id: 'a', family: 'opus', usage: { output_tokens: 100 }, usd: 0.5 })
+  addRun(runs, { id: 'a', family: 'opus', usage: { output_tokens: 50 }, usd: 0.25 })
+  addRun(runs, { id: 'b', family: 'haiku', usage: { output_tokens: 10 }, usd: 0.01 })
+  addRun(runs, { id: '', family: 'x', usage: {}, usd: 9 })
+  addRun(runs, { id: 'c', family: 'x', usage: {}, usd: 0 })
+  const top = topRuns(runs, 3)
+  assert.deepEqual(top.map((r) => r.id), ['a', 'b'])
+  assert.equal(top[0].requests, 2)
+  assert.equal(top[0].usd, 0.75)
+})

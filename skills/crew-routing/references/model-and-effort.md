@@ -38,6 +38,28 @@ Ask: did it not try hard enough, or did it not know enough?
 
 For most tasks the model's default effort is right. Lower effort cuts thinking tokens, which bill as output.
 
+## When the result is not good enough: the order
+
+Source: Anthropic's "Which Claude model should you build with" (claude.dev blog, Nov 2026). Prices and benchmark numbers are the post's; check them before relying on them.
+
+1. Make sure the work can check itself (a test, a build, a script that calls the endpoint). This is cheaper and faster than anything below.
+2. Raise effort one level. Effort cannot add knowledge or skill the model lacks; it only buys more thinking, tool calls and self-checking. Past `high`, one more level can cost as much as a bigger model, so then compare "next model, lower effort".
+3. Move to the next model up, starting at a lower effort than you used on the smaller one.
+
+**Low first, re-run the failures.** When outcomes can be checked automatically, run everything at a low level and re-run only the failures at high. The post measured Opus 5.5 at low with failures re-run at high at about 97 % of tasks for about $0.17 each, against 95.3 % for $0.29 with every task at high (one SWE-bench Pro subset; treat it as a direction, not a promise).
+
+**Where the money goes.** The hardest tasks carry most of the spend (in one benchmark, 2 of 20 problems carried 43 %): price those, not only the typical ones. A lean main context matters more the bigger the main model is, because every turn resends it; let cheaper subagents do the verbose reading.
+
+**Switch at a natural break.** The prompt cache belongs to the model that wrote it, so the first turn on a new model pays a cache write for the whole conversation. Run `/compact` first or start a fresh session with a short written plan. A move down loses the earlier model's reasoning blocks.
+
+**Small models and their limits.** Haiku 5.5 bills a prompt over 100K tokens at five times its lower rate (still about a quarter of Sonnet's price); it pays off most on short prompts. It suits high-volume work with checkable output, not long agentic loops. Keep small models on work where a wrong answer is cheap to spot (finding files, running tests, reading logs) and keep code edits and judgment calls on the main model.
+
+**The built-in `Explore` follows the session's model** in current Claude Code (capped at Opus on the API) instead of always using Haiku. To keep exploration cheap, define your own subagent named `Explore` with `model: haiku` in `~/.claude/agents/` or the project's `.claude/agents/` (a plugin's agents are namespaced, so a plugin cannot replace the built-in). `/crew-chief:crew-setup` can write that file for you.
+
+**Lead plus many workers** (a top model splits, many cheaper workers read, the lead merges) paid off only for work bigger than one context window: about a third cheaper than Opus alone on a 22-million-token code search. For one chain of dependent steps or work that fits in one context, the planning and merging cost more than they save.
+
+**Measure before keeping a multi-model setup.** Take real tasks with an outcome check each, run each candidate at two or three effort levels (separate sessions, no shared cache), plot score against cost per finished task, and keep the multi-model setup only if it beats every single-model point.
+
 ## Advisor: a stronger model on call (optional, experimental)
 
 The `/advisor` command (or `advisorModel` in settings, or `claude --advisor opus`) pairs the session's model with a stronger one that Claude consults at decision points: before committing to an approach, when an error keeps recurring, before declaring done. The advisor reads the whole conversation and returns guidance; Claude decides when to ask, and there is no setting to cap or force calls. Source: code.claude.com/docs/en/advisor.

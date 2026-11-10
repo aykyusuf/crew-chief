@@ -1,0 +1,62 @@
+{
+  "$comment": "Example for ~/.claude/crew-chief-guard.json: the three levels read as lanes by how expensive a mistake is to undo. warn = reversible and contained (runs, then a reminder). confirm = reversible but wide, or costly to redo (the first attempt is stopped with a checklist, the identical retry passes). deny = hard to reverse (migrations that drop data, destroying infrastructure): this lane does not open, whatever the model says. Merge the rules you want into your own file; nothing here is on by default. Patterns match words in the command text, so adjust them to your tools.",
+  "enabled": true,
+  "rules": [
+    {
+      "id": "lane-migrate-apply",
+      "level": "confirm",
+      "tools": ["Bash"],
+      "target": "command",
+      "pattern": "\\b(prisma\\s+migrate\\s+(deploy|dev)|alembic\\s+upgrade|rails\\s+db:migrate|rake\\s+db:migrate|flask\\s+db\\s+upgrade|manage\\.py\\s+migrate|knex\\s+migrate:latest|sequelize(-cli)?\\s+db:migrate|dotnet\\s+ef\\s+database\\s+update)\\b",
+      "flags": "i",
+      "text": "applies a database migration; check which database the connection string points at and that a backup exists"
+    },
+    {
+      "id": "lane-migrate-destroy",
+      "level": "deny",
+      "tools": ["Bash"],
+      "target": "command",
+      "pattern": "\\b(prisma\\s+migrate\\s+reset|prisma\\s+db\\s+push\\s+--force-reset|alembic\\s+downgrade\\s+base|rails\\s+db:(drop|reset|schema:load)|rake\\s+db:(drop|reset)|manage\\.py\\s+flush|sequelize(-cli)?\\s+db:migrate:undo:all)\\b",
+      "flags": "i",
+      "text": "drops or resets a database; run it yourself, in a terminal, after checking the target"
+    },
+    {
+      "id": "lane-infra-apply",
+      "level": "confirm",
+      "tools": ["Bash"],
+      "target": "command",
+      "pattern": "\\b(terraform|tofu)\\s+(apply|import|state\\s+(rm|mv))\\b|\\bkubectl\\s+(apply|delete|rollout\\s+undo|scale)\\b|\\bhelm\\s+(upgrade|install|rollback|uninstall)\\b",
+      "flags": "i",
+      "text": "changes live infrastructure; check the workspace or kube context and read the plan first"
+    },
+    {
+      "id": "lane-infra-destroy",
+      "level": "deny",
+      "tools": ["Bash"],
+      "target": "command",
+      "pattern": "\\b(terraform|tofu)\\s+destroy\\b|\\bkubectl\\s+delete\\s+(namespace|ns|node|pv|pvc)\\b",
+      "flags": "i",
+      "text": "destroys infrastructure or storage; do it yourself"
+    },
+    {
+      "id": "lane-money",
+      "level": "confirm",
+      "tools": ["Bash"],
+      "target": "command",
+      "pattern": "api\\.stripe\\.com/v1/(charges|payment_intents|refunds|payouts|transfers)|\\bstripe\\s+(charges|payment_intents|refunds|payouts|transfers)\\s+(create|confirm|capture|cancel)\\b",
+      "flags": "i",
+      "text": "moves money through a payment API; check test mode versus live and the amount"
+    },
+    {
+      "id": "lane-prod-env-file",
+      "level": "confirm",
+      "tools": ["Write", "Edit", "MultiEdit"],
+      "target": "file_path",
+      "pattern": "(^|/)(\\.env\\.production|\\.env\\.prod|production\\.env|prod\\.env)$",
+      "flags": "i",
+      "text": "edits a production environment file"
+    }
+  ],
+  "disable": [],
+  "ssh": { "mode": "warn", "prodHosts": [] }
+}

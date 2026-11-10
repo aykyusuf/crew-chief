@@ -528,3 +528,48 @@ test('when the engine gives little room the rest becomes "+N more agents"', asyn
   expect(await ui.find({ type: 'Text', text: /\+4 more agents/ })).toBeDefined()
   await ui.unmount()
 })
+
+// ---- the busy note and the overlap note -----------------------------------------------------------
+
+test('the band says so when more subagents run than agents.warn allows, and /crew-config moves the line', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on' } })
+  s.agents = Array.from({ length: 6 }, (_, i) => ({ id: 'a' + i, type: 'crew-chief:implementer', status: 'running', description: 'job ' + i }))
+  await start($)
+  let ui = await mount($)
+  expect(await ui.find({ type: 'Text', text: /6 agents running/ })).toBeDefined()
+  await ui.unmount()
+  await $.command.run({ command: 'crew-config', args: 'set agents.warn 8' })
+  ui = await mount($)
+  expect(await ui.find({ type: 'Text', text: /agents running/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a second writer whose brief names the same file gets a note with its result; disjoint files and an idle list get none', async ($, on) => {
+  const s = harness(on)
+  await start($)
+  s.agents = [{ id: 'a1', type: 'crew-chief:implementer', status: 'running', description: 'first' }]
+  const first = await $.tool.call({ tool: 'Agent', subagent_type: 'crew-chief:implementer', prompt: 'Change `hooks/src/guard.js` only.', description: 'a' })
+  expect(JSON.stringify(first)).not.toContain('same file')
+  const clash = await $.tool.call({ tool: 'Agent', subagent_type: 'crew-chief:implementer-hard', prompt: 'Also rework hooks/src/guard.js and its test.', description: 'b' })
+  expect(JSON.stringify(clash)).toContain('same file(s)')
+  const apart = await $.tool.call({ tool: 'Agent', subagent_type: 'crew-chief:mechanic', prompt: 'Rename in docs/readme.md', description: 'c' })
+  expect(JSON.stringify(apart)).not.toContain('same file')
+  s.agents = []
+  const later = await $.tool.call({ tool: 'Agent', subagent_type: 'crew-chief:implementer', prompt: 'Touch hooks/src/guard.js again', description: 'd' })
+  expect(JSON.stringify(later)).not.toContain('same file') // nothing was running: the earlier brief is forgotten
+  const reader = await $.tool.call({ tool: 'Agent', subagent_type: 'crew-chief:deep-reader', prompt: 'Read hooks/src/guard.js', description: 'e' })
+  expect(JSON.stringify(reader)).not.toContain('same file')
+})
+
+test('the first run of an agent type in a session says so; the second run of the same type does not', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on' }, store: { crew_ui_mode: 'full' } })
+  await start($)
+  s.agents = [{ id: 'p1', type: 'crew-chief:planner', status: 'running', description: 'plan' }]
+  let ui = await mount($)
+  expect(await ui.find({ type: 'Text', text: /first run/ })).toBeDefined()
+  await ui.unmount()
+  s.agents = [{ id: 'p1', type: 'crew-chief:planner', status: 'completed', description: 'plan' }, { id: 'p2', type: 'crew-chief:planner', status: 'running', description: 'plan again' }]
+  ui = await mount($)
+  expect(await ui.find({ type: 'Text', text: /first run/ })).toBeUndefined()
+  await ui.unmount()
+})

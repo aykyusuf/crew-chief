@@ -4,7 +4,6 @@
 // never see `$` stay in their own files and are imported below.)
 import {
   minutesLabel,
-  parseAskTimeout,
   pickFallback,
 } from './ask-logic.mjs'
 import {
@@ -16,12 +15,21 @@ import {
   compactThresholds,
   openTasks,
   parseStatus,
-  parseTokens,
   pluginDataDir,
   projectDirName,
   splitProgress,
   withFocus,
 } from './compact-logic.mjs'
+import {
+  SETTINGS,
+  SETTING_KEYS,
+  checkSettings,
+  envName,
+  formatSetting,
+  parseSetting,
+  resolveSetting,
+  storeText,
+} from './config-logic.mjs'
 import {
   open,
 } from './coord.mjs'
@@ -59,6 +67,11 @@ import {
   toggleConfigText,
 } from './guard-logic.mjs'
 import {
+  briefPaths,
+  isWriterType,
+  overlapping,
+} from './overlap-logic.mjs'
+import {
   guardPane,
   taskPane,
   timelinePane,
@@ -72,6 +85,7 @@ import {
   parseReport,
 } from './progress-logic.mjs'
 import {
+  addRun,
   addStep,
   classifyGap,
   fmtTokens,
@@ -82,6 +96,7 @@ import {
   routingShare,
   shouldWarnCold,
   statsRows,
+  topRuns,
 } from './report-logic.mjs'
 import {
   formatRow,
@@ -99,9 +114,7 @@ import {
 } from './saver-i18n.mjs'
 import {
   ADVISOR_LATER_MS,
-  FIVE_HOUR_DEFAULT,
   SESSION_AGE_TOAST_MS,
-  SEVEN_DAY_DEFAULT,
   advisorOfferAllowed,
   advisorPlan,
   agentCallEffort,
@@ -110,8 +123,8 @@ import {
   formatDuration,
   isEnvFlag,
   modelFamily,
-  parseThresholds,
   tokensLabel,
+  ultraAgentCall,
 } from './saver-logic.mjs'
 import {
   INSTRUCTION_LINES,
@@ -119,8 +132,11 @@ import {
   MEMORY_BYTES,
   MEMORY_LINES,
   STATUS_BYTES,
+  countImports,
   extractPathRefs,
   findDuplicateLines,
+  findShoutingLines,
+  findTemporaryLines,
   isGlobalPath,
   kb,
   measure,
@@ -207,6 +223,124 @@ async function resolveLang($) {
   return pick.lang
 }
 
+// ===== config ================================================================
+// /crew-config: one place to see and change the numbers the mod uses (when the compact flow speaks up, how
+// the saver asks, how long a question waits). A value is kept in the plugin's store, so it survives the
+// session; the environment variable of the same name, when set, still wins (kept for scripts).
+// Nothing is written to settings.json or any project file.
+const storeKey = (key) => 'cfg_' + key.replace('.', '_')
+
+// A mod must spell environment variable names as literals in $.env.get, so each one is written out.
+async function envRaw($, key) {
+  try {
+    switch (key) {
+      case 'compact.enabled':
+        return await $.env.get('CREW_CHIEF_COMPACT')
+      case 'compact.arm':
+        return await $.env.get('CREW_CHIEF_COMPACT_ARM')
+      case 'compact.ask':
+        return await $.env.get('CREW_CHIEF_COMPACT_ASK')
+      case 'saver.ask':
+        return await $.env.get('CREW_CHIEF_SAVER')
+      case 'saver.five':
+        return await $.env.get('CREW_CHIEF_SAVER_FIVE_HOUR')
+      case 'saver.seven':
+        return await $.env.get('CREW_CHIEF_SAVER_SEVEN_DAY')
+      case 'ask.timeout':
+        return await $.env.get('CREW_CHIEF_ASK_TIMEOUT_MIN')
+      default:
+        return undefined
+    }
+  } catch (err) {
+    return undefined
+  }
+}
+
+async function storedRaw($, key) {
+  try {
+    return await $.store.get(storeKey(key))
+  } catch (err) {
+    return undefined
+  }
+}
+
+// The value in force and where it came from: { value, source: 'env' | 'saved' | 'default' }.
+async function cfgState($, key) {
+  return resolveSetting(key, await envRaw($, key), await storedRaw($, key))
+}
+
+async function cfgGet($, key) {
+  return (await cfgState($, key)).value
+}
+
+async function allValues($) {
+  const out = {}
+  for (const key of SETTING_KEYS) out[key] = (await cfgState($, key)).value
+  return out
+}
+
+async function listText($) {
+  const lines = ['crew-config: the numbers crew-chief uses. Change one with /crew-config set <name> <value>, put one back with /crew-config reset <name> (or all).', '']
+  let group = ''
+  for (const key of SETTING_KEYS) {
+    const def = SETTINGS[key]
+    if (def.group !== group) {
+      group = def.group
+      lines.push(group + ':')
+    }
+    const st = await cfgState($, key)
+    const mark = st.source === 'default' ? '' : st.source === 'env' ? ` [${envName(key)} in the environment wins]` : ' [saved]'
+    lines.push(`  ${key} = ${formatSetting(key, st.value)}${mark}  ${def.what}`)
+  }
+  const problems = checkSettings(await allValues($))
+  if (problems.length > 0) lines.push('', 'Note: ' + problems.join('; ') + '.')
+  return lines.join('\n')
+}
+
+async function configSessionStart($) {
+  try {
+    await $.command.register({ name: 'crew-config', description: 'Show or change crew-chief\'s thresholds (compact, saver, question deadline)', immediate: true, argumentHint: '[set <name> <value> | reset <name>|all]' })
+  } catch (err) {
+    // The name is taken, or an older Claude Code: the environment variables still work.
+  }
+}
+
+function registerConfig(on) {
+  on('command.run', { command: 'crew-config' }, async ($, e) => {
+    const words = String(e.args || '').trim().split(/\s+/).filter(Boolean)
+    const verb = (words[0] || '').toLowerCase()
+    if (verb === '' || verb === 'status' || verb === 'list' || verb === 'show') return { text: await listText($) }
+    if (verb === 'reset') {
+      const target = (words[1] || '').toLowerCase()
+      const keys = target === 'all' ? SETTING_KEYS : SETTING_KEYS.includes(target) ? [target] : []
+      if (keys.length === 0) return { text: 'crew-config: reset <name> or reset all. Names: ' + SETTING_KEYS.join(', ') + '.' }
+      for (const key of keys) {
+        try {
+          await $.store.set(storeKey(key), '')
+        } catch (err) {
+          return { text: 'crew-config: the plugin store is not available here, so nothing can be saved or reset (the environment variables still work).' }
+        }
+      }
+      return { text: `crew-config: ${target === 'all' ? 'every value is' : target + ' is'} back to the default${target === 'all' ? '' : ' (' + formatSetting(target, SETTINGS[target].def) + ')'}.` }
+    }
+    const rest = verb === 'set' ? words.slice(1) : words
+    const key = (rest[0] || '').toLowerCase()
+    if (!SETTING_KEYS.includes(key)) return { text: `crew-config: "${rest[0] ?? ''}" is not a setting. Names: ${SETTING_KEYS.join(', ')}. /crew-config shows them with what they do.` }
+    const raw = rest.slice(1).join(' ')
+    const parsed = parseSetting(key, raw)
+    if (!parsed.ok) return { text: `crew-config: "${raw}" is not valid for ${key}: ${SETTINGS[key].what}.` }
+    try {
+      await $.store.set(storeKey(key), storeText(key, parsed.value))
+    } catch (err) {
+      return { text: 'crew-config: the plugin store is not available here, so the value cannot be saved (use the environment variable instead).' }
+    }
+    const st = await cfgState($, key)
+    const envNote = st.source === 'env' ? ` ${envName(key)} is set in the environment and still wins (${formatSetting(key, st.value)}).` : ''
+    const problems = checkSettings(await allValues($))
+    return { text: `crew-config: ${key} = ${formatSetting(key, parsed.value)}, saved.${envNote}${problems.length > 0 ? ' Note: ' + problems.join('; ') + '.' : ''}` }
+  })
+}
+
 // ===== ask ===================================================================
 // crew-chief questions with a deadline. Part of the mod in hooks/register.js (Claude Code 2.1.287+).
 //
@@ -231,7 +365,7 @@ const EXPIRED = Symbol('expired')
 async function askWithDeadline($, question, answers, fallback) {
   let entry
   try {
-    const ms = parseAskTimeout(await $.env.get('CREW_CHIEF_ASK_TIMEOUT_MIN'))
+    const ms = (await cfgGet($, 'ask.timeout')) * 60_000
     const label = pickFallback(answers, fallback)
     if (ms > 0 && label === undefined) {
       $.ui.log('crew-chief: no safe default for a question, it has no deadline: ' + String(fallback), { to: 'debug' })
@@ -403,7 +537,7 @@ async function findHandoff($) {
 //                  expiry has been seen nothing is warned. CREW_CHIEF_CACHE_HINT=off turns it off.
 // Nothing is written outside the plugin's store (the learned gap lengths). Nothing leaves the machine.
 function freshStats() {
-  return { stats: newStats(), lastCost: undefined, lastMainEndAt: undefined, lastMainContext: 0, stepGap: undefined, hint: undefined, warnedFor: undefined }
+  return { stats: newStats(), runs: new Map(), lastCost: undefined, lastMainEndAt: undefined, lastMainContext: 0, stepGap: undefined, hint: undefined, warnedFor: undefined }
 }
 
 let sf = freshStats()
@@ -463,6 +597,7 @@ async function statsStepEnd($, e, result) {
       sf.lastCost = usd
     }
     addStep(sf.stats, { role: main ? 'main' : 'subagent', family, usage, usd: grew })
+    if (!main) addRun(sf.runs, { id: e.agentId, family, usage, usd: grew })
     if (main && usage) {
       const input = Number(usage.input_tokens) || 0
       const cacheRead = Number(usage.cache_read_input_tokens) || 0
@@ -521,6 +656,16 @@ async function buildStatsReport($) {
   if (typeof total?.cost?.usd === 'number') out.push(t(lang, 'report_total', { usd: fmtUsd(total.cost.usd) }))
   const share = routingShare(rows)
   if (share.total > 0) out.push(t(lang, 'report_share', { sub: share.subagent, cheaper: share.cheaper }))
+  const top = topRuns(sf.runs, 3)
+  if (top.length > 0) {
+    const agents = await safe(() => $.agent.list(), [])
+    out.push(t(lang, 'report_runs_head'))
+    for (const r of top) {
+      const known = Array.isArray(agents) ? agents.find((a) => a.id === r.id) : undefined
+      const name = known ? String(known.description || known.type || r.id).slice(0, 40) : r.id.slice(0, 12)
+      out.push('- ' + t(lang, 'report_run_row', { name, model: r.family, requests: r.requests, usd: fmtUsd(r.usd) }))
+    }
+  }
   out.push(t(lang, 'report_note'))
   return out.join('\n')
 }
@@ -704,7 +849,8 @@ function registerReset(on) {
 // ("250k", "400k"). Nothing leaves the machine.
 const TOOL_NAME = 'crew_compact_checkpoint'
 const TOOL_MATCH = /^mcp__.+__crew_compact_checkpoint$/
-const REARM_GROWTH_TOKENS = 100_000
+// Stands in for ck.askTimer while the quiet time is being read.
+const PENDING_TIMER = { cancel() {} }
 const COMPACT_DELAY_MS = 1200
 const RETRY_MS = 3000
 const MAX_RETRIES = 3
@@ -715,8 +861,6 @@ const MAX_UPDATE_RETRIES = 2
 const FRESH_BEFORE_MS = 10 * 60_000
 const AGENT_WAIT_MS = 5000
 const MAX_AGENT_WAITS = 36
-// How long the session must stay quiet after a clean turn end before the compaction question opens.
-const GRACE_MS = 10_000
 // `waiting` is a subagent held on background work it owns (a server it started), on a plan's approval or
 // on another agent: none of these is work that a compaction would cut in half, and a subagent that left a
 // dev server running stays `waiting` for as long as the server lives, so it must never hold a compaction back.
@@ -800,9 +944,9 @@ function compactNoteActivity() {
   ck.activity += 1
 }
 
-// A mod must spell environment variable names as literals in $.env.get, so each switch is written out.
+// compact.enabled (/crew-config, or CREW_CHIEF_COMPACT=off in the environment).
 async function disabled($) {
-  return (await safe(() => $.env.get('CREW_CHIEF_COMPACT'), undefined)) === 'off'
+  return (await safe(() => cfgGet($, 'compact.enabled'), 'on')) === 'off'
 }
 
 async function focusOff($) {
@@ -832,9 +976,17 @@ async function gateSatisfied($, plan) {
 // ---- thresholds and the one-time note -------------------------------------------------------
 
 async function limits($, usage) {
-  const arm = parseTokens(await safe(() => $.env.get('CREW_CHIEF_COMPACT_ARM'), undefined))
-  const ask = parseTokens(await safe(() => $.env.get('CREW_CHIEF_COMPACT_ASK'), undefined))
-  return compactThresholds(usage?.context?.window, { arm, ask })
+  // The sizes come from /crew-config or the environment. Only a size the person set is passed on, so it wins on a
+  // small window too; the defaults scale down there, and compact.armpct / askpct set how far.
+  const sized = async (key) => {
+    const st = await safe(() => cfgState($, key), undefined)
+    return st && st.source !== 'default' ? st.value : undefined
+  }
+  const arm = await sized('compact.arm')
+  const ask = await sized('compact.ask')
+  const armPct = await safe(() => cfgGet($, 'compact.armpct'), undefined)
+  const askPct = await safe(() => cfgGet($, 'compact.askpct'), undefined)
+  return compactThresholds(usage?.context?.window, { arm, ask, armFraction: armPct ? armPct / 100 : undefined, askFraction: askPct ? askPct / 100 : undefined })
 }
 
 // Called after every measurement and finished turn. Arms the flow at the arm size; after a "not now"
@@ -936,7 +1088,7 @@ async function askAndPlan($, why) {
       return 'never'
     }
     ck.armed = false
-    ck.rearmAt = (typeof tokens === 'number' ? tokens : 0) + REARM_GROWTH_TOKENS
+    ck.rearmAt = (typeof tokens === 'number' ? tokens : 0) + (await safe(() => cfgGet($, 'compact.reask'), 100_000))
     return 'declined'
   } finally {
     ck.asking = false
@@ -950,12 +1102,15 @@ async function requestStateUpdate($) {
   $.prompt.submit({ text }).catch(() => {})
 }
 
-// After a clean turn end: wait GRACE_MS, then ask if nothing started meanwhile. At most one timer.
-function scheduleAsk($) {
+// After a clean turn end: wait compact.quiet seconds, then ask if nothing started meanwhile. At most one timer.
+async function scheduleAsk($) {
   if (ck.askTimer) return
+  ck.askTimer = PENDING_TIMER // a second call during the read below must not start a second timer
   const cycle = ck
   const seen = ck.activity
-  ck.askTimer = $.clock.after(GRACE_MS, () => {
+  const graceMs = (await safe(() => cfgGet($, 'compact.quiet'), 10)) * 1000
+  if (cycle !== ck || ck.askTimer !== PENDING_TIMER) return // /clear, /resume, a new session or a cancel since
+  ck.askTimer = $.clock.after(graceMs, () => {
     if (cycle !== ck) return // /clear, /resume or a new session since
     ck.askTimer = null
     return askAfterGrace($, seen)
@@ -1016,7 +1171,7 @@ async function advancePlan($) {
     const tokens = usage?.context?.tokens
     ck.plan = null
     ck.armed = false
-    ck.rearmAt = (typeof tokens === 'number' ? tokens : 0) + REARM_GROWTH_TOKENS
+    ck.rearmAt = (typeof tokens === 'number' ? tokens : 0) + (await safe(() => cfgGet($, 'compact.reask'), 100_000))
   }
 }
 
@@ -1069,7 +1224,7 @@ async function compactTurnComplete($, usage, reason) {
   if (!clean) return
   const tokens = usage?.context?.tokens
   if (!ck.armed || ck.never || ck.compacting || ck.asking) return
-  if (!ck.wantAsk && !ck.askedFallback && typeof tokens === 'number' && tokens >= (await limits($, usage)).ask) {
+  if (!ck.wantAsk && !ck.askedFallback && typeof tokens === 'number' && tokens >= (await limits($, usage)).ask && (await safe(() => cfgGet($, 'compact.fallback'), 'on')) === 'on') {
     // Claude never called the tool: ask anyway, once per cycle.
     ck.askedFallback = true
     ck.wantAsk = {}
@@ -1401,6 +1556,12 @@ async function buildTidyReport($) {
     if (size.lines > INSTRUCTION_LINES) {
       findings.push(t(lang, 'tidy_file_long', { path: file.path, lines: size.lines }))
     }
+    const shouting = findShoutingLines(file.text)
+    if (shouting.length > 0) findings.push(t(lang, 'tidy_shouting', { path: file.path, n: shouting.length, sample: shouting[0].slice(0, 70) }))
+    const temporary = findTemporaryLines(file.text)
+    if (temporary.length > 0) findings.push(t(lang, 'tidy_temporary', { path: file.path, n: temporary.length, sample: temporary[0].slice(0, 70) }))
+    const imports = countImports(file.text)
+    if (imports > 0) findings.push(t(lang, 'tidy_imports', { path: file.path, n: imports }))
     const missing = []
     for (const ref of extractPathRefs(file.text)) {
       if (!(await pathExists($, ref, root, cwd))) missing.push(ref)
@@ -1612,6 +1773,8 @@ const ROW_DRAW_DELAY_MS = 50
 function freshRow() {
   return {
     agents: new Map(), // agentId -> { model, effort, tokens }
+    types: new Set(), // agent types the band has already seen run in this session
+    fresh: new Set(), // agents that are the first of their type in this session (the band marks their first run)
     done: new Set(), // agents whose turn ended (the list can still say running for a moment)
     wanted: undefined,
     seen: new Map(), // agentId -> when the band first saw it running (for agents whose first request we missed)
@@ -1780,7 +1943,12 @@ async function rowBandRows($) {
     if (!a || !ROW_LIVE.includes(a.status) || rowState.done.has(a.id)) continue
     const info = rowState.agents.get(a.id) ?? {}
     const prog = await progressInfo($, a.id)
-    if (!rowState.seen.has(a.id)) rowState.seen.set(a.id, now)
+    if (!rowState.seen.has(a.id)) {
+      rowState.seen.set(a.id, now)
+      // The first run of a type in this session is a probation run: watch it before trusting it unattended.
+      if (typeof a.type === 'string' && a.type !== '' && !rowState.types.has(a.type)) rowState.fresh.add(a.id)
+      if (typeof a.type === 'string') rowState.types.add(a.type)
+    }
     const since = info.startMs ?? rowState.seen.get(a.id)
     rows.push({
       name: rowAgentName(a),
@@ -1790,6 +1958,7 @@ async function rowBandRows($) {
       pct: prog?.pct,
       step: prog?.step,
       calls: progressStats(a.id)?.calls,
+      fresh: rowState.fresh.has(a.id),
       elapsedMs: now - since,
       // No request of this agent ever reached the mod and it has run a while (it started before the mod loaded).
       unknown: info.model === undefined && now - since >= 15_000,
@@ -2733,7 +2902,11 @@ function registerUi(on, saverOn) {
         facts.five = undefined
         facts.week = undefined
       }
-      const lines = bandLines({ status: statusSegments(uiFull || demo ? facts : quietFacts(facts)), agents: demo ? demo.agents : await rowBandRows($), maxLines, width: columns })
+      const agents = demo ? demo.agents : await rowBandRows($)
+      // Past agents.warn running at once, say so: attention, not tokens, is what runs out first.
+      const warnAt = await cfgGet($, 'agents.warn')
+      facts.busy = Array.isArray(agents) && agents.length > warnAt ? agents.length : undefined
+      const lines = bandLines({ status: statusSegments(uiFull || demo ? facts : quietFacts(facts)), agents, maxLines, width: columns })
       if (lines.length === 0 && question === undefined) return next(e)
       return uiTree($, e, lines, () => compactBandPress($), uiStyle, question)
     } catch (err) {
@@ -3048,6 +3221,40 @@ async function panesSessionStart($) {
   }
 }
 
+// ===== overlap ===============================================================
+// A note, never a block, when an Agent call for a writing agent (implementer, implementer-hard, mechanic) names
+// files that another running writer's brief also named: parallel edits to one file collide, and the routing
+// skill says to give parallel implementers disjoint file sets. The model sees the note with the call's result
+// and decides; nothing is stopped. Briefs are free text, so the files are found by shape (hooks/overlap-logic.mjs).
+let writers = [] // { paths, who } of the writing agents started in this stretch of the session
+
+function overlapReset() {
+  writers = []
+}
+
+async function overlapObserve($, e) {
+  try {
+    if (e.tool !== 'Agent' || !isWriterType(e.subagent_type)) return undefined
+    const list = await $.agent.list()
+    const running = Array.isArray(list) ? list.filter((a) => a.status === 'pending' || a.status === 'running').length : 0
+    if (running === 0) writers = [] // nothing else is running, so nothing can collide
+    const paths = briefPaths(e.prompt)
+    const who = String(e.subagent_type).replace(/^.*:/, '')
+    let note
+    for (const w of writers) {
+      const hit = overlapping(paths, w.paths)
+      if (hit.length > 0) {
+        note = `crew-chief: this brief names the same file(s) as a ${w.who} you started earlier and that may still be running: ${hit.slice(0, 4).join(', ')}. Two agents editing one file at once collide. Wait for it to finish, or give each agent its own files.`
+        break
+      }
+    }
+    if (paths.length > 0) writers.push({ paths, who })
+    return note
+  } catch (err) {
+    return undefined
+  }
+}
+
 // ===== register ==============================================================
 // crew-chief saver mod: watches your plan limits and asks whether to turn on a token saver.
 //
@@ -3084,6 +3291,9 @@ const STEP_STALE_MS = 5 * 60 * 1000
 
 // Per-session state; resetState() puts it back when the session ends, /clear, or /resume.
 let saver = false
+let ultra = false // a mode of the saver: subagents stay off Opus (hooks/saver-logic.mjs ultraAgentCall)
+let ultraOpus = false // the person's standing yes to Opus for the session (/saver ultra opus on)
+let ultraToasted = false
 let snoozed = false
 let pending = null
 let lastPromptAt = 0
@@ -3097,7 +3307,11 @@ let advisorChecked = false
 const seen = new Set()
 
 function resetState() {
+  overlapReset()
   saver = false
+  ultra = false
+  ultraOpus = false
+  ultraToasted = false
   snoozed = false
   open.saver = false
   pending = null
@@ -3117,9 +3331,10 @@ function resetState() {
 }
 
 async function readConfig($) {
-  const off = (await $.env.get('CREW_CHIEF_SAVER')) === 'off'
-  const five = parseThresholds(await $.env.get('CREW_CHIEF_SAVER_FIVE_HOUR'), FIVE_HOUR_DEFAULT)
-  const week = parseThresholds(await $.env.get('CREW_CHIEF_SAVER_SEVEN_DAY'), SEVEN_DAY_DEFAULT)
+  // saver.ask, saver.five and saver.seven: /crew-config, or the environment variables of the same meaning.
+  const off = (await cfgGet($, 'saver.ask')) === 'off'
+  const five = await cfgGet($, 'saver.five')
+  const week = await cfgGet($, 'saver.seven')
   return { off, five, week }
 }
 
@@ -3152,7 +3367,8 @@ async function askUser($, hit) {
   open.saver = true
   try {
     const lang = await resolveLang($)
-    const answers = [t(lang, 'answer_on'), t(lang, 'answer_not_now'), t(lang, 'answer_never')]
+    // The ultra-saver is offered here and nowhere else on its own; unanswered counts as "not now", never as a yes.
+    const answers = [t(lang, 'answer_on'), t(lang, 'answer_ultra'), t(lang, 'answer_not_now'), t(lang, 'answer_never')]
     const now = await $.clock.now()
     const left = hit.resetsAt ? Date.parse(hit.resetsAt) - now : 0
     const reset = left > 0 ? t(lang, 'reset_in', { duration: formatDuration(left, unitsFor(lang)) }) : ''
@@ -3160,16 +3376,39 @@ async function askUser($, hit) {
       $,
       t(lang, 'ask', { window: windowName(lang, hit.kind), percent: hit.percent, reset }),
       answers,
-      answers[1],
+      answers[2],
     )
     if (answer === answers[0]) {
       saver = true
       $.ui.toast(t(lang, 'toast_saver_on'), { timeoutMs: 8000 })
-    } else if (answer === answers[2]) {
+    } else if (answer === answers[1]) {
+      saver = true
+      ultra = true
+      $.ui.toast(t(lang, 'toast_ultra_on'), { timeoutMs: 8000 })
+    } else if (answer === answers[3]) {
       snoozed = true
     }
   } catch (err) {
     // Dismissed, or a run with nobody to ask: treat it as "not now".
+  } finally {
+    open.saver = false
+  }
+}
+
+// Ultra-saver: a call asks for the strongest model. Asks the person; no answer, a dismissed dialog or another
+// question being open all mean no (the call then runs on Sonnet at high).
+async function askOpus($, e) {
+  if (open.saver || open.compact || open.reset) return false
+  open.saver = true
+  try {
+    const lang = await resolveLang($)
+    const answers = [t(lang, 'ultra_yes'), t(lang, 'ultra_no')]
+    const agent = typeof e.subagent_type === 'string' && e.subagent_type !== '' ? e.subagent_type : 'an agent'
+    const why = t(lang, typeof e.model === 'string' && e.model !== '' ? 'ultra_why_named' : 'ultra_why_xhigh')
+    const answer = await askWithDeadline($, t(lang, 'ultra_ask_opus', { agent, why }), answers, answers[1])
+    return answer === answers[0]
+  } catch (err) {
+    return false
   } finally {
     open.saver = false
   }
@@ -3304,7 +3543,7 @@ async function statusText($) {
   const units = unitsFor(lang)
   const usage = await $.session.usage()
   const now = await $.clock.now()
-  const parts = [t(lang, saver ? 'status_on' : 'status_off') + (snoozed ? t(lang, 'status_snoozed') : '')]
+  const parts = [t(lang, saver ? 'status_on' : 'status_off') + (ultra ? t(lang, 'status_ultra') : '') + (snoozed ? t(lang, 'status_snoozed') : '')]
   for (const w of usage.rateLimits) {
     const left = w.resetsAt ? Date.parse(w.resetsAt) - now : 0
     parts.push(windowName(lang, w.kind) + ' ' + t(lang, 'percent', { n: w.percentUsed }) + (left > 0 ? t(lang, 'status_resets', { duration: formatDuration(left, units) }) : ''))
@@ -3342,6 +3581,12 @@ export function register(on) {
       // plugin's own earlier registration (/clear, /resume run session.start again), see ownsSaver.
       registered = await ownsSaver($)
     }
+    // CREW_CHIEF_ULTRA=on starts the session in ultra-saver (for trying it in a scripted run; nothing turns it on by itself).
+    if (isEnvFlag(await $.env.get('CREW_CHIEF_ULTRA'))) {
+      saver = true
+      ultra = true
+    }
+    await configSessionStart($)
     await compactSessionStart($)
     await tidySessionStart($)
     await statsSessionStart($)
@@ -3423,7 +3668,9 @@ export function register(on) {
     let request = e
     if (saver && e.agentId !== undefined) {
       const cap = capEffort(e.model, e.effort)
-      if (cap.capped) {
+      // Under ultra an Opus subagent is one the person approved (or allowed for the session): the call already
+      // carries the effort that was agreed, so the step must not lower it again.
+      if (cap.capped && !(ultra && cap.tier === 'heavy')) {
         if (!capToasted && !quiet) {
           capToasted = true
           const lang = await resolveLang($)
@@ -3457,10 +3704,27 @@ export function register(on) {
     if (guard !== undefined && guard.deny !== undefined) return { deny: guard.deny }
     let request = e
     try {
-      const effort = saver && e.tool === 'Agent' ? agentCallEffort(e) : undefined
-      if (effort !== undefined) {
-        $.ui.log('saver: Agent call ' + String(e.subagent_type) + ' effort ' + String(e.effort) + ' -> ' + effort, { to: 'debug' })
-        request = { ...e, effort }
+      let plan
+      if (ultra && e.tool === 'Agent') plan = ultraAgentCall(e, ultraOpus, await $.session.model())
+      if (plan !== undefined) {
+        // Ultra-saver: the model and effort of the call are rewritten (never seen live: the host may still apply
+        // the agent definition's own model; the unit tests cover the rewrite, /tasks shows what really ran).
+        const approved = plan.ask ? await askOpus($, e) : false
+        if (!approved) {
+          $.ui.log('saver: ultra Agent call ' + String(e.subagent_type) + ' model ' + String(e.model) + ' effort ' + String(e.effort) + ' -> ' + JSON.stringify(plan.rewrite), { to: 'debug' })
+          request = { ...e, ...plan.rewrite }
+          if (!ultraToasted && !quiet && plan.rewrite.model !== undefined) {
+            ultraToasted = true
+            const lang = await resolveLang($)
+            $.ui.toast(t(lang, 'toast_ultra_cap', { agent: String(e.subagent_type || 'agent'), effort: plan.rewrite.effort }), { timeoutMs: 6000 })
+          }
+        }
+      } else {
+        const effort = saver && e.tool === 'Agent' ? agentCallEffort(e) : undefined
+        if (effort !== undefined) {
+          $.ui.log('saver: Agent call ' + String(e.subagent_type) + ' effort ' + String(e.effort) + ' -> ' + effort, { to: 'debug' })
+          request = { ...e, effort }
+        }
       }
     } catch (err) {
       request = e
@@ -3468,9 +3732,10 @@ export function register(on) {
     // Subagent progress (hooks/src/progress.js): counts the call, and returns a reminder only where the
     // shell hook cannot run.
     const reminder = await progressObserve($, e)
-    if (guard === undefined && reminder === undefined) return next(request)
+    const overlap = await overlapObserve($, e)
+    if (guard === undefined && reminder === undefined && overlap === undefined) return next(request)
     const result = await next(request)
-    return progressAfter(guard === undefined ? result : await guardAfter($, e, guard, result), reminder)
+    return progressAfter(progressAfter(guard === undefined ? result : await guardAfter($, e, guard, result), reminder), overlap)
   })
 
   on('command.run', { command: 'saver' }, async ($, e, next) => {
@@ -3487,16 +3752,35 @@ export function register(on) {
     }
     if (word === 'off') {
       saver = false
+      ultra = false
+      ultraOpus = false
       snoozed = true
       return { text: t(lang, 'cmd_off') }
+    }
+    if (word === 'ultra' || word === 'ultra on') {
+      const wasOn = saver
+      saver = true
+      ultra = true
+      snoozed = false
+      return { text: t(lang, 'cmd_ultra_on') + (wasOn ? '' : ' ' + t(lang, 'cmd_ultra_needs_saver')) }
+    }
+    if (word === 'ultra off') {
+      ultra = false
+      ultraOpus = false
+      return { text: t(lang, 'cmd_ultra_off') }
+    }
+    if (word === 'ultra opus on' || word === 'ultra opus off') {
+      ultraOpus = word === 'ultra opus on'
+      return { text: t(lang, ultraOpus ? 'cmd_ultra_opus_on' : 'cmd_ultra_opus_off') }
     }
     if (word === '' || word === 'status') return { text: await statusText($) }
     return { text: t(lang, 'cmd_usage') }
   })
 
   registerAsk(on)
+  registerConfig(on)
   registerCompact(on)
-  registerUi(on, () => saver)
+  registerUi(on, () => (ultra ? 'ultra' : saver))
   registerPanes(on)
   registerReset(on)
   registerTidy(on)

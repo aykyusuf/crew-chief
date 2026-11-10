@@ -92,3 +92,43 @@ export function isGlobalPath(path, home) {
 export function kb(bytes) {
   return (bytes / 1024).toFixed(1)
 }
+
+// ---- habits the instruction files tend to keep (checked outside code fences only) ------------------
+
+function proseLines(text) {
+  const out = []
+  let fenced = false
+  for (const line of String(text).split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      fenced = !fenced
+      continue
+    }
+    if (!fenced && !/^\s*#{1,6}\s/.test(line)) out.push(line.trim())
+  }
+  return out.filter((l) => l !== '')
+}
+
+const SHOUT = /\b(ALWAYS|NEVER|MUST|MUST NOT|CRITICAL|IMPORTANT|ABSOLUTELY|MANDATORY|DO NOT|DON'T|YOU MUST)\b/
+const OLD_ORDERS = /\b(think harder|think very hard|think step by step|ultrathink|don'?t be lazy|do not be lazy|take a deep breath)\b/i
+
+// Lines that lean on ALL-CAPS emphasis or on orders older models needed ("think harder", "don't be lazy").
+// Current models tend to over-apply them (effort is a setting now); a rule that must always hold belongs in a hook.
+export function findShoutingLines(text) {
+  return proseLines(text).filter((l) => SHOUT.test(l) || OLD_ORDERS.test(l))
+}
+
+const TEMPORARY = /\b(temporary|temporarily|for now|this week|this sprint|next week|tomorrow|until we|deadline|by end of (the )?(day|week|month))\b/i
+
+// Lines that read like a passing fact (a deadline, an unresolved question) in a file that loads every session.
+export function findTemporaryLines(text) {
+  return proseLines(text).filter((l) => TEMPORARY.test(l))
+}
+
+// `@path/to/file` imports: the imported content is loaded at session start as well.
+export function countImports(text) {
+  let n = 0
+  for (const l of proseLines(text)) {
+    for (const m of l.matchAll(/(^|\s)@([\w./~-]+\.\w+|[\w./~-]+\/[\w./~-]+)/g)) if (!/^[\w.-]+@/.test(m[0].trim())) n += 1
+  }
+  return n
+}

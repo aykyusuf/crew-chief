@@ -880,3 +880,104 @@ test('the gate: STATUS.md written minutes before the approval (Claude had just u
   expect(s.questions.length).toBe(1)
   expect(s.compactCalls.length).toBe(1)
 })
+
+// ---- /crew-config: the numbers are the person's ----------------------------------------------
+
+test('crew-config: a saved arm size moves the note, and the command saves, shows and resets it', async ($, on) => {
+  const s = harness(on)
+  await start($)
+  await setTokens($, s, 130_000)
+  await prompt($, 'a')
+  expect(s.contexts.length).toBe(0) // the default arm size is 250k
+  const set = await $.command.run({ command: 'crew-config', args: 'set compact.arm 120k' })
+  expect(set.text).toContain('compact.arm = 120k, saved')
+  await setTokens($, s, 131_000)
+  await prompt($, 'b')
+  expect(s.contexts.length).toBe(1)
+  expect(s.contexts[0]).toContain(TOOL)
+  const list = await $.command.run({ command: 'crew-config', args: '' })
+  expect(list.text).toContain('compact.arm = 120k [saved]')
+  expect(list.text).toContain('compact.quiet = 10 s')
+  const reset = await $.command.run({ command: 'crew-config', args: 'reset compact.arm' })
+  expect(reset.text).toContain('back to the default')
+  expect((await $.command.run({ command: 'crew-config', args: '' })).text).toContain('compact.arm = 250k')
+})
+
+test('crew-config: a bad value or a bad name is refused and saves nothing', async ($, on) => {
+  const s = harness(on)
+  await start($)
+  expect((await $.command.run({ command: 'crew-config', args: 'set compact.arm banana' })).text).toContain('not valid')
+  expect((await $.command.run({ command: 'crew-config', args: 'set nope 1' })).text).toContain('not a setting')
+  expect((await $.command.run({ command: 'crew-config', args: 'set saver.five 80,abc' })).text).toContain('not valid')
+  expect((await $.command.run({ command: 'crew-config', args: '' })).text).toContain('compact.arm = 250k')
+})
+
+test('crew-config: the environment variable still wins over a saved value, and the command says so', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_COMPACT_ARM: '300k' } })
+  await start($)
+  const set = await $.command.run({ command: 'crew-config', args: 'set compact.arm 120k' })
+  expect(set.text).toContain('CREW_CHIEF_COMPACT_ARM is set in the environment and still wins (300k)')
+  await setTokens($, s, 200_000)
+  await prompt($, 'a')
+  expect(s.contexts.length).toBe(0)
+})
+
+test('crew-config: compact.quiet sets how long the session must stay quiet before the question', async ($, on) => {
+  const s = harness(on, { store: { cfg_compact_quiet: '30' } })
+  await start($)
+  await setTokens($, s, 260_000)
+  await $.tool.call({ tool: TOOL, phase: 'p' })
+  await finishTurn($, s)
+  await afterGrace(s) // 10 s: the default would ask now
+  expect(s.questions.length).toBe(0)
+  await s.clock.advance(20_000)
+  await settle()
+  await s.clock.advance(0)
+  await settle()
+  expect(s.questions.length).toBe(1)
+})
+
+test('crew-config: compact.fallback off means no question unless Claude proposes one', async ($, on) => {
+  const s = harness(on, { store: { cfg_compact_fallback: 'off' } })
+  await start($)
+  await setTokens($, s, 410_000) // past the ask size, Claude never called the tool
+  await finishTurn($, s)
+  await afterGrace(s)
+  expect(s.questions.length).toBe(0)
+})
+
+test('crew-config: without it, the question does come past the ask size', async ($, on) => {
+  const s = harness(on)
+  await start($)
+  await setTokens($, s, 410_000)
+  await finishTurn($, s)
+  await afterGrace(s)
+  expect(s.questions.length).toBe(1)
+})
+
+test('crew-config: compact.reask sets how far the context must grow after "not now"', async ($, on) => {
+  const s = harness(on, { answers: [LATER], store: { cfg_compact_reask: '20k' } })
+  await start($)
+  await setTokens($, s, 260_000)
+  await $.tool.call({ tool: TOOL, phase: 'p' })
+  await askAtTurnEnd($, s)
+  expect(s.questions.length).toBe(1)
+  await setTokens($, s, 275_000) // +15k: not yet
+  await prompt($, 'a')
+  const before = s.contexts.length
+  await setTokens($, s, 285_000) // +25k: armed again
+  await prompt($, 'b')
+  expect(s.contexts.length).toBe(before + 1)
+})
+
+test('crew-config: a size you set wins on a small window; the percent only scales the defaults', async ($, on) => {
+  const s = harness(on, { store: { cfg_compact_arm: '150k', cfg_compact_ask: '190k' } })
+  s.window = 200_000
+  await start($)
+  await setTokens($, s, 130_000) // the default 60 % (120k) would have armed here
+  await prompt($, 'a')
+  expect(s.contexts.length).toBe(0)
+  await setTokens($, s, 155_000)
+  await prompt($, 'b')
+  expect(s.contexts.length).toBe(1)
+})

@@ -108,7 +108,7 @@ export function tailText(facts) {
 // What to add to the footer's mode labels: the saver while it is on, the guard once it has stopped something.
 export function modeLabels(facts) {
   const parts = []
-  if (facts.saver) parts.push('saver on')
+  if (facts.saver) parts.push(facts.saver === 'ultra' ? 'ultra-saver on' : 'saver on')
   if (facts.guard && facts.guard.held > 0) parts.push(`guard ${facts.guard.held} held`)
   return parts.length > 0 ? ['crew-chief: ' + parts.join(' · ')] : []
 }
@@ -127,8 +127,9 @@ export function quietFacts(facts) {
     five,
     week,
     guard: facts.guard && facts.guard.held > 0 ? facts.guard : undefined,
-    saver: Boolean(facts.saver && (five || week)),
+    saver: facts.saver === 'ultra' || (facts.saver && (five || week)) ? facts.saver : false,
     compactKey: facts.compactKey,
+    busy: facts.busy,
   }
 }
 
@@ -156,7 +157,11 @@ export function statusSegments(facts) {
   }
   if (facts.saver) {
     gap()
-    out.push(seg('saver on', 'info'))
+    out.push(seg(facts.saver === 'ultra' ? 'ultra-saver on' : 'saver on', 'info'))
+  }
+  if (typeof facts.busy === 'number') {
+    gap()
+    out.push(seg(`${facts.busy} agents running`, 'warn'), seg(' · more than you can follow', 'dim'))
   }
   if (facts.compactKey) {
     gap()
@@ -183,6 +188,7 @@ export function elapsedLabel(ms) {
 
 export function agentSegments(agent, width = 100) {
   const out = [seg(clip(String(agent.name ?? 'agent').replace(/^.*:/, ''), 18).padEnd(18), 'info', true), seg(' ', 'dim')]
+  if (agent.fresh) out.push(seg('first run ', 'warn'))
   // `unknown`: the agent has run a while and its model never reached us (it started before the mod loaded), so
   // no model or effort is drawn rather than a "starting" that stays.
   if (!agent.unknown) {

@@ -34,6 +34,8 @@ import { registerReset, resetNotePrompt, resetOnUsage, resetResetFlow } from './
 import { registerStats, cacheOnPrompt, statsReset, statsSessionStart, statsStepEnd, statsStepStart } from './stats-flow.mjs'
 import { registerTidy, tidySessionStart } from './tidy-flow.mjs'
 import { askWithDeadline, registerAsk } from './ask.mjs'
+import { cfgGet, configSessionStart, registerConfig } from './config.mjs'
+import { overlapObserve, overlapReset } from './overlap.mjs'
 import { rowSessionEnd, rowSessionStart, rowStepEnd, rowStepStart, rowTurnComplete } from './agent-row.mjs'
 import { addLanguageVote, resetLang, resolveLang } from './lang.mjs'
 import { progressAfter, progressObserve, progressReset } from './progress.mjs'
@@ -50,8 +52,6 @@ import {
   resetCompact,
 } from './compact-flow.mjs'
 import {
-  FIVE_HOUR_DEFAULT,
-  SEVEN_DAY_DEFAULT,
   SESSION_AGE_TOAST_MS,
   ADVISOR_LATER_MS,
   advisorOfferAllowed,
@@ -61,8 +61,8 @@ import {
   crossing,
   formatDuration,
   isEnvFlag,
-  parseThresholds,
   tokensLabel,
+  ultraAgentCall,
 } from './saver-logic.mjs'
 
 const TURN_STALE_MS = 10 * 60 * 1000
@@ -70,6 +70,9 @@ const STEP_STALE_MS = 5 * 60 * 1000
 
 // Per-session state; resetState() puts it back when the session ends, /clear, or /resume.
 let saver = false
+let ultra = false // a mode of the saver: subagents stay off Opus (hooks/saver-logic.mjs ultraAgentCall)
+let ultraOpus = false // the person's standing yes to Opus for the session (/saver ultra opus on)
+let ultraToasted = false
 let snoozed = false
 let pending = null
 let lastPromptAt = 0
@@ -83,7 +86,11 @@ let advisorChecked = false
 const seen = new Set()
 
 function resetState() {
+  overlapReset()
   saver = false
+  ultra = false
+  ultraOpus = false
+  ultraToasted = false
   snoozed = false
   open.saver = false
   pending = null
@@ -103,9 +110,10 @@ function resetState() {
 }
 
 async function readConfig($) {
-  const off = (await $.env.get('CREW_CHIEF_SAVER')) === 'off'
-  const five = parseThresholds(await $.env.get('CREW_CHIEF_SAVER_FIVE_HOUR'), FIVE_HOUR_DEFAULT)
-  const week = parseThresholds(await $.env.get('CREW_CHIEF_SAVER_SEVEN_DAY'), SEVEN_DAY_DEFAULT)
+  // saver.ask, saver.five and saver.seven: /crew-config, or the environment variables of the same meaning.
+  const off = (await cfgGet($, 'saver.ask')) === 'off'
+  const five = await cfgGet($, 'saver.five')
+  const week = await cfgGet($, 'saver.seven')
   return { off, five, week }
 }
 
@@ -138,7 +146,8 @@ async function askUser($, hit) {
   open.saver = true
   try {
     const lang = await resolveLang($)
-    const answers = [t(lang, 'answer_on'), t(lang, 'answer_not_now'), t(lang, 'answer_never')]
+    // The ultra-saver is offered here and nowhere else on its own; unanswered counts as "not now", never as a yes.
+    const answers = [t(lang, 'answer_on'), t(lang, 'answer_ultra'), t(lang, 'answer_not_now'), t(lang, 'answer_never')]
     const now = await $.clock.now()
     const left = hit.resetsAt ? Date.parse(hit.resetsAt) - now : 0
     const reset = left > 0 ? t(lang, 'reset_in', { duration: formatDuration(left, unitsFor(lang)) }) : ''
@@ -146,16 +155,39 @@ async function askUser($, hit) {
       $,
       t(lang, 'ask', { window: windowName(lang, hit.kind), percent: hit.percent, reset }),
       answers,
-      answers[1],
+      answers[2],
     )
     if (answer === answers[0]) {
       saver = true
       $.ui.toast(t(lang, 'toast_saver_on'), { timeoutMs: 8000 })
-    } else if (answer === answers[2]) {
+    } else if (answer === answers[1]) {
+      saver = true
+      ultra = true
+      $.ui.toast(t(lang, 'toast_ultra_on'), { timeoutMs: 8000 })
+    } else if (answer === answers[3]) {
       snoozed = true
     }
   } catch (err) {
     // Dismissed, or a run with nobody to ask: treat it as "not now".
+  } finally {
+    open.saver = false
+  }
+}
+
+// Ultra-saver: a call asks for the strongest model. Asks the person; no answer, a dismissed dialog or another
+// question being open all mean no (the call then runs on Sonnet at high).
+async function askOpus($, e) {
+  if (open.saver || open.compact || open.reset) return false
+  open.saver = true
+  try {
+    const lang = await resolveLang($)
+    const answers = [t(lang, 'ultra_yes'), t(lang, 'ultra_no')]
+    const agent = typeof e.subagent_type === 'string' && e.subagent_type !== '' ? e.subagent_type : 'an agent'
+    const why = t(lang, typeof e.model === 'string' && e.model !== '' ? 'ultra_why_named' : 'ultra_why_xhigh')
+    const answer = await askWithDeadline($, t(lang, 'ultra_ask_opus', { agent, why }), answers, answers[1])
+    return answer === answers[0]
+  } catch (err) {
+    return false
   } finally {
     open.saver = false
   }
@@ -290,7 +322,7 @@ async function statusText($) {
   const units = unitsFor(lang)
   const usage = await $.session.usage()
   const now = await $.clock.now()
-  const parts = [t(lang, saver ? 'status_on' : 'status_off') + (snoozed ? t(lang, 'status_snoozed') : '')]
+  const parts = [t(lang, saver ? 'status_on' : 'status_off') + (ultra ? t(lang, 'status_ultra') : '') + (snoozed ? t(lang, 'status_snoozed') : '')]
   for (const w of usage.rateLimits) {
     const left = w.resetsAt ? Date.parse(w.resetsAt) - now : 0
     parts.push(windowName(lang, w.kind) + ' ' + t(lang, 'percent', { n: w.percentUsed }) + (left > 0 ? t(lang, 'status_resets', { duration: formatDuration(left, units) }) : ''))
@@ -328,6 +360,12 @@ export function register(on) {
       // plugin's own earlier registration (/clear, /resume run session.start again), see ownsSaver.
       registered = await ownsSaver($)
     }
+    // CREW_CHIEF_ULTRA=on starts the session in ultra-saver (for trying it in a scripted run; nothing turns it on by itself).
+    if (isEnvFlag(await $.env.get('CREW_CHIEF_ULTRA'))) {
+      saver = true
+      ultra = true
+    }
+    await configSessionStart($)
     await compactSessionStart($)
     await tidySessionStart($)
     await statsSessionStart($)
@@ -409,7 +447,9 @@ export function register(on) {
     let request = e
     if (saver && e.agentId !== undefined) {
       const cap = capEffort(e.model, e.effort)
-      if (cap.capped) {
+      // Under ultra an Opus subagent is one the person approved (or allowed for the session): the call already
+      // carries the effort that was agreed, so the step must not lower it again.
+      if (cap.capped && !(ultra && cap.tier === 'heavy')) {
         if (!capToasted && !quiet) {
           capToasted = true
           const lang = await resolveLang($)
@@ -443,10 +483,27 @@ export function register(on) {
     if (guard !== undefined && guard.deny !== undefined) return { deny: guard.deny }
     let request = e
     try {
-      const effort = saver && e.tool === 'Agent' ? agentCallEffort(e) : undefined
-      if (effort !== undefined) {
-        $.ui.log('saver: Agent call ' + String(e.subagent_type) + ' effort ' + String(e.effort) + ' -> ' + effort, { to: 'debug' })
-        request = { ...e, effort }
+      let plan
+      if (ultra && e.tool === 'Agent') plan = ultraAgentCall(e, ultraOpus, await $.session.model())
+      if (plan !== undefined) {
+        // Ultra-saver: the model and effort of the call are rewritten (never seen live: the host may still apply
+        // the agent definition's own model; the unit tests cover the rewrite, /tasks shows what really ran).
+        const approved = plan.ask ? await askOpus($, e) : false
+        if (!approved) {
+          $.ui.log('saver: ultra Agent call ' + String(e.subagent_type) + ' model ' + String(e.model) + ' effort ' + String(e.effort) + ' -> ' + JSON.stringify(plan.rewrite), { to: 'debug' })
+          request = { ...e, ...plan.rewrite }
+          if (!ultraToasted && !quiet && plan.rewrite.model !== undefined) {
+            ultraToasted = true
+            const lang = await resolveLang($)
+            $.ui.toast(t(lang, 'toast_ultra_cap', { agent: String(e.subagent_type || 'agent'), effort: plan.rewrite.effort }), { timeoutMs: 6000 })
+          }
+        }
+      } else {
+        const effort = saver && e.tool === 'Agent' ? agentCallEffort(e) : undefined
+        if (effort !== undefined) {
+          $.ui.log('saver: Agent call ' + String(e.subagent_type) + ' effort ' + String(e.effort) + ' -> ' + effort, { to: 'debug' })
+          request = { ...e, effort }
+        }
       }
     } catch (err) {
       request = e
@@ -454,9 +511,10 @@ export function register(on) {
     // Subagent progress (hooks/src/progress.js): counts the call, and returns a reminder only where the
     // shell hook cannot run.
     const reminder = await progressObserve($, e)
-    if (guard === undefined && reminder === undefined) return next(request)
+    const overlap = await overlapObserve($, e)
+    if (guard === undefined && reminder === undefined && overlap === undefined) return next(request)
     const result = await next(request)
-    return progressAfter(guard === undefined ? result : await guardAfter($, e, guard, result), reminder)
+    return progressAfter(progressAfter(guard === undefined ? result : await guardAfter($, e, guard, result), reminder), overlap)
   })
 
   on('command.run', { command: 'saver' }, async ($, e, next) => {
@@ -473,16 +531,35 @@ export function register(on) {
     }
     if (word === 'off') {
       saver = false
+      ultra = false
+      ultraOpus = false
       snoozed = true
       return { text: t(lang, 'cmd_off') }
+    }
+    if (word === 'ultra' || word === 'ultra on') {
+      const wasOn = saver
+      saver = true
+      ultra = true
+      snoozed = false
+      return { text: t(lang, 'cmd_ultra_on') + (wasOn ? '' : ' ' + t(lang, 'cmd_ultra_needs_saver')) }
+    }
+    if (word === 'ultra off') {
+      ultra = false
+      ultraOpus = false
+      return { text: t(lang, 'cmd_ultra_off') }
+    }
+    if (word === 'ultra opus on' || word === 'ultra opus off') {
+      ultraOpus = word === 'ultra opus on'
+      return { text: t(lang, ultraOpus ? 'cmd_ultra_opus_on' : 'cmd_ultra_opus_off') }
     }
     if (word === '' || word === 'status') return { text: await statusText($) }
     return { text: t(lang, 'cmd_usage') }
   })
 
   registerAsk(on)
+  registerConfig(on)
   registerCompact(on)
-  registerUi(on, () => saver)
+  registerUi(on, () => (ultra ? 'ultra' : saver))
   registerPanes(on)
   registerReset(on)
   registerTidy(on)

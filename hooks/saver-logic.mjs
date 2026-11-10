@@ -57,7 +57,7 @@ export function capEffort(model, effort) {
 // crew-chief's own Opus agents. Their model comes from the agent definition, which a tool call does
 // not show, so they are named here; any other agent counts only when the call names an Opus or
 // Fable model itself.
-const HEAVY_AGENT = /(^|:)(implementer-hard|reviewer)$/
+const HEAVY_AGENT = /(^|:)(implementer-hard|reviewer|planner)$/
 
 // The effort the saver puts on an Agent tool call, or undefined to leave the call alone. The
 // subagent's own `effort:` in its definition beats a rewrite made later at turn.step (seen with
@@ -73,6 +73,50 @@ export function agentCallEffort(input) {
   const rank = EFFORT_RANK[input.effort]
   if (input.effort !== undefined && (rank === undefined || rank <= EFFORT_RANK.medium)) return undefined
   return 'medium'
+}
+
+// ---- ultra-saver -----------------------------------------------------------------------------
+
+// Ultra-saver keeps subagents off Opus and Fable and at high effort at most; most of them run at their own
+// default (medium). The rewrite is made on the Agent tool call, where `model` and `effort` are still the
+// caller's to set; a `fork` ignores `model`, so it is left alone.
+//   - crew-chief's heavy agents (implementer-hard, reviewer), and any agent that would inherit a heavy main
+//     model, run on Sonnet at high at most (medium when no effort was given and no tier default is high);
+//   - a call that names Opus or Fable itself, or a reviewer asked for xhigh/max (the routing policy's signal
+//     for risky work), is a request for the strong model: `ask` is true and the caller asks the person; on a
+//     no (or no answer) the same rewrite as above applies, on a yes the call goes through unchanged;
+//   - Sonnet agents get their effort capped at high; Haiku and everything else is untouched.
+// `allowHeavy` is the person's standing "yes" for the session (/saver ultra opus on): nothing is rewritten
+// except effort above high for Sonnet agents. Returns undefined when the call is left alone, otherwise
+// { rewrite: {model?, effort?}, ask: boolean, tier }.
+const SONNET_NAMED = /(^|:)(deep-reader|implementer|ui-tester)$/
+const HAIKU_NAMED = /(^|:)(scanner|ui-smoke|mechanic)$/
+const HIGH_FIRST = /(^|:)(implementer-hard|reviewer|planner)$/
+
+export function ultraAgentCall(input, allowHeavy = false, mainModel = undefined) {
+  if (input === null || typeof input !== 'object') return undefined
+  const type = typeof input.subagent_type === 'string' ? input.subagent_type : ''
+  if (type === 'fork') return undefined
+  const named = typeof input.model === 'string' && input.model !== ''
+  const tier = named
+    ? modelTier(input.model)
+    : HEAVY_AGENT.test(type)
+      ? 'heavy'
+      : SONNET_NAMED.test(type)
+        ? 'sonnet'
+        : HAIKU_NAMED.test(type)
+          ? 'other'
+          : modelTier(mainModel) // another agent with no model of its own inherits the session's
+  const rank = EFFORT_RANK[input.effort]
+  if (tier === 'heavy' && !allowHeavy) {
+    const strongRequest = named || (/(^|:)reviewer$/.test(type) && (input.effort === 'xhigh' || input.effort === 'max'))
+    const effort = rank === undefined ? (HIGH_FIRST.test(type) ? 'high' : 'medium') : rank > EFFORT_RANK.high ? 'high' : input.effort
+    return { rewrite: { model: 'sonnet', effort }, ask: strongRequest, tier }
+  }
+  if (tier !== 'other' && rank !== undefined && rank > EFFORT_RANK.high && !(tier === 'heavy' && allowHeavy)) {
+    return { rewrite: { effort: 'high' }, ask: false, tier }
+  }
+  return undefined
 }
 
 // 6_300_000 -> "1h 45m", 90_000 -> "2m" (rounded up), 1 ms -> "1m", zero or invalid -> "<1m".

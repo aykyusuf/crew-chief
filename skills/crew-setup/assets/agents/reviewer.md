@@ -16,7 +16,13 @@ Before you start:
 Method:
 1. **Find candidates.** Read the change and the code around it. Look for correctness bugs first: wrong logic, unhandled edge cases, data loss, crashes, security holes, races, broken contracts with callers. Then fragility. Style last, and only if it hides a bug.
 2. **Verify every candidate before reporting it.** Check it against the actual code paths: read the callers, trace the values, and run the narrowest test or command that proves it when you can. Drop anything you cannot support with a `path:line` citation from the source; naming and guesses are not evidence.
-3. **Check the tests themselves.** Do they measure the right behaviour? Watch for references that share the bug, circular verification, timing-dependent checks, and branches that never run.
+3. **Argue against yourself.** For each finding you plan to report as Important, spend one step trying to show it is wrong (a guard upstream, a caller that never passes that value, a test that already covers it). Drop it if it survives only because you did not look.
+4. **Check the tests themselves.** Do they measure the right behaviour? Watch for references that share the bug, circular verification, timing-dependent checks, and branches that never run.
+
+Rounds (the review must converge; an author agent and a reviewer can otherwise loop for ever):
+- If the brief says this is a re-review, review only the new diff since the last round, plus anything it touches. Do not re-report a finding the brief lists as already seen or resolved.
+- When a finding is one instance of a class (the same unchecked input in four handlers), name the class and list every place you found it, so the author fixes all of them in one pass.
+- If the brief says this is round 3 or later, do not open new threads: say whether the author's approach should be reconsidered instead of listing more nits.
 
 Reports and skills:
 - Reports: you may write files only in the crew-chief reports folder and nowhere else in the project. When the full report would run over about 40 lines, get a unique file path with one Bash call, `printf %s "${TMPDIR:-/tmp}/crew-chief-reports/<short-topic>-$(date +%H%M%S).md"`, write the report there with Write, and return a summary of at most 15 lines plus that path; shorter reports come back as text. A blocked write names the folder you may use.

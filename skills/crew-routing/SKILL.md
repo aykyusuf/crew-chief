@@ -22,6 +22,8 @@ Delegate only when the work is self-contained **and** at least one holds:
 
 **Is it an edge or just an "and then"?** Before chaining two steps, ask: does the second one actually read the first one's output? If you cannot name the variable, file, or result that crosses from one to the other, there is no dependency: run them in parallel (or drop the wait). Writing steps in the order you thought of them is not a dependency.
 
+**Is it a model task at all?** If you can describe the step without the words judge, decide, assess or summarize (merge, sort, dedupe, compare before and after, rename), it is a few lines of code or a shell command with one correct answer. Do not spend a model call, let alone a subagent, on it.
+
 Multi-agent setups cost several times the tokens of one session, and most coding work is tightly coupled. When in doubt, do it yourself.
 
 ## 2. Pick the tier
@@ -31,6 +33,8 @@ Multi-agent setups cost several times the tokens of one session, and most coding
 | Where is X, which files use Y, filter a long log, run tests and return failures | `crew-chief:scanner` | haiku / low |
 | Understand several files together, trace a flow, find a root cause, map impact, or read code plus current web sources (report returned as text; the caller saves it) | `crew-chief:deep-reader` | sonnet / medium |
 | Change with named files, a clear change, and a check to run | `crew-chief:implementer` | sonnet / medium |
+| Rote edits in named files with a verify command (renames, the same line in many files, applying a diff you wrote) | `crew-chief:mechanic` | haiku / low |
+| A change across several modules or with real design choices, before building it: files, order, risks, a testable done condition (read-only) | `crew-chief:planner` | opus / high |
 | Multi-module change, algorithms, concurrency, unknown root cause, a task `implementer` stopped on | `crew-chief:implementer-hard` | opus / high |
 | Quick read-only check that a page or screen is up, shows text X, or logs errors | `crew-chief:ui-smoke` | haiku / low |
 | Multi-step UI flow or regression pass in a browser, emulator, or simulator (screenshots) | `crew-chief:ui-tester` | sonnet / medium |
@@ -46,7 +50,7 @@ If the plugin is not installed but the project has `.claude/agents/` copies from
 - Blast radius: auth, money, data loss, migrations, concurrency raise the tier and the review depth, whatever the size.
 The first two decide the tier; the last decides how carefully the result is checked.
 
-**Size the brief.** Agents stop at a turn limit (implementer 80, implementer-hard 120, reviewer 80, deep-reader and ui-tester 60). Split a large multi-file task into 2-3 independent pieces with their own definition of done instead of one long call; for a long piece, name a progress file the agent can checkpoint to. A stopped agent returns partial output: continue it with SendMessage rather than starting over. When two or more implementers run in parallel, give them disjoint file sets; if they could touch the same files, run them one after the other. Worktree isolation is a last resort: a worktree starts from the default branch, so it does not see uncommitted work and has no installed dependencies.
+**Size the brief.** Agents stop at a turn limit (implementer 80, implementer-hard 120, reviewer 80, deep-reader and ui-tester 60, planner 40, mechanic 30). Split a large multi-file task into 2-3 independent pieces with their own definition of done instead of one long call; for a long piece, name a progress file the agent can checkpoint to. A stopped agent returns partial output: continue it with SendMessage rather than starting over. When two or more implementers run in parallel, give them disjoint file sets; if they could touch the same files, run them one after the other. Worktree isolation is a last resort: a worktree starts from the default branch, so it does not see uncommitted work and has no installed dependencies.
 
 **Adjust per call.** The Agent tool takes `model` and `effort` (Claude Code 2.1.292+). They override the tier's defaults for that call only:
 - Easier than the tier assumes: lower effort before lowering the model.
@@ -79,6 +83,10 @@ A subagent does not see this conversation. Every brief states:
 5. **Constraints**: anything the user said in this conversation that applies ("do not modify X", "no commits", "answer in Turkish"). A subagent only sees `CLAUDE.md`, not the conversation, and constraints are what gets dropped at this boundary.
 6. **Return format**, if you need something specific.
 
+Items 2 and 4 are the brief's SCOPE and DONE-CHECK: a brief without them is not ready to send. Parallel reviewers or auditors each get their own context and their own angle (a different slice or lens); do not give them a shared window or a shared findings file, or they converge and you pay several times for one opinion.
+
+**Pilot before a batch.** For a repeated job over many files, run the brief on three of them first, read the result, fix the brief, then run the rest. Watch the first runs of any new agent or brief yourself before you trust it unattended.
+
 Vague briefs lead to duplicated work and gaps. Independent briefs go out in one message so they run in parallel. Never run two agents that edit the same files at the same time, or two that share one emulator, device, or local server.
 
 ## 4. Escalate, don't retry
@@ -91,6 +99,10 @@ Vague briefs lead to duplicated work and gaps. Independent briefs go out in one 
 
 **Three strikes means the plan is wrong.** If the same unit fails three corrections (counting across tiers), stop escalating: the problem is in the brief or the split that produced it, which no retry can see. Re-cut the unit, fix the brief, or take it to the user.
 
+**Evidence or it is not done.** An agent's report counts as done only with the command it ran and the tail of its output. A report with no check, or only "looks fine", is `unverified`: run the check yourself or send it back for it.
+
+**Re-review converges.** When you send a fix back through `reviewer`, tell it which round this is, give it the findings already seen or resolved, and ask for the new diff only. After round three, stop reviewing and question the approach.
+
 Escalate on evidence, not only on the agent's own "stopped". Treat these as stopped too: the check was not run or still fails, files changed outside the brief, or the run ended at `maxTurns` with partial output. Verify a "done" yourself with the diff and the check before relying on it.
 
 **If you learn mid-task that it is harder than you judged**, act in this order, cheapest first:
@@ -101,6 +113,16 @@ Escalate on evidence, not only on the agent's own "stopped". Treat these as stop
 You can only do this when you are awake: you are notified when a subagent finishes, not while it runs. Do not poll for progress; the agent panel shows model, effort, and tokens for the user.
 
 If the advisor tool is on (`/advisor`), a Sonnet or Haiku agent can consult a stronger model by itself at the hard moment, with no restart. See [references/model-and-effort.md](references/model-and-effort.md).
+
+## 4b. Runs that do not need the user
+
+Before you start something the user will not watch (an overnight `/loop`, a `/goal`, a background workflow, a batch), answer five questions, and stop to ask the user if you cannot:
+1. **Done:** what is the condition, written so a command can evaluate it (tests exit 0, every claim has a source line, the diff touches only the planned files)? "Looks good", "the model is confident" and "no errors were raised" are not conditions.
+2. **Check:** what runs by itself to prove it (test suite, Stop hook, review step)?
+3. **Boundaries:** which files, branch and commands are allowed? Stay inside them.
+4. **Guardrails:** how many turns or how much spend before it stops?
+5. **Output and approval:** where does the result land (a PR, a summary, a progress file), and what does a person approve before anything irreversible (migrations, deletes, production, money)?
+In a project with handoff files, the open task's `done_when` in `tasks.json` is a good `/goal` condition.
 
 ## 5. User overrides
 

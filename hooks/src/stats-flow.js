@@ -14,6 +14,7 @@ import { formatDuration } from './saver-logic.mjs'
 import { t, unitsFor } from './saver-i18n.mjs'
 import { modelFamily } from './saver-logic.mjs'
 import {
+  addRun,
   addStep,
   classifyGap,
   fmtTokens,
@@ -24,10 +25,11 @@ import {
   routingShare,
   shouldWarnCold,
   statsRows,
+  topRuns,
 } from './report-logic.mjs'
 
 function freshStats() {
-  return { stats: newStats(), lastCost: undefined, lastMainEndAt: undefined, lastMainContext: 0, stepGap: undefined, hint: undefined, warnedFor: undefined }
+  return { stats: newStats(), runs: new Map(), lastCost: undefined, lastMainEndAt: undefined, lastMainContext: 0, stepGap: undefined, hint: undefined, warnedFor: undefined }
 }
 
 let sf = freshStats()
@@ -87,6 +89,7 @@ export async function statsStepEnd($, e, result) {
       sf.lastCost = usd
     }
     addStep(sf.stats, { role: main ? 'main' : 'subagent', family, usage, usd: grew })
+    if (!main) addRun(sf.runs, { id: e.agentId, family, usage, usd: grew })
     if (main && usage) {
       const input = Number(usage.input_tokens) || 0
       const cacheRead = Number(usage.cache_read_input_tokens) || 0
@@ -145,6 +148,16 @@ async function buildStatsReport($) {
   if (typeof total?.cost?.usd === 'number') out.push(t(lang, 'report_total', { usd: fmtUsd(total.cost.usd) }))
   const share = routingShare(rows)
   if (share.total > 0) out.push(t(lang, 'report_share', { sub: share.subagent, cheaper: share.cheaper }))
+  const top = topRuns(sf.runs, 3)
+  if (top.length > 0) {
+    const agents = await safe(() => $.agent.list(), [])
+    out.push(t(lang, 'report_runs_head'))
+    for (const r of top) {
+      const known = Array.isArray(agents) ? agents.find((a) => a.id === r.id) : undefined
+      const name = known ? String(known.description || known.type || r.id).slice(0, 40) : r.id.slice(0, 12)
+      out.push('- ' + t(lang, 'report_run_row', { name, model: r.family, requests: r.requests, usd: fmtUsd(r.usd) }))
+    }
+  }
   out.push(t(lang, 'report_note'))
   return out.join('\n')
 }

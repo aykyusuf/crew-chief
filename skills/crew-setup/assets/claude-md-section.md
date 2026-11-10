@@ -13,7 +13,9 @@ Tiers (agents in .claude/agents, default model/effort):
 - scanner (haiku/low): mechanical lookups, filtering long logs or test output.
 - deep-reader (sonnet/medium): read-only analysis across several files, root cause from code, code plus web research (read-only; a long report goes to a file in the crew-chief reports folder and a short summary comes back).
 - implementer (sonnet/medium): changes where files, change, and check are all specified.
+- mechanic (haiku/low): rote edits in named files with a verify command (renames, same line in many files, applying a given diff); anything needing judgement goes to implementer.
 - implementer-hard (opus/high): multi-module, algorithmic, or unknown-root-cause work.
+- planner (opus/high): read-only plan for a multi-module change before implementer-hard: files, order, risks, a testable done condition; no edits.
 - ui-smoke (haiku/low): quick read-only check that a page or screen is up, shows given text, or logs errors; no screenshots.
 - ui-tester (sonnet/medium): multi-step browser, emulator, or simulator checks with screenshots; reports pass/fail with evidence; never two UI agents on the same device or browser at once.
 - reviewer (opus/high): independent review before a commit or PR of a significant or risky change; effort xhigh only for security, data loss, concurrency, money, or shipping code; large diffs go to /code-review.
@@ -24,6 +26,6 @@ Rules:
 - If a tier reports "stopped", escalate one step: implementer -> implementer-hard -> main session.
 - The Agent tool's model and effort parameters override a tier's defaults for one call; use them when the user names a model or effort ("give this to Sonnet at medium").
 - User overrides win and last until they say otherwise: "do it yourself" = solo; "use agents" = delegate; "X directly with Opus" = X stays in the main session.
-- Subagents cannot see your skill list. When a task needs a skill, name it in the brief; every tier except scanner and ui-smoke can load it with the Skill tool. For skill-heavy work you may use general-purpose, but pass model explicitly, because it otherwise inherits the main model.
+- Subagents cannot see your skill list. When a task needs a skill, name it in the brief; every tier except scanner, mechanic and ui-smoke can load it with the Skill tool. For skill-heavy work you may use general-purpose, but pass model explicitly, because it otherwise inherits the main model.
 - For polling, waiting, scheduling, workflows, or agent teams, load the crew-routing skill first if it is installed.
 <!-- crew-chief:end -->

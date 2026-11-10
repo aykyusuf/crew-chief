@@ -268,3 +268,19 @@ test('tempo: calls and time when no percentage was reported, only the time when 
   assert.ok(reported.includes('40%') && reported.endsWith('1m15s') && !reported.includes('calls'), reported)
   assert.ok(!lineText(agentSegments({ name: 'a', model: 'claude-haiku-5-5', calls: 0, elapsedMs: 500 })).includes('calls'))
 })
+
+test('busy note: shown in quiet mode, with the count; ultra-saver stays visible in quiet mode', () => {
+  const facts = { ctx: undefined, five: undefined, week: undefined, saver: 'ultra', busy: 6 }
+  const q = quietFacts(facts)
+  assert.equal(q.busy, 6)
+  assert.equal(q.saver, 'ultra')
+  const text = statusSegments(q).map((s) => s.t).join('')
+  assert.ok(text.includes('6 agents running') && text.includes('ultra-saver on'))
+  assert.equal(quietFacts({ saver: true }).saver, false)
+})
+
+test('a first run of an agent type is marked, a later one is not', () => {
+  const text = (a) => agentSegments(a, 100).map((s) => s.t).join('')
+  assert.ok(text({ name: 'crew-chief:planner', model: 'claude-opus-5-5', effort: 'high', fresh: true }).includes('first run'))
+  assert.ok(!text({ name: 'crew-chief:planner', model: 'claude-opus-5-5', effort: 'high' }).includes('first run'))
+})

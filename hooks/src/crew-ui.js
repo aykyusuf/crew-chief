@@ -24,6 +24,7 @@
 // CREW_CHIEF_UI=on|off beats the saved choice. Any failure draws nothing (the engine's own band).
 import { rowBandRows, rowSurfaces } from './agent-row.mjs'
 import { resolveLang } from './lang.mjs'
+import { cfgGet } from './config.mjs'
 import { t } from './saver-i18n.mjs'
 import { compactAskAt, compactBandPress, compactKeyDue } from './compact-flow.mjs'
 import { guardSummary } from './guard.mjs'
@@ -372,7 +373,11 @@ export function registerUi(on, saverOn) {
         facts.five = undefined
         facts.week = undefined
       }
-      const lines = bandLines({ status: statusSegments(uiFull || demo ? facts : quietFacts(facts)), agents: demo ? demo.agents : await rowBandRows($), maxLines, width: columns })
+      const agents = demo ? demo.agents : await rowBandRows($)
+      // Past agents.warn running at once, say so: attention, not tokens, is what runs out first.
+      const warnAt = await cfgGet($, 'agents.warn')
+      facts.busy = Array.isArray(agents) && agents.length > warnAt ? agents.length : undefined
+      const lines = bandLines({ status: statusSegments(uiFull || demo ? facts : quietFacts(facts)), agents, maxLines, width: columns })
       if (lines.length === 0 && question === undefined) return next(e)
       return uiTree($, e, lines, () => compactBandPress($), uiStyle, question)
     } catch (err) {

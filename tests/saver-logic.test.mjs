@@ -164,3 +164,40 @@ test('agentCallEffort: Opus agents of the plugin get medium, nothing else is tou
   assert.equal(agentCallEffort(undefined), undefined)
   assert.equal(agentCallEffort({ subagent_type: 'crew-chief:reviewer', effort: 7 }), undefined)
 })
+
+// ---- ultra-saver ---------------------------------------------------------------------------------
+import { ultraAgentCall } from '../hooks/saver-logic.mjs'
+
+test('ultra: crew-chief heavy agents drop to Sonnet at high without asking', () => {
+  assert.deepEqual(ultraAgentCall({ tool: 'Agent', subagent_type: 'crew-chief:implementer-hard' }), { rewrite: { model: 'sonnet', effort: 'high' }, ask: false, tier: 'heavy' })
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'reviewer', effort: 'high' }).rewrite, { model: 'sonnet', effort: 'high' })
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:implementer-hard', effort: 'medium' }).rewrite, { model: 'sonnet', effort: 'medium' })
+})
+
+test('ultra: a risky review (xhigh/max) or a call naming Opus asks the person first', () => {
+  const r = ultraAgentCall({ subagent_type: 'crew-chief:reviewer', effort: 'xhigh' })
+  assert.equal(r.ask, true)
+  assert.deepEqual(r.rewrite, { model: 'sonnet', effort: 'high' }) // what runs when the answer is no
+  assert.equal(ultraAgentCall({ subagent_type: 'general-purpose', model: 'opus' }).ask, true)
+  assert.equal(ultraAgentCall({ subagent_type: 'implementer-hard', effort: 'xhigh' }).ask, false) // only reviewers signal risk by effort
+})
+
+test('ultra: Sonnet agents are capped at high, Haiku and forks are left alone', () => {
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:implementer', effort: 'max' }).rewrite, { effort: 'high' })
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:implementer' }), undefined)
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:implementer', effort: 'medium' }), undefined)
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:scanner', effort: 'low' }), undefined)
+  assert.equal(ultraAgentCall({ subagent_type: 'fork', model: 'opus' }), undefined)
+  assert.equal(ultraAgentCall(null), undefined)
+})
+
+test('ultra: an agent with no model of its own follows the main model', () => {
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'general-purpose' }, false, 'claude-opus-5-5').rewrite, { model: 'sonnet', effort: 'medium' })
+  assert.equal(ultraAgentCall({ subagent_type: 'general-purpose' }, false, 'claude-sonnet-5-5'), undefined)
+})
+
+test('ultra: with the standing yes, Opus is left alone', () => {
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:reviewer', effort: 'xhigh' }, true), undefined)
+  assert.equal(ultraAgentCall({ subagent_type: 'x', model: 'opus' }, true), undefined)
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:implementer', effort: 'xhigh' }, true).rewrite, { effort: 'high' })
+})

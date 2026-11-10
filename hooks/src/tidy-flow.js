@@ -20,8 +20,11 @@ import {
   MEMORY_BYTES,
   MEMORY_LINES,
   STATUS_BYTES,
+  countImports,
   extractPathRefs,
   findDuplicateLines,
+  findShoutingLines,
+  findTemporaryLines,
   isGlobalPath,
   kb,
   measure,
@@ -101,6 +104,12 @@ async function buildTidyReport($) {
     if (size.lines > INSTRUCTION_LINES) {
       findings.push(t(lang, 'tidy_file_long', { path: file.path, lines: size.lines }))
     }
+    const shouting = findShoutingLines(file.text)
+    if (shouting.length > 0) findings.push(t(lang, 'tidy_shouting', { path: file.path, n: shouting.length, sample: shouting[0].slice(0, 70) }))
+    const temporary = findTemporaryLines(file.text)
+    if (temporary.length > 0) findings.push(t(lang, 'tidy_temporary', { path: file.path, n: temporary.length, sample: temporary[0].slice(0, 70) }))
+    const imports = countImports(file.text)
+    if (imports > 0) findings.push(t(lang, 'tidy_imports', { path: file.path, n: imports }))
     const missing = []
     for (const ref of extractPathRefs(file.text)) {
       if (!(await pathExists($, ref, root, cwd))) missing.push(ref)

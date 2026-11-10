@@ -70,3 +70,21 @@ test('kb formats one decimal', () => {
   assert.equal(kb(2048), '2.0')
   assert.equal(kb(25 * 1024), '25.0')
 })
+
+import { countImports, findShoutingLines, findTemporaryLines } from '../hooks/tidy-logic.mjs'
+
+test('shouting: ALL-CAPS orders and old "think harder" habits, not code or headings', () => {
+  const text = '# IMPORTANT heading\nNEVER edit the generated client.\nPlease think harder about edge cases.\n```\nALWAYS inside code\n```\nUse the formatter before committing.'
+  assert.deepEqual(findShoutingLines(text), ['NEVER edit the generated client.', 'Please think harder about edge cases.'])
+  assert.deepEqual(findShoutingLines('Run `npm test` before a commit.'), [])
+})
+
+test('temporary: deadlines and passing facts in a file that loads every session', () => {
+  assert.deepEqual(findTemporaryLines('Release freeze until we ship, deadline Friday.\nUse tabs.'), ['Release freeze until we ship, deadline Friday.'])
+  assert.deepEqual(findTemporaryLines('Use tabs.\n```\ntemporary\n```'), [])
+})
+
+test('imports: @path lines count, e-mail addresses and code do not', () => {
+  assert.equal(countImports('See @docs/style.md and\n@README.md\nmail me at a@b.com\n```\n@code/x.md\n```'), 2)
+  assert.equal(countImports('no imports here'), 0)
+})

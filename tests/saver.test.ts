@@ -36,6 +36,7 @@ function harness(on: any, opts: Opts = {}) {
     questions: [] as string[],
     toasts: [] as string[],
     efforts: [] as unknown[],
+    agentCalls: [] as any[],
     clock: undefined as any,
     storedWrites: [] as unknown[],
     advisorWrites: [] as unknown[],
@@ -74,6 +75,7 @@ function harness(on: any, opts: Opts = {}) {
   on('prompt.submit', ($: any, e: any) => ({ text: e.text }))
   on('turn.complete', () => ({ text: '' }))
   on('tool.call', ($: any, e: any) => {
+    if (e.tool === 'Agent') state.agentCalls.push({ ...e })
     if (e.tool !== 'AskUserQuestion') return { result: 'ok' }
     state.questions.push(e.questions[0].question)
     if (state.answer === 'reject') return { deny: 'dismissed' }
@@ -688,4 +690,128 @@ test('the advisor offer speaks Turkish when the session does', async ($, on) => 
   expect(s.questions[0]).toContain('Advisor kapalı. Açıkken Sonnet, zor anlarda')
   expect(s.questions[0]).toContain('Opus modeline danışır')
   expect(s.advisorWrites).toEqual(['never'])
+})
+
+// ---- ultra-saver -----------------------------------------------------------------------------------
+
+const ULTRA = 'Ultra-saver'
+const OPUS_YES = 'Yes, Opus for this call'
+const agent = ($: any, input: Record<string, unknown>) => $.tool.call({ tool: 'Agent', prompt: 'x', description: 'x', ...input })
+
+test('/saver ultra: heavy agents run on Sonnet at high, Sonnet is capped, Haiku is left alone, one toast', async ($, on) => {
+  const s = harness(on)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  const r = await $.command.run({ command: 'saver', args: 'ultra' })
+  expect(r.text).toContain('ultra-saver on')
+  expect((await $.command.run({ command: 'saver', args: 'status' })).text).toContain('saver ON · ultra')
+  await agent($, { subagent_type: 'crew-chief:implementer-hard' })
+  await agent($, { subagent_type: 'crew-chief:implementer', effort: 'max' })
+  await agent($, { subagent_type: 'crew-chief:scanner', effort: 'low' })
+  await agent($, { subagent_type: 'fork', model: 'opus' })
+  expect(s.agentCalls.map((c: any) => [c.model, c.effort])).toEqual([['sonnet', 'high'], [undefined, 'high'], [undefined, 'low'], ['opus', 'medium']]) // a fork keeps its model; the saver still caps an Opus effort
+  expect(s.toasts.filter((x) => x.includes('Ultra-saver: crew-chief:implementer-hard runs on Sonnet at high')).length).toBe(1)
+})
+
+test('/saver ultra off keeps the normal saver; /saver off clears both; a new session starts without ultra', async ($, on) => {
+  const s = harness(on)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await $.command.run({ command: 'saver', args: 'ultra' })
+  await $.command.run({ command: 'saver', args: 'ultra off' })
+  await agent($, { subagent_type: 'crew-chief:implementer-hard', effort: 'xhigh' })
+  expect(s.agentCalls[0].model).toBeUndefined() // not rewritten at the call; the saver caps the effort
+  expect(s.agentCalls[0].effort).toBe('medium')
+  await $.command.run({ command: 'saver', args: 'ultra' })
+  await $.command.run({ command: 'saver', args: 'off' })
+  await agent($, { subagent_type: 'crew-chief:implementer-hard' })
+  expect(s.agentCalls[1].model).toBeUndefined()
+  await $.command.run({ command: 'saver', args: 'ultra' })
+  await $.session.end({ sessionId: 's1', reason: 'clear' })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await agent($, { subagent_type: 'crew-chief:implementer-hard' })
+  expect(s.agentCalls[2].model).toBeUndefined()
+})
+
+test('ultra: a risky review asks; yes goes through as asked, no runs it on Sonnet at high', async ($, on) => {
+  const s = harness(on, { answer: OPUS_YES })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await $.command.run({ command: 'saver', args: 'ultra' })
+  await agent($, { subagent_type: 'crew-chief:reviewer', effort: 'xhigh' })
+  expect(s.questions.length).toBe(1)
+  expect(s.questions[0]).toContain('asks for the strongest model')
+  expect(s.agentCalls[0].model).toBeUndefined()
+  expect(s.agentCalls[0].effort).toBe('xhigh')
+  s.answer = 'No, Sonnet at high'
+  await agent($, { subagent_type: 'crew-chief:reviewer', effort: 'xhigh' })
+  expect(s.agentCalls[1].model).toBe('sonnet')
+  expect(s.agentCalls[1].effort).toBe('high')
+})
+
+test('ultra: an unanswered Opus question is a no after the deadline', async ($, on) => {
+  const s = harness(on, { answer: 'hang' })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await $.command.run({ command: 'saver', args: 'ultra' })
+  const call = agent($, { subagent_type: 'crew-chief:reviewer', effort: 'xhigh' })
+  await settle()
+  await s.clock.advance(20 * 60_000 + 1000)
+  await settle()
+  await call
+  expect(s.agentCalls[0].model).toBe('sonnet')
+})
+
+test('/saver ultra opus on lifts the model limit for the session; off puts it back', async ($, on) => {
+  const s = harness(on)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await $.command.run({ command: 'saver', args: 'ultra' })
+  await $.command.run({ command: 'saver', args: 'ultra opus on' })
+  await agent($, { subagent_type: 'crew-chief:implementer-hard' })
+  expect(s.agentCalls[0].model).toBeUndefined()
+  await $.command.run({ command: 'saver', args: 'ultra opus off' })
+  await agent($, { subagent_type: 'crew-chief:implementer-hard' })
+  expect(s.agentCalls[1].model).toBe('sonnet')
+})
+
+test('the limit question offers Ultra-saver; choosing it turns it on, and an unanswered question does not', async ($, on) => {
+  const s = harness(on, { answer: ULTRA })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, s, FIVE(72))
+  expect(s.questions.length).toBe(1)
+  expect(s.toasts.some((t) => t.includes('Ultra-saver is on'))).toBe(true)
+  await agent($, { subagent_type: 'crew-chief:implementer-hard' })
+  expect(s.agentCalls[0].model).toBe('sonnet')
+
+})
+
+test('an unanswered limit question never turns Ultra-saver on', async ($, on) => {
+  const h = harness(on, { answer: 'hang' })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, h, FIVE(72))
+  await h.clock.advance(20 * 60_000 + 1000)
+  await settle()
+  await agent($, { subagent_type: 'crew-chief:implementer-hard' })
+  expect(h.agentCalls[0].model).toBeUndefined()
+})
+
+test('CREW_CHIEF_ULTRA=on starts the session in ultra-saver', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_ULTRA: 'on' } })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await agent($, { subagent_type: 'crew-chief:implementer-hard' })
+  expect(s.agentCalls[0].model).toBe('sonnet')
+})
+
+test('ultra speaks Turkish when the session does', async ($, on) => {
+  harness(on, { env: { CREW_CHIEF_LANG: 'tr' } })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  expect((await $.command.run({ command: 'saver', args: 'ultra' })).text).toContain('ultra tasarruf bu session için açık')
+})
+
+test('ultra: an approved Opus review keeps its effort at the step too, a non-ultra saver still caps it', async ($, on) => {
+  const s = harness(on, { answer: OPUS_YES })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await $.command.run({ command: 'saver', args: 'ultra' })
+  await agent($, { subagent_type: 'crew-chief:reviewer', effort: 'xhigh' })
+  await step($, 'claude-opus-5-5', 'xhigh', 'a1')
+  expect(s.efforts).toEqual(['xhigh'])
+  await $.command.run({ command: 'saver', args: 'ultra off' })
+  await step($, 'claude-opus-5-5', 'xhigh', 'a1')
+  expect(s.efforts).toEqual(['xhigh', 'medium'])
 })

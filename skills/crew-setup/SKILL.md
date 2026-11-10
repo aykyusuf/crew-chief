@@ -1,7 +1,7 @@
 ---
 name: crew-setup
 description: "Installs crew-chief's tiered agents, read-only guard, and routing policy into the current project's .claude/ directory and CLAUDE.md, for use without the plugin (for example after npx skills add). Optionally adds session handoff files."
-argument-hint: "[--handoff]"
+argument-hint: "[--handoff] [--explore]"
 disable-model-invocation: true
 ---
 
@@ -9,8 +9,8 @@ Set up crew-chief in the current project. Arguments: `$ARGUMENTS`. Assets are in
 
 ## 1. Check what is already there
 
-- If agent types named `crew-chief:scanner` and so on are available to you, the crew-chief **plugin** is installed: its agents, guard, and policy are already active. Do not copy agents or hooks (that would create duplicates). Say so, and continue only with step 5 if `--handoff` was given or the user wants it.
-- List `.claude/agents/`, `.claude/hooks/`, `.claude/settings.json`, and `CLAUDE.md` in the project root. Note any file that setup would overwrite: `scanner.md`, `deep-reader.md`, `implementer.md`, `implementer-hard.md`, `reviewer.md`, `ui-smoke.md`, `ui-tester.md`, `crew-chief-guard.sh`.
+- If agent types named `crew-chief:scanner` and so on are available to you, the crew-chief **plugin** is installed: its agents, guard, and policy are already active. Do not copy agents or hooks (that would create duplicates). Say so, and continue only with step 5 (`--handoff`) or step 6 (`--explore`) if the user passed that flag or wants it.
+- List `.claude/agents/`, `.claude/hooks/`, `.claude/settings.json`, and `CLAUDE.md` in the project root. Note any file that setup would overwrite: `scanner.md`, `deep-reader.md`, `implementer.md`, `implementer-hard.md`, `mechanic.md`, `planner.md`, `reviewer.md`, `ui-smoke.md`, `ui-tester.md`, `crew-chief-guard.sh`.
 
 ## 2. Confirm the plan
 
@@ -40,5 +40,20 @@ Do not write any `effort` or model setting into `.claude/settings.json`: project
 ## 5. Optional: session handoff files (`--handoff`)
 
 Only if the user passed `--handoff` or says yes when offered. Follow the `crew-handoff` skill (`/crew-chief:crew-handoff`, or `/crew-handoff` when installed with npx): it creates STATUS.md, tasks.json, and PROGRESS.md only where nothing equivalent exists, shows a preview first, and adds a marked routine block to `CLAUDE.md`.
+
+## 6. Optional: a cheap `Explore` (`--explore`)
+
+Only if the user passed `--explore` or says yes when offered. In current Claude Code the built-in `Explore` subagent runs on the session's model instead of always on Haiku (Anthropic's model guide says so and suggests the fix below; not yet seen live by crew-chief). A plugin cannot replace it, because plugin agents are namespaced, so this step writes a user-level agent. Show the file and where it goes (`~/.claude/agents/Explore.md` for every project, or `.claude/agents/Explore.md` for this one; ask which), and never overwrite an existing file of that name. Content:
+
+```
+---
+name: Explore
+description: Read-only search of the codebase: where something is defined, which files use it, what the structure looks like. Use for broad lookups so the main session's context stays small.
+tools: Read, Grep, Glob, Bash
+model: haiku
+---
+Search the codebase and report what you found with file paths and line numbers. Never edit files, change git state or install anything. Answer with the findings, not file dumps.
+```
+Tell the user it takes effect after a restart, and that deleting the file brings the built-in back.
 
 Do not commit anything. Report what was created and anything you could not fill in.
