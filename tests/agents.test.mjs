@@ -48,3 +48,33 @@ test('every read-only agent that can write reports is covered by the read-only g
     if (!fm.tools.includes('Edit')) assert.ok(guard.includes('crew-chief:' + fm.name) || fm.name.startsWith('ui-tester'), fm.name)
   }
 })
+
+test('writing agents ask the caller about a missing dependency instead of installing; the routing skill says what the caller does', () => {
+  for (const n of ['implementer', 'implementer-hard', 'mechanic']) {
+    const text = readFileSync(new URL(n + '.md', dir), 'utf8')
+    assert.ok(text.includes('install packages'), n)
+    assert.ok(text.includes('declared dependency is missing'), n + ': dependency protocol')
+    assert.ok(text.includes('the caller owns'), n + ': reason given')
+  }
+  const skill = readFileSync(new URL('../skills/crew-routing/SKILL.md', import.meta.url), 'utf8')
+  assert.ok(skill.includes('dependency is missing') && skill.includes('ask the user first'))
+  assert.ok(skill.includes('If your own model is Fable'))
+  const policy = readFileSync(new URL('../scripts/session-policy.sh', import.meta.url), 'utf8')
+  assert.ok(policy.includes('If your own model is Fable'))
+})
+
+test('every agent says why it is read-only or limited, batches independent calls, and the web agents check the date', () => {
+  for (const n of ['scanner', 'deep-reader', 'planner', 'reviewer']) {
+    assert.ok(/owns? (every|the) change/.test(readFileSync(new URL(n + '.md', dir), 'utf8')), n + ': reason for being read-only')
+  }
+  for (const n of ['scanner', 'deep-reader', 'planner', 'reviewer', 'implementer', 'implementer-hard', 'mechanic']) {
+    assert.ok(/[Bb]atch independent/.test(readFileSync(new URL(n + '.md', dir), 'utf8')), n + ': batching')
+  }
+  for (const n of ['deep-reader', 'planner']) assert.ok(readFileSync(new URL(n + '.md', dir), 'utf8').includes('date +%F'), n + ': date')
+  for (const n of ['implementer', 'implementer-hard']) assert.ok(readFileSync(new URL(n + '.md', dir), 'utf8').includes('special-cases the test inputs'), n + ': no hardcoding')
+})
+
+test('the handoff routine reviews stale constraints without deleting them', () => {
+  const routine = readFileSync(new URL('../skills/crew-handoff/assets/claude-md-routine.md', import.meta.url), 'utf8')
+  assert.ok(routine.includes('do not delete it') && routine.includes('reason and scope'))
+})

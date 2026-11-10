@@ -33,6 +33,7 @@ export async function progressObserve($, e) {
     const entry = progressAgents.get(e.agentId)
     if (due > 0) {
       const missed = progressMissed.get(e.agentId) ?? 0
+      if (missed >= 3) return undefined // Sonnet 5.5 and Haiku 5.5 may read frequent harness text as an injection: stop after three
       progressMissed.set(e.agentId, missed + 1)
       return nudgeText(due, missed)
     }

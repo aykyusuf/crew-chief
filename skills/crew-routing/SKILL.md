@@ -26,6 +26,8 @@ Delegate only when the work is self-contained **and** at least one holds:
 
 Multi-agent setups cost several times the tokens of one session, and most coding work is tightly coupled. When in doubt, do it yourself.
 
+**If your own model is Fable,** your context is the most expensive one: hand reading and searching (more than two or three files, logs, web pages) to `scanner` or `deep-reader` and ask for findings, not file dumps, so your context is spent on decisions. Anthropic's Fable 5.2 guide: it plans and orchestrates other models well, and standing lines about the cost of delegating make it delegate about a third less.
+
 ## 2. Pick the tier
 
 | Work | Agent type | Default |
@@ -51,6 +53,8 @@ If the plugin is not installed but the project has `.claude/agents/` copies from
 The first two decide the tier; the last decides how carefully the result is checked.
 
 **Size the brief.** Agents stop at a turn limit (implementer 80, implementer-hard 120, reviewer 80, deep-reader and ui-tester 60, planner 40, mechanic 30). Split a large multi-file task into 2-3 independent pieces with their own definition of done instead of one long call; for a long piece, name a progress file the agent can checkpoint to. A stopped agent returns partial output: continue it with SendMessage rather than starting over. When two or more implementers run in parallel, give them disjoint file sets; if they could touch the same files, run them one after the other. Worktree isolation is a last resort: a worktree starts from the default branch, so it does not see uncommitted work and has no installed dependencies.
+
+**Haiku at low effort** skips searches and checks on long briefs (Anthropic's effort guide): keep `scanner`, `mechanic` and `ui-smoke` briefs short and specific, and if one misses things try haiku at medium before moving to Sonnet.
 
 **Adjust per call.** The Agent tool takes `model` and `effort` (Claude Code 2.1.292+). They override the tier's defaults for that call only:
 - Easier than the tier assumes: lower effort before lowering the model.
@@ -83,6 +87,8 @@ A subagent does not see this conversation. Every brief states:
 5. **Constraints**: anything the user said in this conversation that applies ("do not modify X", "no commits", "answer in Turkish"). A subagent only sees `CLAUDE.md`, not the conversation, and constraints are what gets dropped at this boundary.
 6. **Return format**, if you need something specific.
 
+Do not write "this codebase is yours" into a brief by default: on Fable 5.2 it makes the agent merge repeated code and make unrequested changes (about 1.5 times the output tokens in Anthropic's test). Add it only for a refactor where structural cleanup is the goal, and then review the diff, not the agent's summary.
+
 Items 2 and 4 are the brief's SCOPE and DONE-CHECK: a brief without them is not ready to send. Parallel reviewers or auditors each get their own context and their own angle (a different slice or lens); do not give them a shared window or a shared findings file, or they converge and you pay several times for one opinion.
 
 **Pilot before a batch.** For a repeated job over many files, run the brief on three of them first, read the result, fix the brief, then run the rest. Watch the first runs of any new agent or brief yourself before you trust it unattended.
@@ -98,6 +104,10 @@ Vague briefs lead to duplicated work and gaps. Independent briefs go out in one 
 **Send back the unit, not the batch.** When one piece of a split job fails, return only that piece. Do not redo or re-verify the pieces that passed. The return carries: the unit, the verdict (red), the reason (which check), the evidence (expected vs actual, `path:line`), and a scope line ("fix this file only, do not touch other units"). Without the scope line a returned agent opens neighbouring files and a one-unit fix becomes an unreviewed multi-file diff.
 
 **Three strikes means the plan is wrong.** If the same unit fails three corrections (counting across tiers), stop escalating: the problem is in the brief or the split that produced it, which no retry can see. Re-cut the unit, fix the brief, or take it to the user.
+
+**A check cannot start because a dependency is missing.** The agent stops and reports which one and the project's install command (it does not install). You decide: install it yourself with the project's own package manager (never sudo, no global installs), then re-run the check or continue the agent with `SendMessage`. If the install is large or touches disk space or storage, a license, a paid service or the system, ask the user first.
+
+**A refusal.** Do not re-run the same brief at the same tier, and do not ask an agent for its reasoning or scratchpad text (Anthropic bills a refusal for that and the run stops); ask for findings and evidence. Change the brief, or take the piece into the main session.
 
 **Evidence or it is not done.** An agent's report counts as done only with the command it ran and the tail of its output. A report with no check, or only "looks fine", is `unverified`: run the check yourself or send it back for it.
 

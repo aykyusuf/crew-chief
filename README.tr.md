@@ -94,6 +94,10 @@ crew-chief'in kullandığı sayılar ortam değişkeni gerektirmeden senin elind
 | `saver.ask` | on | Saver'ın limit eşiklerinde sorup sormayacağı (`CREW_CHIEF_SAVER=off`; `/saver` yine çalışır) |
 | `saver.five`, `saver.seven` | 70,80,90 ve 50,75,85,90 | Saver sorusunu çıkaran limit yüzdeleri |
 | `ask.timeout` | 20 dk | Cevapsız sorunun güvenli cevabını alması için dakika, 1-30 ya da `off` (`CREW_CHIEF_ASK_TIMEOUT_MIN`) |
+| `handoff.mode` | nudge | Handoff dosyalarını güncel tutma: `off`, `nudge` (Claude'a hatırlatma) ya da `turn` (hatırlatmalar cevapsız kalırsa güncelleme isteyen fazladan bir tur de); `CREW_CHIEF_HANDOFF` |
+| `handoff.files` | 6 | Handoff dosyaları en son yazıldığından beri kaç farklı proje dosyası düzenlenince Claude'a hatırlatılacağı |
+| `handoff.minutes` | 45 | Bu kadar dakikalık düzenlemeden sonra bunun üçte biri kadar dosya yeter |
+| `handoff.max` | 6 | Session başına en çok olağan hatırlatma |
 | `agents.warn` | 5 | Aynı anda bundan fazla alt ajan çalışırsa band izlemenin maliyetini söyler |
 
 Bir soru sana erken geliyorsa: `/crew-config set compact.arm 400k`, `/crew-config set compact.ask 600k` ya da `/crew-config set compact.fallback off`.
@@ -200,6 +204,8 @@ Advisor kapalıysa mod bunu **bir kez** önerir: session'ın ilk biten turundan 
 Bir seviyenin modelini ya da eforunu değiştirmek için projende aynı adla `.claude/agents/<ad>.md` dosyası aç. Proje ajanı plugin ajanının önüne geçer ve güncellemeler onu ezmez.
 
 ## Oturum devri
+
+**Güncel tutmak.** Dosyalar ancak yazılırsa işe yarar. Bunlara sahip bir projede crew-chief olanları sayar ve Claude'a hatırlatır (dosyaları kendisi yazmaz, sana soru sormaz, hiçbir çağrıyı durdurmaz): `handoff.files` kadar farklı proje dosyası düzenlendikten sonra (üretilmiş dosyalar, `node_modules`, kilit dosyaları ve başka klasörler sayılmaz; alt ajan düzenlemeleri sayılır) ya da `handoff.minutes` boyunca bunun üçte biri kadar dosyadan sonra; hatırlatma bir Edit/Write çağrısının sonucuyla gelir, yani uzun gözetimsiz bir koşuya da ulaşır, ve bir sonraki prompt'unla da. Ayrı, tek seferlik hatırlatmalar: mesajın kalıcı bir kural içerebilir (kelimesi kelimesine Constraints'e kopyalanır), Claude'un sorularından birini cevapladın (bir karar), bir commit atıldı (görevin durumu ve kanıtı güncellenir) ya da kullanım limiti dolmak üzere (limit durması oturumu uyarısız bitirir). Dosyalara yazılan her şey, bir kabuktan bile olsa, sayacı sıfırlar; hatırlatmalar aralıklıdır, bir kez sertleşir ve cevapsız üçüncüden sonra durur. Compact sürerken yapılmaz (o akış zaten güncelletir). `handoff.mode turn` ile, hatırlatmalar cevapsız kalırsa ve yığın tetik eşiğinin iki katıysa, bir cevabın sonunda güncelleme isteyen fazladan bir tur gelir; her dönemde bir kez ve yalnızca başka bir şey çalışmıyorken. Bir ipucudur, garanti değil: iki hatırlatma arasında ani bir bitiş dosyaları geride bırakabilir.
 
 Yeni oturum öncekini hatırlamaz; projeyi baştan keşfeder: ne çalışıyor, ne denendi, sırada ne var. Crew Chief bunu taşıyan üç küçük dosya kurabilir. Bu, Anthropic'in mühendislik yazısı [Effective harnesses for long-running agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) (Kasım 2025) ile aynı düzen: bir ilerleme dosyası, yalnız durum alanı değişen bir JSON iş listesi (model JSON'u Markdown'a göre daha az bozar) ve her oturum başında `git log` ile ilerleme dosyasını okumak.
 

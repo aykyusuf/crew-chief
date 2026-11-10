@@ -60,6 +60,16 @@ Source: Anthropic's "Which Claude model should you build with" (claude.dev blog,
 
 **Measure before keeping a multi-model setup.** Take real tasks with an outcome check each, run each candidate at two or three effort levels (separate sessions, no shared cache), plot score against cost per finished task, and keep the multi-model setup only if it beats every single-model point.
 
+## From Anthropic's current-model docs: numbers and cautions
+
+Taken from the pages read for this plugin (full extraction in `docs/model-prompting/current-models-prompting-guides.md`, plus the cost, effort and what's-new pages). Numbers are Anthropic's own and from single benchmarks: a direction, not a promise; check them on your work.
+- **Cost per solved task** (cost page, one benchmark): Sonnet 5.5 at high about $0.11 for 87.6 %, Opus 5.5 at low about $0.12 for 87.4 %, Opus 5.5 at medium about $0.22 for 92.8 %, Opus 5.5 at xhigh about $0.74 for 96.7 % (one run). So effort moves cost a lot; start with Opus and use Fable 5.2 only when Opus at high fails.
+- **"Think less" prompts do not work** on Sonnet 5.5, Haiku 5.5 and Fable 5.2 (and only slightly on Opus 5.5): lower the effort instead. Old lines such as "be thorough" or "verify twice" cost tokens on current models; the `/crew-tidy` audit flags the usual ones.
+- **Haiku 5.5 at low effort** skips searches and checks on long prompts and stops early; short specific briefs and a "run a real check" line help, medium effort is the next step.
+- **Fable 5.2 follows rules literally.** Old "never" notes and constraints change what it does (in one test a stale "never retry" note cut retries from almost always to four in ten); write the exception into the rule, and remove notes you no longer need. A sentence saying the code is the model's own makes it restructure and add unrequested changes (about 1.5 times the output).
+- **Harness text after tool results** (reminders added by hooks) can be read by Sonnet 5.5 and Haiku 5.5 as prompt injection if it is frequent; the guide says to stop after two or three. crew-chief's progress reminders stop after three unanswered.
+- **Time pressure** ("Time matters here...") cut one agent's time by 47 % and cost by 60 % but lowered the score by 4.1 points in Anthropic's example: use it only for a time-boxed brief, never as a default.
+
 ## Advisor: a stronger model on call (optional, experimental)
 
 The `/advisor` command (or `advisorModel` in settings, or `claude --advisor opus`) pairs the session's model with a stronger one that Claude consults at decision points: before committing to an approach, when an error keeps recurring, before declaring done. The advisor reads the whole conversation and returns guidance; Claude decides when to ask, and there is no setting to cap or force calls. Source: code.claude.com/docs/en/advisor.

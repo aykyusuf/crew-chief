@@ -64,7 +64,7 @@ const TOOL_DESCRIPTION =
   'Propose compacting the conversation. Call it once, and only when a note from crew-chief says the context is large AND you have just finished a phase (a task done, tests passing, before an unrelated area). Never call it in the middle of work. It returns at once; the user is asked after your turn ends. Do not wait for an answer and do not call it again. When the user themselves asked for a compaction, call it with user_requested: true, whatever the context size. Never tell the user to run /compact because this tool said "not needed": /crew-compact does the same.'
 
 const UPDATE_TEXT =
-  'Update the handoff files of this project now, for those that exist: STATUS.md (Now, Next, Constraints = every rule the user gave, copied verbatim; keep the lines already there and only add new ones, Decisions, Failed attempts), tasks.json (only status and evidence change), PROGRESS.md (one dated line). If STATUS.md has no Constraints section, do not invent one; say so in your reply. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
+  'Update the handoff files of this project now, for those that exist: STATUS.md (Now, Next, Constraints = every rule the user gave, copied verbatim; keep the lines already there and only add new ones, Decisions, Failed attempts), tasks.json (only status and evidence change), PROGRESS.md (one dated line). If STATUS.md has no Constraints section, do not invent one; say so in your reply. If a Constraint already there looks stale, was contradicted by a later message or has an exception the user gave, do not delete it: name it in your one short line so the user can decide. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
 
 // A project with no handoff files has nowhere to pin the user's rules. Nobody is asked here (a dialog would
 // hold the compaction up while the person may be away): the answer only mentions /crew-chief:crew-handoff.
@@ -134,6 +134,16 @@ function cancelAskTimer() {
 
 // Called from the mod's main-loop prompt.submit and turn.step hooks: something started after the turn
 // ended, so the question waits for the next clean turn end.
+// True while a compaction question, plan or compaction is under way (the flow updates the handoff files itself).
+export function compactBusy() {
+  return Boolean(ck.plan || ck.compacting || ck.asking)
+}
+
+// Counts prompts and model requests; unchanged between two moments means the session stayed quiet.
+export function compactActivity() {
+  return ck.activity
+}
+
 export function compactNoteActivity() {
   ck.activity += 1
 }

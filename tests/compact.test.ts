@@ -22,6 +22,7 @@ type Opts = {
   summary?: string
   compactFails?: string[] // rejection reasons of the first compaction calls
   store?: Record<string, unknown>
+  rateLimits?: unknown[]
 }
 
 function harness(on: any, opts: Opts = {}) {
@@ -49,7 +50,7 @@ function harness(on: any, opts: Opts = {}) {
   state.clock = mock.clock(on, { now: 3_600_000 })
   mock.store(on, opts.store ?? {})
   on('session.usage', () => ({
-    value: { startedAt: 3_000_000, context: { window: state.window, tokens: state.tokens, percent: Math.round((state.tokens / state.window) * 100) }, rateLimits: [] },
+    value: { startedAt: 3_000_000, context: { window: state.window, tokens: state.tokens, percent: Math.round((state.tokens / state.window) * 100) }, rateLimits: opts.rateLimits ?? [] },
   }))
   mock.session(on)
   on('agent.list', () => ({ value: state.agents.map((status, i) => ({ id: 'a' + i, description: 'x', type: 't', status })) }))
@@ -980,4 +981,91 @@ test('crew-config: a size you set wins on a small window; the percent only scale
   await setTokens($, s, 155_000)
   await prompt($, 'b')
   expect(s.contexts.length).toBe(1)
+})
+
+// ---- the handoff reminder ------------------------------------------------------------------------
+
+const edit = ($: any, path: string, extra: Record<string, unknown> = {}) => $.tool.call({ tool: 'Edit', file_path: path, ...extra })
+const said = (r: any, text: string) => JSON.stringify(r).includes(text)
+
+test('handoff: enough edited files put a reminder on the result of an Edit call, once, and not for the handoff files', async ($, on) => {
+  const s = harness(on, { files: FILES, mtimes: { '/work/STATUS.md': 1000, '/work/tasks.json': 1000 } })
+  await start($)
+  for (let i = 0; i < 5; i++) expect(said(await edit($, `/work/src/f${i}.js`), 'Handoff check')).toBe(false)
+  const sixth = await edit($, '/work/src/f5.js')
+  expect(said(sixth, 'Handoff check: 6 files')).toBe(true)
+  expect(said(await edit($, '/work/src/f6.js'), 'Handoff check')).toBe(false) // spaced out
+  expect(said(await edit($, '/work/STATUS.md'), 'Handoff check')).toBe(false)
+  expect(s.questions.length).toBe(0) // a reminder is never a question
+})
+
+test('handoff: writing the handoff files (even from a shell) restarts the count', async ($, on) => {
+  const s = harness(on, { files: FILES, mtimes: { '/work/STATUS.md': 1000, '/work/tasks.json': 1000 } })
+  await start($)
+  for (let i = 0; i < 5; i++) await edit($, `/work/src/f${i}.js`)
+  s.mtimes['/work/STATUS.md'] = 5000 // changed by a Bash command, not by an Edit call
+  expect(said(await edit($, '/work/src/f5.js'), 'Handoff check')).toBe(false)
+  for (let i = 6; i < 11; i++) expect(said(await edit($, `/work/src/f${i}.js`), 'Handoff check')).toBe(false)
+  expect(said(await edit($, '/work/src/f11.js'), 'Handoff check: 6 files')).toBe(true)
+})
+
+test('handoff: generated files, other folders and subagent edits are counted right; a subagent call never gets the note', async ($, on) => {
+  const s = harness(on, { files: FILES, mtimes: { '/work/STATUS.md': 1000 } })
+  await start($)
+  for (let i = 0; i < 8; i++) await edit($, `/work/node_modules/p/f${i}.js`)
+  for (let i = 0; i < 8; i++) await edit($, `/elsewhere/f${i}.js`)
+  expect(said(await edit($, '/work/src/ok.js'), 'Handoff check')).toBe(false) // none of the above counted
+  for (let i = 0; i < 4; i++) await edit($, `/work/src/s${i}.js`, { agentId: 'sub1' }) // counted, never reminded
+  expect(said(await edit($, '/work/src/s4.js', { agentId: 'sub1' }), 'Handoff check')).toBe(false)
+  expect(said(await edit($, '/work/src/m.js'), 'Handoff check: 7 files')).toBe(true) // the main session's next call carries it
+  void s
+})
+
+test('handoff: a project without handoff files, mode off and the environment switch say nothing', async ($, on) => {
+  harness(on)
+  await start($)
+  for (let i = 0; i < 8; i++) expect(said(await edit($, `/work/src/f${i}.js`), 'Handoff check')).toBe(false)
+})
+
+test('handoff: mode off by /crew-config or CREW_CHIEF_HANDOFF=off', async ($, on) => {
+  harness(on, { files: FILES, mtimes: { '/work/STATUS.md': 1000 }, env: { CREW_CHIEF_HANDOFF: 'off' } })
+  await start($)
+  for (let i = 0; i < 8; i++) expect(said(await edit($, `/work/src/f${i}.js`), 'Handoff check')).toBe(false)
+})
+
+test('handoff: a commit, an answered question and a rule in the prompt each get one reminder', async ($, on) => {
+  const s = harness(on, { files: FILES, mtimes: { '/work/STATUS.md': 1000 }, answers: ['Option A'] })
+  await start($)
+  expect(said(await $.tool.call({ tool: 'Bash', command: 'git commit -m "x"' }), 'A commit was made')).toBe(true)
+  expect(said(await $.tool.call({ tool: 'Bash', command: 'git status' }), 'A commit was made')).toBe(false)
+  const asked = await $.tool.call({ tool: 'AskUserQuestion', questions: [{ question: 'Which one?', header: 'x', options: [{ label: 'Option A' }, { label: 'Option B' }] }] })
+  expect(said(asked, 'which is a decision') || said(asked, 'a decision')).toBe(true)
+  await prompt($, 'Never touch lib/legacy from now on')
+  await prompt($, 'fix the login bug')
+  expect(s.contexts.filter((c: string) => c.includes('may state a lasting rule')).length).toBe(1)
+})
+
+test('handoff: a nearly used limit gets a reminder once', async ($, on) => {
+  const s = harness(on, { files: FILES, mtimes: { '/work/STATUS.md': 1000 }, rateLimits: [{ kind: 'five_hour', percentUsed: 93, resetsAt: '2026-11-10T20:00:00Z' }] })
+  await start($)
+  await prompt($, 'go')
+  await prompt($, 'go on')
+  expect(s.contexts.filter((c: string) => c.includes('usage limit is nearly used')).length).toBe(1)
+})
+
+test('handoff: mode turn asks for the update in a turn of its own after unanswered reminders, once', async ($, on) => {
+  const s = harness(on, { files: FILES, mtimes: { '/work/STATUS.md': 1000 }, env: { CREW_CHIEF_HANDOFF: 'turn' } })
+  await start($)
+  await $.command.run({ command: 'crew-config', args: 'set handoff.files 3' })
+  for (let i = 0; i < 3; i++) await edit($, `/work/src/a${i}.js`) // the third one carries the first reminder
+  for (let i = 0; i < 4; i++) await edit($, `/work/src/b${i}.js`)
+  expect(s.submitted.length).toBe(0)
+  await finishTurn($, s)
+  await s.clock.advance(8_000)
+  await settle()
+  expect(s.submitted.filter((t: string) => t.includes('handoff files were not updated')).length).toBe(1)
+  await finishTurn($, s)
+  await s.clock.advance(8_000)
+  await settle()
+  expect(s.submitted.filter((t: string) => t.includes('handoff files were not updated')).length).toBe(1) // once per stretch
 })

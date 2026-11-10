@@ -122,6 +122,10 @@ The numbers crew-chief uses are yours to change, without environment variables. 
 | `saver.ask` | on | Whether the saver asks at the limit thresholds (`CREW_CHIEF_SAVER=off`; `/saver` still works) |
 | `saver.five`, `saver.seven` | 70,80,90 and 50,75,85,90 | The limit percents that raise the saver question |
 | `ask.timeout` | 20 min | Minutes before an unanswered question takes its safe answer, 1-30 or `off` (`CREW_CHIEF_ASK_TIMEOUT_MIN`) |
+| `handoff.mode` | nudge | Keeping the handoff files current: `off`, `nudge` (reminders to Claude) or `turn` (also one extra turn asking for the update when reminders went unanswered); `CREW_CHIEF_HANDOFF` |
+| `handoff.files` | 6 | Distinct project files edited since the handoff files were last written before Claude is reminded |
+| `handoff.minutes` | 45 | Minutes of editing after which a third of that many files is enough |
+| `handoff.max` | 6 | Most ordinary reminders per session |
 | `agents.warn` | 5 | The band notes the cost of watching when more than this many subagents run at once |
 
 If a question comes too early for you: `/crew-config set compact.arm 400k`, `/crew-config set compact.ask 600k`, or `/crew-config set compact.fallback off`.
@@ -251,6 +255,8 @@ Nothing to do: start a session, pick your model and effort as usual, and work. C
 **Change a tier's model or effort:** create `.claude/agents/<name>.md` in your project with the same name (for example `implementer.md`). Project agents take priority over plugin agents, and plugin updates never overwrite them.
 
 ## Session handoff
+
+**Keeping it current.** The files only help if they are written. In a project that has them, crew-chief counts what happens and reminds Claude (it never writes them itself, never asks you a question, never stops a call): after `handoff.files` distinct project files were edited (generated files, `node_modules`, lock files and other folders do not count; subagent edits do) or a third of that many over `handoff.minutes`; the reminder rides with the result of an Edit/Write call, so it reaches a long unattended run too, and with your next prompt. Separate one-time reminders: your message may state a lasting rule (copy it word for word into Constraints), you answered one of Claude's questions (a decision), a commit was made (update the task's status and evidence), or a usage limit is nearly used (a limit stop ends the session without warning). Any write to the files, even from a shell, restarts the count; reminders are spaced out, get louder once, and stop after three unanswered ones. Not while a compaction is under way (that flow updates them itself). With `handoff.mode turn`, if reminders went unanswered and the pile is twice the trigger, one extra turn at the end of an answer asks for the update, once per stretch, only when nothing else is running. A hint, not a guarantee: an abrupt end between two reminders can still leave the files behind.
 
 A new session starts with no memory of the last one, so it rediscovers the project: what works, what was tried, what is next. Crew Chief can set up three small files that carry that over. This follows Anthropic's engineering post [Effective harnesses for long-running agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) (Nov 2025): a progress file, a JSON task list whose status is the only thing that changes (models are less likely to rewrite JSON than Markdown), and reading `git log` plus the progress file at the start of each session.
 

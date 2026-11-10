@@ -342,3 +342,14 @@ test('CREW_CHIEF_ROW=off: no hint', async ($, on) => {
   await start($)
   expect(s.toasts.length).toBe(0)
 })
+
+test('progress reminders stop after three go unanswered (frequent harness text can be read as an injection)', async ($, on) => {
+  harness(on, { surfaces: ['terminal'], jq: 'yes' })
+  await start($)
+  const reminded: number[] = []
+  for (let i = 1; i <= 80; i++) {
+    const ctx = contextOf(await call($, 'a1'))
+    if (/tool calls since your last progress report|tool calls with no progress report/.test(ctx)) reminded.push(i)
+  }
+  expect(reminded).toEqual([10, 20, 30]) // three reminders, none after the third went unanswered
+})

@@ -5,6 +5,7 @@
 // already use them), the value saved with /crew-config, the default. A value that does not parse is ignored
 // at its level and the next level is used, so a typo can never switch a feature off or make it noisy.
 import { FIVE_HOUR_DEFAULT, SEVEN_DAY_DEFAULT, parseThresholds } from './saver-logic.mjs'
+import { DEFAULTS as HANDOFF_DEFAULTS, MODES as HANDOFF_MODES } from './handoff-nudge-logic.mjs'
 import { ARM_FRACTION, ARM_TOKENS, ASK_FRACTION, ASK_TOKENS } from './compact-logic.mjs'
 import { ASK_TIMEOUT_MAX_MIN } from './ask-logic.mjs'
 
@@ -44,6 +45,13 @@ function list(text) {
   return found.length === parts.length ? found : undefined
 }
 
+function choice(list) {
+  return (text) => {
+    const w = String(text).trim().toLowerCase()
+    return list.includes(w) ? w : undefined
+  }
+}
+
 // Like CREW_CHIEF_ASK_TIMEOUT_MIN always was: "off" or "0" is no deadline, a whole number is clamped to the maximum.
 function minutes(text) {
   const w = String(text).trim().toLowerCase()
@@ -67,6 +75,10 @@ export const SETTINGS = {
   'saver.five': { group: 'saver', parse: list, def: FIVE_HOUR_DEFAULT, env: 'CREW_CHIEF_SAVER_FIVE_HOUR', what: '5-hour limit percents that raise the saver question (for example 80,95)' },
   'saver.seven': { group: 'saver', parse: list, def: SEVEN_DAY_DEFAULT, env: 'CREW_CHIEF_SAVER_SEVEN_DAY', what: 'weekly limit percents that raise the saver question' },
   'ask.timeout': { group: 'ask', parse: minutes, def: 20, env: 'CREW_CHIEF_ASK_TIMEOUT_MIN', what: `minutes before an unanswered question takes its safe answer (1-${ASK_TIMEOUT_MAX_MIN}, or off)` },
+  'handoff.mode': { group: 'handoff', parse: choice(HANDOFF_MODES), def: HANDOFF_DEFAULTS.mode, env: 'CREW_CHIEF_HANDOFF', what: 'keeping STATUS.md / tasks.json / PROGRESS.md current: off, nudge (reminders to Claude) or turn (also one extra turn asking for the update when reminders went unanswered)' },
+  'handoff.files': { group: 'handoff', parse: whole(2, 100), def: HANDOFF_DEFAULTS.files, what: 'distinct project files edited since the handoff files were last written before Claude is reminded' },
+  'handoff.minutes': { group: 'handoff', parse: whole(5, 600), def: HANDOFF_DEFAULTS.minutes, what: 'minutes of editing after which a third of that many files is enough to remind' },
+  'handoff.max': { group: 'handoff', parse: whole(1, 50), def: HANDOFF_DEFAULTS.max, what: 'most reminders per session (rule, decision, commit and limit reminders are counted apart)' },
   'agents.warn': { group: 'band', parse: whole(2, 50), def: 5, what: 'the band notes the cost of watching when more than this many subagents run at once' },
 }
 

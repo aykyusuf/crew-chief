@@ -67,6 +67,22 @@ import {
   toggleConfigText,
 } from './guard-logic.mjs'
 import {
+  EVENT_CAP,
+  WRITE_TOOLS,
+  enforceDue,
+  enforceText,
+  eventText,
+  isCommit,
+  limitNear,
+  looksLikeRule,
+  newState,
+  noteCall,
+  ordinaryDue,
+  ordinaryText,
+  sentOrdinary,
+  wrote,
+} from './handoff-nudge-logic.mjs'
+import {
   briefPaths,
   isWriterType,
   overlapping,
@@ -248,6 +264,8 @@ async function envRaw($, key) {
         return await $.env.get('CREW_CHIEF_SAVER_SEVEN_DAY')
       case 'ask.timeout':
         return await $.env.get('CREW_CHIEF_ASK_TIMEOUT_MIN')
+      case 'handoff.mode':
+        return await $.env.get('CREW_CHIEF_HANDOFF')
       default:
         return undefined
     }
@@ -870,7 +888,7 @@ const TOOL_DESCRIPTION =
   'Propose compacting the conversation. Call it once, and only when a note from crew-chief says the context is large AND you have just finished a phase (a task done, tests passing, before an unrelated area). Never call it in the middle of work. It returns at once; the user is asked after your turn ends. Do not wait for an answer and do not call it again. When the user themselves asked for a compaction, call it with user_requested: true, whatever the context size. Never tell the user to run /compact because this tool said "not needed": /crew-compact does the same.'
 
 const UPDATE_TEXT =
-  'Update the handoff files of this project now, for those that exist: STATUS.md (Now, Next, Constraints = every rule the user gave, copied verbatim; keep the lines already there and only add new ones, Decisions, Failed attempts), tasks.json (only status and evidence change), PROGRESS.md (one dated line). If STATUS.md has no Constraints section, do not invent one; say so in your reply. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
+  'Update the handoff files of this project now, for those that exist: STATUS.md (Now, Next, Constraints = every rule the user gave, copied verbatim; keep the lines already there and only add new ones, Decisions, Failed attempts), tasks.json (only status and evidence change), PROGRESS.md (one dated line). If STATUS.md has no Constraints section, do not invent one; say so in your reply. If a Constraint already there looks stale, was contradicted by a later message or has an exception the user gave, do not delete it: name it in your one short line so the user can decide. Do not start any new work. Finish with one short line; the conversation is compacted right after your turn ends.'
 
 // A project with no handoff files has nowhere to pin the user's rules. Nobody is asked here (a dialog would
 // hold the compaction up while the person may be away): the answer only mentions /crew-chief:crew-handoff.
@@ -940,6 +958,16 @@ function cancelAskTimer() {
 
 // Called from the mod's main-loop prompt.submit and turn.step hooks: something started after the turn
 // ended, so the question waits for the next clean turn end.
+// True while a compaction question, plan or compaction is under way (the flow updates the handoff files itself).
+function compactBusy() {
+  return Boolean(ck.plan || ck.compacting || ck.asking)
+}
+
+// Counts prompts and model requests; unchanged between two moments means the session stayed quiet.
+function compactActivity() {
+  return ck.activity
+}
+
 function compactNoteActivity() {
   ck.activity += 1
 }
@@ -1472,6 +1500,190 @@ function registerCompact(on) {
   })
 }
 
+// ===== handoff-nudge =========================================================
+// Keeps the handoff files (STATUS.md, tasks.json, PROGRESS.md) from going stale. Part of the mod in hooks/register.js.
+// The rules are in hooks/handoff-nudge-logic.mjs. This part watches the session:
+//   - every Edit/Write call counts the project file it touched (main session and subagents);
+//   - a reminder rides with the result of a main-session Edit/Write call once enough has piled up, so a long
+//     unattended run is reached too; the next prompt carries one as well when the pile is big but no call did;
+//   - a prompt that may state a rule, a question the person answered, a commit and a nearly used limit each get
+//     a one-time reminder;
+//   - mode `turn`: after unanswered reminders, one extra turn at the end of an answer asks for the update.
+// It never writes the files, never asks a question and never stops a call. Any failure says nothing.
+let hs = newState()
+let known // { at, paths: string[] } or { at, paths: [] } when the project has no handoff files
+
+function handoffReset() {
+  hs = newState()
+  known = undefined
+}
+
+async function config($) {
+  return {
+    mode: await cfgGet($, 'handoff.mode'),
+    files: await cfgGet($, 'handoff.files'),
+    minutes: await cfgGet($, 'handoff.minutes'),
+    max: await cfgGet($, 'handoff.max'),
+  }
+}
+
+// The handoff files this project has, looked up at most every two minutes (crew-handoff may create them mid-session).
+async function handoffPaths($) {
+  const now = await $.clock.now()
+  if (known !== undefined && now - known.at < 120_000) return known.paths
+  const h = await findHandoff($)
+  known = { at: now, paths: h ? [h.status, h.tasks, h.progress].filter(Boolean) : [] }
+  return known.paths
+}
+
+async function newestMtime($, paths) {
+  let best
+  for (const p of paths) {
+    try {
+      const st = await $.fs.stat(p)
+      if (st && typeof st.mtimeMs === 'number' && (best === undefined || st.mtimeMs > best)) best = st.mtimeMs
+    } catch (err) {
+      // A file that cannot be read has no time.
+    }
+  }
+  return best
+}
+
+// Whether the files were written since counting began (a Bash edit, another tool, the person): then the stretch restarts.
+async function writtenMeanwhile($, paths) {
+  const mt = await newestMtime($, paths)
+  if (mt === undefined) return false
+  if (hs.baseline === undefined) {
+    hs.baseline = mt
+    return false
+  }
+  if (mt > hs.baseline) {
+    wrote(hs, mt)
+    return true
+  }
+  return false
+}
+
+async function root($) {
+  try {
+    return (await $.session.root()) || (await $.session.cwd())
+  } catch (err) {
+    return undefined
+  }
+}
+
+// Called from the mod's tool.call hook after the call ran. `result` is what the call returned. Returns the note to
+// add to that result, or undefined.
+async function handoffAfter($, e, result) {
+  try {
+    if (result && result.deny !== undefined) return undefined
+    const watched = WRITE_TOOLS.has(e.tool) || e.tool === 'AskUserQuestion' || (e.tool === 'Bash' && isCommit(e.command))
+    if (!watched) return undefined
+    const cfg = await config($)
+    if (cfg.mode === 'off') return undefined
+    const paths = await handoffPaths($)
+    if (paths.length === 0) return undefined
+    const main = typeof e.agentId !== 'string' || e.agentId === ''
+    const now = await $.clock.now()
+    if (WRITE_TOOLS.has(e.tool)) {
+      const kind = noteCall(hs, e, await root($), now)
+      if (kind === 'wrote') {
+        hs.baseline = await newestMtime($, paths)
+        return undefined
+      }
+      if (kind === 'counted' && hs.baseline === undefined) hs.baseline = await newestMtime($, paths) // counting begins: remember how the files stand
+      if (kind !== 'counted' || !main || compactBusy() || !ordinaryDue(hs, cfg, now)) return undefined
+      if (await writtenMeanwhile($, paths)) return undefined
+      if (!ordinaryDue(hs, cfg, now)) return undefined
+      const text = ordinaryText(hs, now)
+      sentOrdinary(hs, now)
+      return text
+    }
+    if (!main || hs.events >= EVENT_CAP || compactBusy()) return undefined
+    if (e.tool === 'Bash') {
+      hs.events += 1
+      return eventText('commit')
+    }
+    // AskUserQuestion: Claude asked, the person answered.
+    if (result && result.result !== undefined) {
+      hs.events += 1
+      return eventText('decision')
+    }
+    return undefined
+  } catch (err) {
+    return undefined
+  }
+}
+
+// Called from the prompt.submit hook with what the person typed. Returns notes to add to the prompt's context.
+async function handoffOnPrompt($, e) {
+  const notes = []
+  try {
+    const kind = e.origin ? e.origin.kind : undefined
+    const typed = kind === undefined || kind === 'composer' || kind === 'bridge'
+    const cfg = await config($)
+    if (cfg.mode === 'off') return notes
+    const paths = await handoffPaths($)
+    if (paths.length === 0) return notes
+    const now = await $.clock.now()
+    if (!compactBusy()) {
+      if (typed && hs.events < EVENT_CAP && looksLikeRule(e.text)) {
+        hs.events += 1
+        notes.push(eventText('rule'))
+      }
+      if (!hs.limitDone) {
+        const usage = await $.session.usage().catch(() => undefined)
+        if (limitNear(usage?.rateLimits)) {
+          hs.limitDone = true
+          if (hs.events < EVENT_CAP) {
+            hs.events += 1
+            notes.push(eventText('limit'))
+          }
+        }
+      }
+      if (typed && ordinaryDue(hs, cfg, now) && !(await writtenMeanwhile($, paths)) && ordinaryDue(hs, cfg, now)) {
+        notes.push(ordinaryText(hs, now))
+        sentOrdinary(hs, now)
+      }
+    }
+  } catch (err) {
+    // A missing reminder is better than a broken prompt.
+  }
+  return notes
+}
+
+// Called after each finished main turn. Mode `turn`: if reminders went unanswered and the pile is large, ask for the
+// update in a turn of its own, once per stretch, after the session has stayed quiet for a few seconds.
+async function handoffTurnComplete($, e) {
+  try {
+    if (e.agentId !== undefined || (e.reason !== undefined && e.reason !== 'answer')) return
+    const cfg = await config($)
+    if (cfg.mode !== 'turn' || compactBusy()) return
+    const paths = await handoffPaths($)
+    if (paths.length === 0) return
+    const now = await $.clock.now()
+    if (!enforceDue(hs, cfg, now)) return
+    const seen = compactActivity()
+    $.clock.after(8000, async () => {
+      try {
+        if (compactActivity() !== seen || compactBusy()) return // a new turn started, or a compaction did
+        const agents = await $.agent.list().catch(() => [])
+        if (Array.isArray(agents) && agents.some((a) => a.status === 'pending' || a.status === 'running')) return
+        if (await writtenMeanwhile($, paths)) return
+        const at = await $.clock.now()
+        if (!enforceDue(hs, cfg, at)) return
+        hs.enforced = true
+        $.ui.log('handoff: asking for an update after unanswered reminders', { to: 'debug' })
+        await $.prompt.submit({ text: enforceText(hs, at) })
+      } catch (err) {
+        // Nothing is lost: the reminders and the compact flow still exist.
+      }
+    })
+  } catch (err) {
+    // Silent.
+  }
+}
+
 // ===== tidy-flow =============================================================
 // /crew-tidy: what in your context is oversized, repeated, or points at something that is gone.
 // Part of the mod in hooks/register.js (Claude Code 2.1.287+).
@@ -1700,6 +1912,7 @@ async function progressObserve($, e) {
     const entry = progressAgents.get(e.agentId)
     if (due > 0) {
       const missed = progressMissed.get(e.agentId) ?? 0
+      if (missed >= 3) return undefined // Sonnet 5.5 and Haiku 5.5 may read frequent harness text as an injection: stop after three
       progressMissed.set(e.agentId, missed + 1)
       return nudgeText(due, missed)
     }
@@ -3308,6 +3521,7 @@ const seen = new Set()
 
 function resetState() {
   overlapReset()
+  handoffReset()
   saver = false
   ultra = false
   ultraOpus = false
@@ -3620,7 +3834,7 @@ export function register(on) {
       resetNotePrompt(lastPromptAt)
       await cacheOnPrompt($)
     }
-    const notes = [await compactNudge($), guardNudge()].filter((n) => n !== undefined)
+    const notes = [await compactNudge($), guardNudge(), ...(await handoffOnPrompt($, e))].filter((n) => n !== undefined)
     return next(notes.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...notes] })
   })
 
@@ -3643,6 +3857,7 @@ export function register(on) {
       const usage = await $.session.usage()
       uiNoteContext(usage)
       await compactTurnComplete($, usage, e.reason)
+      await handoffTurnComplete($, e)
       await resetOnUsage($, usage)
       await evaluate($)
       launchAsk($)
@@ -3733,9 +3948,10 @@ export function register(on) {
     // shell hook cannot run.
     const reminder = await progressObserve($, e)
     const overlap = await overlapObserve($, e)
-    if (guard === undefined && reminder === undefined && overlap === undefined) return next(request)
     const result = await next(request)
-    return progressAfter(progressAfter(guard === undefined ? result : await guardAfter($, e, guard, result), reminder), overlap)
+    const handoff = await handoffAfter($, e, result)
+    if (guard === undefined && reminder === undefined && overlap === undefined && handoff === undefined) return result
+    return progressAfter(progressAfter(progressAfter(guard === undefined ? result : await guardAfter($, e, guard, result), reminder), overlap), handoff)
   })
 
   on('command.run', { command: 'saver' }, async ($, e, next) => {

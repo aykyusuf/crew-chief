@@ -29,7 +29,7 @@ Wait for confirmation. If the user declines, record `never` or `later` as in ste
 ## 3. Write
 
 Using `${CLAUDE_SKILL_DIR}/assets/` as templates:
-- `STATUS.md`: now, constraints (rules the user gave, verbatim; start empty, never invent one), environment (start, stop, build, test commands you actually found), next, open questions, failed attempts, decisions.
+- `STATUS.md`: now, constraints (rules the user gave, verbatim, with their reason and scope when given; start empty, never invent one), environment (start, stop, build, test commands you actually found), next, open questions, failed attempts, decisions.
 - `tasks.json`: keep the `_rule` text as is. Add tasks only from what the user said or the repository states (open TODOs, README roadmap); otherwise leave one example task for the user to replace. Every task needs a measurable `done_when`.
 - `PROGRESS.md`: one dated line saying the files were set up.
 - `CLAUDE.md`: append `${CLAUDE_SKILL_DIR}/assets/claude-md-routine.md` if no `crew-chief:handoff` block exists (create `CLAUDE.md` if missing). If the block exists, leave it alone.

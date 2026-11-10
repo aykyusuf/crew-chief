@@ -36,6 +36,7 @@ import { registerTidy, tidySessionStart } from './tidy-flow.mjs'
 import { askWithDeadline, registerAsk } from './ask.mjs'
 import { cfgGet, configSessionStart, registerConfig } from './config.mjs'
 import { overlapObserve, overlapReset } from './overlap.mjs'
+import { handoffAfter, handoffOnPrompt, handoffReset, handoffTurnComplete } from './handoff-nudge.mjs'
 import { rowSessionEnd, rowSessionStart, rowStepEnd, rowStepStart, rowTurnComplete } from './agent-row.mjs'
 import { addLanguageVote, resetLang, resolveLang } from './lang.mjs'
 import { progressAfter, progressObserve, progressReset } from './progress.mjs'
@@ -87,6 +88,7 @@ const seen = new Set()
 
 function resetState() {
   overlapReset()
+  handoffReset()
   saver = false
   ultra = false
   ultraOpus = false
@@ -399,7 +401,7 @@ export function register(on) {
       resetNotePrompt(lastPromptAt)
       await cacheOnPrompt($)
     }
-    const notes = [await compactNudge($), guardNudge()].filter((n) => n !== undefined)
+    const notes = [await compactNudge($), guardNudge(), ...(await handoffOnPrompt($, e))].filter((n) => n !== undefined)
     return next(notes.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...notes] })
   })
 
@@ -422,6 +424,7 @@ export function register(on) {
       const usage = await $.session.usage()
       uiNoteContext(usage)
       await compactTurnComplete($, usage, e.reason)
+      await handoffTurnComplete($, e)
       await resetOnUsage($, usage)
       await evaluate($)
       launchAsk($)
@@ -512,9 +515,10 @@ export function register(on) {
     // shell hook cannot run.
     const reminder = await progressObserve($, e)
     const overlap = await overlapObserve($, e)
-    if (guard === undefined && reminder === undefined && overlap === undefined) return next(request)
     const result = await next(request)
-    return progressAfter(progressAfter(guard === undefined ? result : await guardAfter($, e, guard, result), reminder), overlap)
+    const handoff = await handoffAfter($, e, result)
+    if (guard === undefined && reminder === undefined && overlap === undefined && handoff === undefined) return result
+    return progressAfter(progressAfter(progressAfter(guard === undefined ? result : await guardAfter($, e, guard, result), reminder), overlap), handoff)
   })
 
   on('command.run', { command: 'saver' }, async ($, e, next) => {

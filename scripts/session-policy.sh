@@ -91,6 +91,7 @@ printf '%s\n' \
   'Rules:' \
   '- Delegate only when the work is self-contained AND (it can run in parallel OR its output would flood your context OR a cheaper tier can do it). Otherwise do it yourself.' \
   '- Brief subagents fully: goal, files, definition of done, check to run, and any constraint the user gave in this conversation (do not modify X, no commits). They do not see this conversation.' \
+  '- If your own model is Fable, your context is the most expensive: hand reading and searching (more than two or three files, logs, web pages) to scanner or deep-reader, ask for findings and not file dumps, and keep your context for decisions.' \
   '- If a tier reports "stopped", escalate one step: implementer -> implementer-hard -> main session.' \
   '- The Agent tool'\''s model and effort parameters override a tier'\''s defaults for one call; use them when the user names a model or effort ("give this to Sonnet at medium").' \
   '- User overrides win and last until they say otherwise: "do it yourself" = solo; "use agents" = delegate; "X directly with Opus" = X stays in the main session.' \
