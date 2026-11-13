@@ -6,7 +6,7 @@
 // The shell panel row (scripts/subagent-row.sh) only reaches a terminal with jq. This line, drawn with
 // $.ui.status, also reaches the Desktop app, VS Code and terminals without jq (Windows). The host puts its
 // own mark and the plugin's name before it.
-//   - model and effort: from each subagent request (turn.step), after the saver's cap was applied;
+//   - model and effort: from each subagent request (turn.step), as the host reported them (not the saver's cap: the host may ignore it);
 //   - tokens: the latest request's input + cache + output (its context size), not a running sum;
 //   - names and who still runs: $.agent.list() (pending, running, waiting), minus the agents whose turn
 //     ended; the line is cleared when none is left.
@@ -276,7 +276,7 @@ async function rowMaybeSchedule($) {
   rowSchedule($)
 }
 
-// Called by the turn.step hook in register.js with the request as it goes out (the saver's cap applied).
+// Called by the turn.step hook in register.js with the request as the host handed it over (before the saver's cap).
 export async function rowStepStart($, request) {
   try {
     if (request.agentId === undefined) return

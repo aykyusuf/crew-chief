@@ -2,6 +2,9 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.12.2 (2026-11-13)
+- **Ajan satırı host'un bildirdiği effort'u gösterir.** Saver açıkken satır, saver'ın isteğe yazdığı effort'u gösteriyordu (Opus ajanları `medium`), ama host ajan tanımındaki kendi effort'unu koruyor (bir `planner` gerçekte `high` çalışırken satır `medium` diyordu; `/tasks` doğruydu). Satır artık host'un verdiği değeri, saver'ın düşürmesinden önceki hâliyle gösterir. Cap'in kendisi değişmedi.
+
 ## 0.12.1 (2026-11-10)
 - **Ajan prompt'ları Anthropic'in güncel model rehberlerine uyuyor** (çıkarım `docs/model-prompting/` içinde). Yazan ajanlar (`implementer`, `implementer-hard`, `mechanic`): sadece kodu ayrıştıran ya da başlayamayan kontrol sayılmaz; istenen her şey bitene kadar çalış, istenmemiş özellik, test, dosya, doküman yok, kendi geçici dosyalarını sil; genel çözüm yaz, test girdilerine özel durum yazma; bağımsız okumaları toplu yap; paket kurma, eksik bağımlılığı ve projenin kurulum komutunu raporlayıp dur. Salt-okunur ajanlar neden salt-okunur olduklarını söyler; `deep-reader` ve `planner` bugünün tarihine bakar ve değişmiş olabilecek bilgiyi arar; `scanner` verilen her aramayı yapar; `reviewer` sadece bulgu döner, kanıtlayamadığına `plausible` der.
 - **Yönlendirme skill'i ve oturum politikası.** Eksik bağımlılık çağıranın kararı (projenin kendi paket yöneticisiyle kur, asla sudo; büyükse ya da depolama, lisans, ücretli servis veya sisteme dokunuyorsa önce kullanıcıya sor); ret aynı seviyede tekrar çalıştırılmaz ve ajanlardan akıl yürütme metni istenmez; Haiku low için kısa brief; "bu kod tabanı senin" cümlesi brief'e varsayılan eklenmez; ana model Fable ise okuma ve aramayı `scanner`/`deep-reader`'a verir.

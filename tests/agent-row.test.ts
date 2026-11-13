@@ -213,14 +213,14 @@ test('a failing agent list throws nothing and the request still completes', asyn
   expect(s.status.at(-1)).toBe(undefined) // nothing reliable to show: cleared
 })
 
-test('the saver cap shows: the line has the effort the request went out with', async ($, on) => {
+test('the saver cap does not show: the line has the effort the host reported (the host may ignore the cap)', async ($, on) => {
   const s = harness(on, { surfaces: ['vscode'] })
   await start($)
   await $.command.run({ command: 'saver', args: 'on' })
   running(s, 'a1', 'implementer-hard')
   await step($, s, 'a1', 'claude-opus-5-5', 'xhigh')
   await redraw(s)
-  expect(s.status.at(-1)).toBe('implementer-hard opus-5.5·medium')
+  expect(s.status.at(-1)).toBe('implementer-hard opus-5.5·xhigh')
 })
 
 // ---- progress kept by the mod (hooks/src/progress.js) -----------------------------------------------------

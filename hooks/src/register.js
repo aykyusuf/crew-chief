@@ -463,10 +463,12 @@ export function register(on) {
         request = { ...e, effort: cap.effort }
       }
     }
-    await rowStepStart($, request)
+    // The row shows what the host reported (e), not what the cap wrote into the outgoing request: the host may
+    // keep the agent definition's own effort (seen: planner ran high while the cap wrote medium).
+    await rowStepStart($, e)
     const result = yield* next(request)
     await statsStepEnd($, e, result)
-    await rowStepEnd($, request, result)
+    await rowStepEnd($, e, result)
     return result
   })
 
