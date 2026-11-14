@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.12.3 (2026-11-15)
+- **The context no longer stays in the band.** The quiet band never draws the `ctx` section (it kept growing as a bar of blocks, especially on Desktop). Instead one toast appears the first time the context passes the compaction size or 70 % of the window, and again only after it has dropped below (e.g. after a compaction). `/crew-ui full` still shows the context, on Desktop as figures without the block graph. The `[1] compact` key and the compact flow are unchanged.
+
 ## 0.12.2 (2026-11-13)
 - **The agent row shows the effort the host reported.** With the saver on, the row used to show the effort the saver wrote into the request (Opus agents at `medium`), but the host keeps the agent definition's own effort (a `planner` really ran at `high` while the row said `medium`; `/tasks` had it right). The row now shows what the host handed over, before the saver's cap. The cap itself is unchanged.
 

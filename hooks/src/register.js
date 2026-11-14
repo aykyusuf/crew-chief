@@ -422,7 +422,7 @@ export function register(on) {
       lastCompleteAt = await $.clock.now()
       uiTouch($)
       const usage = await $.session.usage()
-      uiNoteContext(usage)
+      await uiNoteContext($, usage)
       await compactTurnComplete($, usage, e.reason)
       await handoffTurnComplete($, e)
       await resetOnUsage($, usage)

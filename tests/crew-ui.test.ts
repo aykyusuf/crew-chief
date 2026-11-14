@@ -573,3 +573,41 @@ test('the first run of an agent type in a session says so; the second run of the
   expect(await ui.find({ type: 'Text', text: /first run/ })).toBeUndefined()
   await ui.unmount()
 })
+
+test('the context is not drawn in quiet mode; one toast says so when it passes the compaction size, and again only after a drop', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_COMPACT: 'on' }, tokens: 100_000 })
+  await start($)
+  const done = () => $.turn.complete({ turnId: 'main', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' })
+  const ctxToasts = () => s.toasts.filter((x: string) => x.includes('Context at')).length
+  await done()
+  expect(ctxToasts()).toBe(0)
+  s.tokens = 450_000
+  await done()
+  await done()
+  expect(ctxToasts()).toBe(1) // once, not on every turn
+  expect(s.toasts.find((x: string) => x.includes('Context at'))).toContain('450k (45%)')
+  const ui = await mount($)
+  expect(await ui.find({ type: 'Text', text: /ctx/ })).toBeUndefined() // nothing drawn, however full
+  await ui.unmount()
+  s.tokens = 750_000 // 70 % newly crossed
+  await done()
+  expect(ctxToasts()).toBe(2)
+  s.tokens = 50_000 // compacted
+  await done()
+  s.tokens = 450_000
+  await done()
+  expect(ctxToasts()).toBe(3)
+})
+
+test('full mode on the Desktop app draws the context as figures, without the block graph', async ($, on) => {
+  harness(on, { env: { CREW_CHIEF_UI: 'on' }, store: { crew_ui_mode: 'full' }, tokens: 100_000 })
+  await start($)
+  for (let i = 0; i < 4; i++) await $.turn.complete({ turnId: 'main', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' })
+  const desktop = await $.ui.mount({ plugin: 'crew-chief', surface: 'desktop', component: 'AbovePrompt', props: PROPS, viewport: { columns: 105, rows: 40 } })
+  expect(await desktop.find({ type: 'Text', text: /10%/ })).toBeDefined()
+  expect(await desktop.find({ type: 'Text', text: /[▁▂▃▄▅▆▇█]/ })).toBeUndefined()
+  await desktop.unmount()
+  const terminal = await mount($)
+  expect(await terminal.find({ type: 'Text', text: /[▁▂▃▄▅▆▇█]/ })).toBeDefined()
+  await terminal.unmount()
+})

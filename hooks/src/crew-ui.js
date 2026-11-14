@@ -4,7 +4,8 @@
 //
 // In the terminal, with a status line of the person's own set, the quiet band leaves out the context and the
 // limits (that line has them); on the Desktop app, or with `/crew-ui full`, they are shown.
-// Quiet mode (the default) shows only what is worth a look; `/crew-ui full` shows everything all the time:
+// Quiet mode (the default) shows only what is worth a look (the context is not drawn: a toast says once when it
+// passes the compaction size or 70 %); `/crew-ui full` shows everything all the time (on Desktop without the graph):
 //   ctx 52% 520k/1M   5h 4% ~4h20m   7d 96% ~5d13h   guard on · 1 held   saver on   [ 1 compact ]
 //   deep-reader        sonnet-5.5 ●●○○○ medium ▓▓░░░░ 40%  12k  reading auth
 //
@@ -28,7 +29,7 @@ import { cfgGet } from './config.mjs'
 import { t } from './saver-i18n.mjs'
 import { compactAskAt, compactBandPress, compactKeyDue } from './compact-flow.mjs'
 import { guardSummary } from './guard.mjs'
-import { bandLines, ctxChip, demoContent, modeLabels, modelChip, quietFacts, spinnerWord, statusSegments, tailText, windowChip } from './ui-logic.mjs'
+import { bandLines, ctxAlert, ctxChip, demoContent, modeLabels, modelChip, quietFacts, spinnerWord, statusSegments, tailText, windowChip } from './ui-logic.mjs'
 
 const UI_STORE_KEY = 'crew_ui'
 const UI_MODE_KEY = 'crew_ui_mode' // 'quiet' (default) or 'full'
@@ -71,6 +72,7 @@ let uiStatusLine = { at: -Infinity, has: false } // is the person's own status l
 let uiDemo = false // sample content, not saved
 let uiWords = false
 let uiCtxHistory = [] // the context percent after each main turn, for the graph
+let uiCtxState = { past: false, high: false } // which context thresholds the last turn was past (for the one toast)
 let uiQuestion // { text, answers, resolve }: the one question the band is asking
 const UI_ASK_MAX = 4 // answers that fit digit hotkeys
 let uiMain = { model: undefined, effort: undefined } // the main loop's last request
@@ -101,11 +103,22 @@ async function uiReadChoice($) {
   return { on: saved !== 'off', source: saved === undefined ? 'default' : 'saved choice' }
 }
 
-// Called after each finished main turn with the usage: one more point for the context graph.
-export function uiNoteContext(usage) {
+// Called after each finished main turn with the usage: one more point for the context graph, and one toast
+// the first time the context passes the compaction size or 70 % (again only after it has dropped below, e.g.
+// after a compaction). Never from a render.
+export async function uiNoteContext($, usage) {
   const c = usage?.context
   if (!c || typeof c.tokens !== 'number' || typeof c.window !== 'number' || c.window <= 0) return
   uiCtxHistory = [...uiCtxHistory, Math.round((c.tokens / c.window) * 100)].slice(-24)
+  try {
+    if (!uiOn) return
+    const chip = ctxChip(c, await compactAskAt($, usage), uiCtxHistory)
+    const { state, fire } = ctxAlert(chip, uiCtxState)
+    uiCtxState = state
+    if (fire) $.ui.toast(t(await resolveLang($), 'ctx_toast', { tokens: chip.tokens, percent: chip.percent }), { timeoutMs: 12000 })
+  } catch (err) {
+    // The toast is a courtesy.
+  }
 }
 
 // Called from the mod's turn.step hook with the main loop's request: the model and effort the turn runs on.
@@ -207,6 +220,7 @@ export async function uiSessionStart($) {
     uiExtras = (await safeStoreGet($, UI_EXTRAS_KEY)) !== 'off'
     uiWords = (await safeStoreGet($, UI_WORDS_KEY)) === 'on'
     uiCtxHistory = []
+    uiCtxState = { past: false, high: false }
     const savedStyle = await safeStoreGet($, UI_STYLE_KEY)
     uiStyle = UI_STYLES.includes(savedStyle) ? savedStyle : 'boxed'
     uiStatusLine = { at: -Infinity, has: false }
@@ -373,6 +387,8 @@ export function registerUi(on, saverOn) {
         facts.five = undefined
         facts.week = undefined
       }
+      // The sparkline of blocks is large outside the terminal (Desktop): there the context is the figures only.
+      if (e.surface !== 'terminal' && facts.ctx?.spark) facts.ctx = { ...facts.ctx, spark: '' }
       const agents = demo ? demo.agents : await rowBandRows($)
       // Past agents.warn running at once, say so: attention, not tokens, is what runs out first.
       const warnAt = await cfgGet($, 'agents.warn')

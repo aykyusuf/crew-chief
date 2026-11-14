@@ -82,6 +82,16 @@ export function ctxChip(context, askAt, history) {
   return { percent, tokens: tokenLabel(context.tokens), window: tokenLabel(context.window), tone: toneFor(percent, 50, 75), past: typeof askAt === 'number' && context.tokens >= askAt, spark: sparkline(history) }
 }
 
+// One toast per crossing instead of a chip that stays: `prev` is { past, high } from the last turn, `chip` the
+// ctxChip now. Returns the new state and whether to say something (a threshold was newly crossed; falling below
+// one, as after a compaction, re-arms it).
+export function ctxAlert(chip, prev) {
+  const was = prev ?? { past: false, high: false }
+  if (!chip) return { state: { past: false, high: false }, fire: false }
+  const state = { past: chip.past === true, high: chip.percent >= 70 }
+  return { state, fire: (state.past && !was.past) || (state.high && !was.high) }
+}
+
 // The Spinner word for a model family: a fixed, calm word instead of the engine's random one (opt-in).
 export function spinnerWord(model) {
   const family = familyOf(model)
@@ -115,7 +125,7 @@ export function modeLabels(facts) {
 
 const seg = (t, tone, bold) => (bold ? { t, tone, bold: true } : { t, tone })
 
-// Quiet mode: only what is worth a look. The context and the windows from 70 %, the guard once it has stopped
+// Quiet mode: only what is worth a look. The windows from 70 %, the guard once it has stopped
 // something, the saver while a window is high, the compact key when compaction is due. Everything fine -> the
 // band has nothing to say (and, with no agent running, is not drawn at all).
 export function quietFacts(facts) {
@@ -123,7 +133,7 @@ export function quietFacts(facts) {
   const five = loud(facts.five)
   const week = loud(facts.week)
   return {
-    ctx: facts.ctx && (facts.ctx.past || facts.ctx.percent >= 70) ? facts.ctx : undefined,
+    ctx: undefined, // the context is said once, in a toast (ctxAlert), not drawn all the time
     five,
     week,
     guard: facts.guard && facts.guard.held > 0 ? facts.guard : undefined,

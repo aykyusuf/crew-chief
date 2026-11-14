@@ -2,6 +2,9 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.12.3 (2026-11-15)
+- **Context artık band'da kalmıyor.** Sessiz band `ctx` bölümünü hiç çizmez (özellikle Desktop'ta blok çubuğu olarak büyüyüp duruyordu). Onun yerine context compact boyutunu ya da pencerenin %70'ini ilk geçtiğinde tek bir toast çıkar; tekrar yalnızca altına düştükten sonra (örneğin compact'tan sonra). `/crew-ui full` context'i yine gösterir, Desktop'ta blok grafik olmadan rakamlarla. `[1] compact` tuşu ve compact akışı aynı.
+
 ## 0.12.2 (2026-11-13)
 - **Ajan satırı host'un bildirdiği effort'u gösterir.** Saver açıkken satır, saver'ın isteğe yazdığı effort'u gösteriyordu (Opus ajanları `medium`), ama host ajan tanımındaki kendi effort'unu koruyor (bir `planner` gerçekte `high` çalışırken satır `medium` diyordu; `/tasks` doğruydu). Satır artık host'un verdiği değeri, saver'ın düşürmesinden önceki hâliyle gösterir. Cap'in kendisi değişmedi.
 

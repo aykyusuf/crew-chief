@@ -5,6 +5,7 @@ import {
   bandLines,
   bar,
   demoContent,
+  ctxAlert,
   ctxChip,
   effortMeter,
   elapsedLabel,
@@ -163,8 +164,8 @@ test('quietFacts keeps only what is worth a look', () => {
     guard: { on: true, held: 2 },
     compactKey: true,
   }
-  assert.equal(lineText(statusSegments(quietFacts(busy))), 'ctx 75% 750k/1M   7d 96%   guard on · 2 held   saver on   [1] compact')
-  assert.equal(quietFacts({ ctx: ctxChip({ tokens: 450_000, window: 1_000_000 }, 400_000) }).ctx.past, true) // past the compaction size, though under 70 %
+  assert.equal(lineText(statusSegments(quietFacts(busy))), '7d 96%   guard on · 2 held   saver on   [1] compact') // no ctx in quiet mode, however full
+  assert.equal(quietFacts({ ctx: ctxChip({ tokens: 450_000, window: 1_000_000 }, 400_000) }).ctx, undefined)
   assert.equal(quietFacts({ saver: true }).saver, false) // the saver only matters next to a high window
 })
 
@@ -283,4 +284,21 @@ test('a first run of an agent type is marked, a later one is not', () => {
   const text = (a) => agentSegments(a, 100).map((s) => s.t).join('')
   assert.ok(text({ name: 'crew-chief:planner', model: 'claude-opus-5-5', effort: 'high', fresh: true }).includes('first run'))
   assert.ok(!text({ name: 'crew-chief:planner', model: 'claude-opus-5-5', effort: 'high' }).includes('first run'))
+})
+
+test('ctxAlert: one toast per crossing, again only after dropping below', () => {
+  const chip = (tokens) => ctxChip({ tokens, window: 1_000_000 }, 400_000)
+  let r = ctxAlert(chip(100_000), undefined)
+  assert.equal(r.fire, false)
+  r = ctxAlert(chip(450_000), r.state) // past the compaction size, under 70 %
+  assert.equal(r.fire, true)
+  r = ctxAlert(chip(500_000), r.state) // still past: quiet
+  assert.equal(r.fire, false)
+  r = ctxAlert(chip(750_000), r.state) // 70 % newly crossed: one more
+  assert.equal(r.fire, true)
+  assert.equal(ctxAlert(chip(800_000), r.state).fire, false)
+  r = ctxAlert(chip(50_000), r.state) // compacted
+  assert.equal(r.fire, false)
+  assert.equal(ctxAlert(chip(450_000), r.state).fire, true)
+  assert.equal(ctxAlert(undefined, r.state).fire, false)
 })
