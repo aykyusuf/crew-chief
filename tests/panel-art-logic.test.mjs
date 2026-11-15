@@ -226,31 +226,21 @@ test('the bar with no estimate: a dotted line in the model colour, no dot, no pe
   assert.doesNotMatch(none.source, /@keyframes|animation/)
 })
 
-test('the face in performance mode: still but for one blink of a long cycle, no clock, a phase of its own per agent', () => {
-  const phases = new Set()
+test('the face in performance mode: fully still, no keyframes, no animation style, no clock', () => {
   for (const name of [...ART_KINDS, 'Explore']) {
     for (const style of ['capsule', 'cat']) {
       for (const id of ['a1', 'a2', 'a3']) {
         const f = agentFace({ id, name: 'crew-chief:' + name, model: 'claude-sonnet-5-5', effort: 'medium' }, { style, perf: true })
         checkSafe(f.source)
-        const anims = [...f.source.matchAll(/animation:(\w+) ([\d.]+)s \S+ (-?\d+)ms infinite/g)]
-        assert.equal(anims.length, 1, `${name} ${style}: one animation`)
-        assert.equal((f.source.match(/@keyframes/g) ?? []).length, 1)
-        assert.match(anims[0][1], /bl$/)
-        const cycle = Number(anims[0][2])
-        assert.ok(cycle >= 6 && cycle <= 8, 'a blink every 6 to 8 s: ' + cycle)
-        const kf = new RegExp(`@keyframes ${anims[0][1]}\\{0%,([\\d.]+)%,100%\\{transform:none\\}([\\d.]+)%\\{transform:scaleY`).exec(f.source)
-        assert.ok(kf, 'the blink keyframes')
-        const shutMs = ((100 - Number(kf[1])) / 100) * cycle * 1000
-        assert.ok(shutMs >= 150 && shutMs <= 200, 'a short blink: ' + shutMs)
-        assert.match(f.source, /prefers-reduced-motion:reduce/)
-        phases.add(anims[0][3])
+        assert.equal((f.source.match(/@keyframes/g) ?? []).length, 0, `${name} ${style}: zero keyframes`)
+        assert.doesNotMatch(f.source, /animation|<style/, `${name} ${style}: no animation style`)
+        // The rest pose is still drawn: the eyes are there, open.
+        assert.match(f.source, /<circle cx="1\d(\.\d+)?" cy="1\d(\.\d+)?" r="/)
         // No clock: the same agent draws the same face at any time.
         assert.equal(agentFace({ id, name: 'crew-chief:' + name, model: 'claude-sonnet-5-5', effort: 'medium' }, { style, perf: true }).source, f.source)
       }
     }
   }
-  assert.ok(phases.size > 1, 'agents do not all blink together')
 })
 
 // The keyframe names of a picture without its class prefix.
@@ -275,7 +265,7 @@ test('the face by default moves fully: its tool and body motions, a phase from t
       assert.notEqual(face('a2', name, style), src, 'another agent moves in a phase of its own')
     }
   }
-  // The perf face holds the blink alone.
+  // The perf face holds no motion at all.
   const still = agentFace({ id: 'a1', name: 'crew-chief:implementer', model: 'claude-sonnet-5-5', effort: 'medium' }, { perf: true }).source
-  assert.deepEqual(names(still), ['bl'])
+  assert.doesNotMatch(still, /@keyframes|animation/)
 })

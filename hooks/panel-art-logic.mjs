@@ -6,7 +6,7 @@
 // legs and goggle band take the model's colour) and `cat` (a blue point kitten; the model's colour is only on
 // its collar bell and beads). The agent type picks an accessory and a tool, the model a colour, the effort
 // the speed of the motion and how many of the five dots are filled. In performance mode (panel.perf) a character
-// stands still in its rest pose and only blinks now and then (see blink); the progress bar never moves.
+// stands fully still in its rest pose (no keyframes, no animation at all); the progress bar never moves.
 //
 // Rules every drawing keeps (the tests check them):
 //   - no script, no `href`, no `url(`: nothing is loaded and no id can collide between drawings;
@@ -149,27 +149,30 @@ function motion(P, now) {
 }
 
 function styleBlock(P, mo, extra = '') {
+  // Nothing moves (a still face): no style at all, so not one animation rule is left for the host to run.
+  if (mo.frames.size === 0 && extra === '') return ''
   const kf = [...mo.frames].map(([name, body]) => `@keyframes ${P}${name}{${body}}`).join('')
   return `<style>${extra}${kf}@media (prefers-reduced-motion:reduce){.${P}a{animation:none!important}.${P}m{display:none}}</style>`
 }
 
 // ---- the characters ------------------------------------------------------------------------------------
 
-// In performance mode (panel.perf on) the one motion a character has: a short blink (BLINK_MS) once a cycle of 6
-// to 8 s; the rest of the time it stands still in its rest pose. The cycle and the phase come from `seed` (the agent), so cards do not blink
-// together; `now` only on the full card (agentArt, redrawn every second anyway), never on the face.
+// The full card's (agentArt) one motion: a short blink (BLINK_MS) once a cycle of 6 to 8 s; the rest of the time
+// it stands still in its rest pose. The cycle and the phase come from `seed` (the agent), so cards do not blink
+// together. The face in performance mode has not even this: it stands fully still (the user's call, 2026-11-15).
 const BLINK_MS = 180
 // A motion that never moves: the character drawn in its rest pose, no keyframes collected.
 const STILL = { anim: () => '' }
 
-// The character's body and tool. perf: still but for the blink; else every motion, at the effort's speed.
-function character(a, style, mo, perf, now) {
+// The character's body and tool. perf: the rest pose, still but for the blink when `blinks`, fully still otherwise;
+// else every motion, at the effort's speed.
+function character(a, style, mo, perf, now, blinks = false) {
   const C = a.unknown ? MODEL_COLOR.other : modelColor(a.model)
   const step = a.unknown ? undefined : effortStep(a.effort)
   const kind = artKind(a.name)
   const k = speedFor(a.effort)
   const m = perf ? STILL : mo
-  const eyes = perf ? blink(mo, String(a.id ?? a.name ?? 'agent'), now) : undefined
+  const eyes = perf ? (blinks ? blink(mo, String(a.id ?? a.name ?? 'agent'), now) : '') : undefined
   const body = (style === 'cat' ? cat(kind, C, step, m, k, eyes) : capsule(kind, C, step, m, k, eyes)) + tool(kind, C, m, k)
   // A still motion leaves an empty attribute ('<g >', '<circle  cx'): drop the spaces it leaves (no text in here).
   return perf ? body.replace(/ +>/g, '>').replace(/ {2,}/g, ' ') : body
@@ -406,7 +409,7 @@ export function agentArt(a, opts = {}) {
   const step = a.unknown ? undefined : effortStep(a.effort)
   // The whole card is no longer drawn in the band (the split card below is); it keeps the still character with
   // its blink, which keeps it under 8k characters next to the still bar.
-  const body = character(a, style, mo, true, now)
+  const body = character(a, style, mo, true, now, true)
   const name = artClip(String(a.name ?? 'agent').replace(/^.*:/, ''), 17)
   let line1 = `<text x="56" y="19" font-size="12" font-weight="600" fill="${C}">${artEscape(name)}</text>`
   if (!a.unknown) {
@@ -467,7 +470,8 @@ export const BAR_HEIGHT = 6
 
 // The character alone: { source, alt, width, height }; opts: { style, perf }. No phase from the clock (it comes
 // from the agent's id), so the same agent always gets the same markup and the image is never reloaded under its
-// motion. perf (panel.perf on): still but for a short blink.
+// motion. perf (panel.perf on, or an agent waiting on its background work): fully still, the rest pose with no
+// keyframes and no animation style at all.
 export function agentFace(a, opts = {}) {
   const style = opts.style === 'cat' ? 'cat' : 'capsule'
   const perf = opts.perf === true

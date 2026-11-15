@@ -3225,7 +3225,7 @@ async function uiSessionStart($) {
     // The name is taken, or an older Claude Code: the band can still be switched with CREW_CHIEF_UI.
   }
   try {
-    await $.command.register({ name: 'crew-perf', description: 'Switch performance mode for the agent pictures (still but for a blink, or moving)', immediate: true, argumentHint: '[on|off]' })
+    await $.command.register({ name: 'crew-perf', description: 'Switch performance mode for the agent pictures (fully still, or moving)', immediate: true, argumentHint: '[on|off]' })
   } catch (err) {
     // The name is taken, or an older Claude Code: /crew-config set panel.perf and the status line toggle still work.
   }
@@ -3403,7 +3403,7 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
   // wraps: every Text but the step sits in a Box that does not shrink; the step alone is cut short. The cells of
   // a row are one width (cardGrid in hooks/ui-logic.mjs), so the figures and the button sit at one x in every
   // card. Only the two small pictures are Svg, and neither holds a clock, so the face's motion runs on (see
-  // agentFace in hooks/panel-art-logic.mjs; panel.perf keeps it still but for a blink).
+  // agentFace in hooks/panel-art-logic.mjs; panel.perf keeps it fully still).
   // Until the agent's first request names its model the card shows none (no 'starting', no hollow dots): the
   // drawn text and the width measured for the grid both come from here, so they agree.
   const cardText = (a) => {
@@ -3416,7 +3416,7 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
   const card = (agent, id, grid) => {
     const a = cardAgent(agent)
     const c = cardText(a)
-    // An agent waiting on its own background work (rowBandRows: bgWait) stands still but for a blink, as in
+    // An agent waiting on its own background work (rowBandRows: bgWait) stands fully still, as in
     // performance mode, for its card alone: it is not finished, only resting.
     const face = agentFace(a, { style: art.style, perf: art.perf || a.bgWait === true })
     const bar = agentBar(a)
@@ -3838,7 +3838,7 @@ function registerUi(on, saverOn) {
       let art
       if (cardsDrawn) {
         const now = await $.clock.now()
-        // panel.perf on: the characters stand still but for a short blink.
+        // panel.perf on: the characters stand fully still.
         const perf = (await cfgGet($, 'panel.perf')) === 'on'
         art = { Svg, style: panel, perf, now, prev: uiArtPrev(Array.isArray(agents) ? agents : [], now), columns }
       }

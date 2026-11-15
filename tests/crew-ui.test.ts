@@ -738,7 +738,7 @@ test('on Desktop a running subagent is a picture (capsule by default), in the te
   await term.unmount()
 })
 
-test('the face moves fully by default; panel.perf on keeps it still but for a blink, the same source on a later drawing', async ($, on) => {
+test('the face moves fully by default; panel.perf on keeps it fully still, the same source on a later drawing', async ($, on) => {
   const s = harness(on, { env: { CREW_CHIEF_UI: 'on' } })
   await start($)
   s.agents.push({ id: 'a1', type: 'crew-chief:implementer', status: 'running', description: 'a task' })
@@ -759,7 +759,7 @@ test('the face moves fully by default; panel.perf on keeps it still but for a bl
   const r = await $.command.run({ command: 'crew-config', args: 'set panel.perf on' })
   expect(JSON.stringify(r)).toContain('panel.perf = on')
   const still = await faceOf()
-  expect(frames(still)).toEqual(['bl'])
+  expect(still).not.toMatch(/@keyframes|animation/) // fully still, not even a blink
   await s.clock.advance(7000)
   expect(await faceOf()).toBe(still)
 })
@@ -794,7 +794,7 @@ test('an agent whose turn ended while it waits on its background work keeps a ca
   expect(waiting.face).toBeDefined() // the card stays
   expect(waiting.waitText).toBeDefined()
   expect(waiting.tag).toBeDefined()
-  expect(frames(waiting.face!)).toEqual(['bl']) // still but for a blink, panel.perf off
+  expect(waiting.face!).not.toMatch(/@keyframes|animation/) // fully still, panel.perf off
   expect(waiting.time).toMatch(/^1m/) // the time counts on past the turn's end
   // The background work is done: it runs another turn, the normal card again.
   s.agents[0].status = 'running'
@@ -1250,7 +1250,7 @@ test('session start writes ~/.claude/perf-mode.json only when it says otherwise 
   expect(JSON.parse(files[file]).on).toBe(true)
 })
 
-test('Desktop: a press on the status line toggle switches panel.perf, and the next drawing\'s face goes from full motion to a blink and back', async ($, on) => {
+test('Desktop: a press on the status line toggle switches panel.perf, and the next drawing\'s face goes from full motion to fully still and back', async ($, on) => {
   const s = harness(on, { env: { CREW_CHIEF_UI: 'on' }, surfaces: ['desktop'], branch: 'main' })
   await start($)
   s.agents.push({ id: 'a1', type: 'crew-chief:implementer', status: 'running', description: 'a task' })
@@ -1265,7 +1265,7 @@ test('Desktop: a press on the status line toggle switches panel.perf, and the ne
   await settle()
   await desk.unmount()
   expect(s.stored.cfg_panel_perf).toBe('on')
-  expect(keyframes(await implementerFace($))).toEqual(['bl'])
+  expect(await implementerFace($)).not.toMatch(/@keyframes|animation/)
   const lit = await mountDesktop($)
   const onBtn = await perfButton(lit)
   expect(onBtn?.props?.dimColor).toBeUndefined()
