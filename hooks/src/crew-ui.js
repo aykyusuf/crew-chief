@@ -474,7 +474,7 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
     const c = cardText(a)
     // An agent waiting on its own background work (rowBandRows: bgWait) stands fully still, as in
     // performance mode, for its card alone: it is not finished, only resting.
-    const face = agentFace(a, { style: art.style, perf: art.perf || a.bgWait === true })
+    const face = agentFace(a, { style: art.style, perf: art.perf || a.bgWait === true, now: art.now })
     const bar = agentBar(a)
     const k = id ?? agent.id
     const dim = (t) => Text({ color: CARD_LOOK.mute, children: [t] })

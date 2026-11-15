@@ -726,10 +726,14 @@ test('on Desktop a running subagent is a picture (capsule by default), in the te
   expect(await desk.find({ type: 'Text', text: /^Sonnet 5\.5$/ })).toBeDefined()
   expect(await desk.find({ type: 'Text', text: /^●●●○○$/ })).toBeDefined()
   expect(await desk.find({ type: 'Text', text: /^High$/ })).toBeDefined()
-  // The pictures hold no clock: a later drawing gives the same markup, so the image is not loaded again.
+  // A later drawing differs only in the motions' phase (the clock is in the animation delay, so an image the
+  // app loads again picks the motion up where it was); the drawing itself is the same.
   await s.clock.advance(7000)
   const again = await mountDesktop($)
-  expect((await again.findAll({ type: 'Svg' })).map((x: any) => x.props.source)).toEqual(svgs.map((x: any) => x.props.source))
+  const noPhase = (src: string) => src.replace(/-?\d+ms infinite/g, 'PHASE infinite')
+  const later = (await again.findAll({ type: 'Svg' })).map((x: any) => x.props.source)
+  expect(later.map(noPhase)).toEqual(svgs.map((x: any) => noPhase(x.props.source)))
+  expect(later[0]).not.toBe(svgs[0].props.source)
   await again.unmount()
   await desk.unmount()
   const term = await mount($)
@@ -859,7 +863,8 @@ test('consecutive band drawings keep each picture at the same keyed place with t
     await ui.unmount()
     return tree
   }
-  const mine = (m: Map<string, string>) => new Map([...m].filter(([k]) => k.includes('-a1/')))
+  // Same place, same drawing: only the motions' phase (the animation delay) follows the clock.
+  const mine = (m: Map<string, string>) => new Map([...m].filter(([k]) => k.includes('-a1/')).map(([k, v]) => [k, v.replace(/-?\d+ms infinite/g, 'PHASE infinite')]))
   const quiet = await draw()
   expect(placeOf(quiet, 'agentcards-0')).toBe(0) // no status line yet: the cards are the first row
   const first = mine(pictures(quiet))

@@ -476,10 +476,13 @@ export function agentFace(a, opts = {}) {
   const style = opts.style === 'cat' ? 'cat' : 'capsule'
   const perf = opts.perf === true
   const P = artPrefix(String(a.name ?? 'agent') + String(a.model ?? '') + String(a.effort ?? '') + style + (perf ? 'perf' : '') + 'face')
-  // The motions' phase comes from the agent's id, not the clock: cards do not move in step, and a redraw gives
-  // the same source.
+  // The motions' phase: an offset from the agent's id (cards do not move in step), plus the wall clock when the
+  // caller passes `now`. The Desktop app seems to load the image again on redraws (seen live 2026-11-15: the cat's
+  // tail snapped back to one pose); with the clock in the phase a reload picks the motion up where it was.
+  // Without `now` the source is the same on every call.
   const id = String(a.id ?? a.name ?? 'agent')
-  const mo = motion(P, parseInt(artPrefix(id + 'phase').slice(1), 36) % 60000)
+  const offset = parseInt(artPrefix(id + 'phase').slice(1), 36) % 60000
+  const mo = motion(P, offset + (typeof opts.now === 'number' && Number.isFinite(opts.now) && !perf ? opts.now : 0))
   const body = character(a, style, mo, perf)
   const source =
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 44" width="${FACE_SIZE}" height="${r2((FACE_SIZE * 44) / 48)}" overflow="visible">` +
