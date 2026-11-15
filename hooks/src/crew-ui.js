@@ -27,12 +27,12 @@ import { rowBandRows, rowRefreshSurfaces, rowSurfaces } from './agent-row.mjs'
 import { resolveLang } from './lang.mjs'
 import { cfgGet, cfgSet, cfgState } from './config.mjs'
 import { t } from './saver-i18n.mjs'
-import { compactAskAt, compactBandPress, compactKeyDue, runningAgents } from './compact-flow.mjs'
+import { compactAskAt, compactBandPress, compactCtxStale, compactKeyDue, runningAgents } from './compact-flow.mjs'
 import { guardSummary } from './guard.mjs'
 import { agentBar, agentCardText, agentFace, artElapsed, artTokens, CARD_LOOK, saverBadge, SAVER_LOOK } from './panel-art-logic.mjs'
 import { avBandCompose, avBandDraft, avBandDraftOf, avBandFullView, avBandName, avBandOpenPane, avBandSend, avBandView } from './agent-view.mjs'
 import { BAND_EXTRA_MAX, bandExtraRows, fitSections, sendPlan } from './agent-view-logic.mjs'
-import { bandRows, cardBudget, cardGrid, cardRowsFit, cardLine1Cells, cardNeedCells, cardTextRoom, CARD_CELLS, ctxAlert, ctxChip, demoContent, modeLabels, modelChip, COMPACT_ICON, COMPACT_LABEL, PERF_ASK, PERF_READERS_DIR, perfArg, perfChoices, perfIcon, perfInForce, perfParts, perfReaderLive, perfToggle, placeFolder, questionRows, quietFacts, spinnerWord, statusLineSegments, statusSegments, tailText, windowChip } from './ui-logic.mjs'
+import { bandRows, cardBudget, cardGrid, cardRowsFit, cardLine1Cells, cardNeedCells, cardTextRoom, CARD_CELLS, ctxAlert, ctxChip, ctxStaleChip, demoContent, modeLabels, modelChip, COMPACT_ICON, COMPACT_LABEL, PERF_ASK, PERF_READERS_DIR, perfArg, perfChoices, perfIcon, perfInForce, perfParts, perfReaderLive, perfToggle, placeFolder, questionRows, quietFacts, spinnerWord, statusLineSegments, statusSegments, tailText, windowChip } from './ui-logic.mjs'
 
 const UI_STORE_KEY = 'crew_ui'
 const UI_MODE_KEY = 'crew_ui_mode' // 'quiet' (default) or 'full'
@@ -181,6 +181,7 @@ export async function uiNoteContext($, usage) {
   await uiRefreshPlace($)
   const c = usage?.context
   if (!c || typeof c.tokens !== 'number' || typeof c.window !== 'number' || c.window <= 0) return
+  if (compactCtxStale(c.tokens)) return // the size from before a compaction: no point for the graph, no toast
   uiCtxHistory = [...uiCtxHistory, Math.round((c.tokens / c.window) * 100)].slice(-24)
   try {
     if (!uiOn) return
@@ -972,9 +973,10 @@ async function uiFacts($, saverOn) {
   const usage = await $.session.usage()
   const askAt = await compactAskAt($, usage)
   const guard = guardSummary()
+  const stale = compactCtxStale(usage?.context?.tokens)
   return {
-    tokens: usage?.context?.tokens,
-    ctx: ctxChip(usage?.context, askAt, uiCtxHistory),
+    tokens: stale ? undefined : usage?.context?.tokens,
+    ctx: stale ? ctxStaleChip(usage?.context) : ctxChip(usage?.context, askAt, uiCtxHistory),
     five: windowChip(usage?.rateLimits, 'five_hour', now),
     week: windowChip(usage?.rateLimits, 'seven_day', now),
     guard: guard.loaded ? { on: guard.on, held: guard.held } : undefined,

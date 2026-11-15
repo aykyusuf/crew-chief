@@ -185,7 +185,9 @@ const FILES = { '/work/STATUS.md': STATUS, '/work/tasks.json': TASKS }
 
 // Armed, approved, the turn ends, the compaction runs. For tests that care about what happens after it.
 async function compactOnce($: any, s: any) {
-  await setTokens($, s, Math.max(s.tokens, 260_000)) // a fresh measurement arms the flow again after a compaction
+  // A fresh measurement arms the flow again after a compaction. It differs from the size before the last
+  // compaction: an unchanged figure is the engine's old one (compactCtxStale) and arms nothing.
+  await setTokens($, s, Math.max(s.tokens + 1_000, 260_000))
   await $.tool.call({ tool: TOOL, phase: 'p' })
   await askAtTurnEnd($, s)
   if ('/work/STATUS.md' in s.files) s.mtimes['/work/STATUS.md'] = 9_000_000 + s.answerAt

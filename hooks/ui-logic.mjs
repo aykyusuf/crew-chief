@@ -83,12 +83,19 @@ export function ctxChip(context, askAt, history) {
   return { percent, tokens: tokenLabel(context.tokens), window: tokenLabel(context.window), tone: toneFor(percent, 50, 75), past: typeof askAt === 'number' && context.tokens >= askAt, spark: sparkline(history) }
 }
 
+// The context right after a compaction while the engine still reports the size from before it (the Desktop app
+// measures again only at the next model request): no percent and no size, just '—' so an old figure never shows.
+export function ctxStaleChip(context) {
+  const window = context && typeof context.window === 'number' && context.window > 0 ? tokenLabel(context.window) : undefined
+  return { stale: true, percent: undefined, tokens: '—', window, tone: 'dim', past: false, spark: undefined }
+}
+
 // One toast per crossing instead of a chip that stays: `prev` is { past, high } from the last turn, `chip` the
 // ctxChip now. Returns the new state and whether to say something (a threshold was newly crossed; falling below
 // one, as after a compaction, re-arms it).
 export function ctxAlert(chip, prev) {
   const was = prev ?? { past: false, high: false }
-  if (!chip) return { state: { past: false, high: false }, fire: false }
+  if (!chip || chip.stale) return { state: { past: false, high: false }, fire: false }
   const state = { past: chip.past === true, high: chip.percent >= 70 }
   return { state, fire: (state.past && !was.past) || (state.high && !was.high) }
 }
@@ -157,8 +164,11 @@ export function statusSegments(facts, keyHint = true) {
   if (facts.ctx) {
     gap()
     out.push(seg('ctx ', 'dim'))
-    if (facts.ctx.spark) out.push(seg(facts.ctx.spark + ' ', facts.ctx.tone))
-    out.push(seg(`${facts.ctx.percent}%`, facts.ctx.tone, true), seg(` ${facts.ctx.tokens}/${facts.ctx.window}`, 'dim'))
+    if (facts.ctx.stale) out.push(seg('—', 'dim'))
+    else {
+      if (facts.ctx.spark) out.push(seg(facts.ctx.spark + ' ', facts.ctx.tone))
+      out.push(seg(`${facts.ctx.percent}%`, facts.ctx.tone, true), seg(` ${facts.ctx.tokens}/${facts.ctx.window}`, 'dim'))
+    }
   }
   for (const w of [facts.five, facts.week]) {
     if (!w) continue
@@ -321,7 +331,8 @@ export function statusLineSegments(info) {
     const reset = spacedReset(w.reset)
     parts.push({ t: `${w.label}: %${w.percent}${reset ? ' ' + reset : ''}`, tone: 'other', color: hex })
   }
-  if (i.ctx && typeof i.ctx.percent === 'number') parts.push({ t: `ctx:${i.ctx.percent}%`, tone: 'other', color: STATUS_LINE_HEX.ctx })
+  if (i.ctx && i.ctx.stale) parts.push({ t: 'ctx:—', tone: 'other', color: STATUS_LINE_HEX.ctx })
+  else if (i.ctx && typeof i.ctx.percent === 'number') parts.push({ t: `ctx:${i.ctx.percent}%`, tone: 'other', color: STATUS_LINE_HEX.ctx })
   const tok = lineTokens(i.tokens)
   if (tok) parts.push({ t: tok, tone: 'other' })
   const meter = effortMeter(i.effort)

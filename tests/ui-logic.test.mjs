@@ -14,6 +14,7 @@ import {
   demoContent,
   ctxAlert,
   ctxChip,
+  ctxStaleChip,
   effortMeter,
   elapsedLabel,
   familyOf,
@@ -502,4 +503,16 @@ test('perfInForce and perfToggle: with no theme reader theme and all work as age
   assert.equal(perfInForce('all', false), 'agents')
   assert.equal(perfToggle('off'), 'agents')
   for (const sc of ['agents', 'theme', 'all']) assert.equal(perfToggle(sc), 'off')
+})
+
+test('ctxStaleChip: after a compaction the old size shows as a dash, never as a percent', () => {
+  const chip = ctxStaleChip({ tokens: 768_000, window: 1_000_000 })
+  assert.equal(chip.stale, true)
+  assert.equal(chip.percent, undefined)
+  assert.equal(chip.past, false)
+  assert.deepEqual(ctxAlert(chip, { past: true, high: true }), { state: { past: false, high: false }, fire: false })
+  const band = statusSegments({ ctx: chip }).map((s) => s.text ?? s.t ?? '').join('')
+  assert.ok(band.includes('—') && !band.includes('%'), band)
+  const line = statusLineSegments({ ctx: chip, tokens: undefined }).map((p) => p.t).join(' ')
+  assert.ok(line.includes('ctx:—') && !line.includes('%'), line)
 })

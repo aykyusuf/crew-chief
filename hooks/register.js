@@ -228,6 +228,7 @@ import {
   cardTextRoom,
   ctxAlert,
   ctxChip,
+  ctxStaleChip,
   demoContent,
   modeLabels,
   modelChip,
@@ -1047,11 +1048,35 @@ function freshCompact(toolReady = false, directRefused = false) {
 
 let ck = freshCompact()
 
+// The context size the engine reported just before the last compaction, while it still reports that same size
+// afterwards. The Desktop app (an SDK session) keeps the old figure until the next model request, the terminal
+// counts the new transcript at once; until the figure changes, the band and the flow treat it as unknown.
+let ctxStale
+
+// Whether `tokens` is the size from before the last compaction (the engine has not measured again yet). The
+// first different figure ends that for good.
+function compactCtxStale(tokens) {
+  if (ctxStale === undefined || typeof tokens !== 'number') return false
+  if (tokens === ctxStale) return true
+  ctxStale = undefined
+  return false
+}
+
+async function ctxTokensNow($) {
+  try {
+    const tokens = (await $.session.usage())?.context?.tokens
+    return typeof tokens === 'number' ? tokens : undefined
+  } catch (err) {
+    return undefined
+  }
+}
+
 // session.start does not fire after /clear, so the tool registered at the start is still there: keep
 // toolReady across a reset, and let compactSessionStart (a real start) decide it afresh.
 function resetCompact() {
   cancelAskTimer()
   ck = freshCompact(ck.toolReady, ck.directRefused)
+  ctxStale = undefined
   open.compact = false
 }
 
@@ -1144,7 +1169,7 @@ async function limits($, usage) {
 async function compactUpdate($, usage) {
   if (await disabled($)) return
   const tokens = usage?.context?.tokens
-  if (typeof tokens !== 'number' || ck.never || ck.plan || ck.compacting) return
+  if (typeof tokens !== 'number' || compactCtxStale(tokens) || ck.never || ck.plan || ck.compacting) return
   const lim = await limits($, usage)
   if (!ck.armed && tokens >= Math.max(lim.arm, ck.rearmAt)) {
     ck.armed = true
@@ -1395,6 +1420,7 @@ async function compactTurnComplete($, usage, reason) {
   }
   if (!clean) return
   const tokens = usage?.context?.tokens
+  if (compactCtxStale(tokens)) return
   if (!ck.armed || ck.never || ck.compacting || ck.asking) return
   if (!ck.wantAsk && !ck.askedFallback && typeof tokens === 'number' && tokens >= (await limits($, usage)).ask && (await safe(() => cfgGet($, 'compact.fallback'), 'on')) === 'on') {
     // Claude never called the tool: ask anyway, once per cycle.
@@ -1433,6 +1459,7 @@ async function runCompaction($, attempt, waited = 0) {
       await compactViaCommand($, args)
       return
     }
+    const tokensBefore = await ctxTokensNow($)
     const result = await $.session.compact(args)
     if (result && result.skip && directCompactRefused(String(result.skip))) {
       ck.directRefused = true
@@ -1440,6 +1467,7 @@ async function runCompaction($, attempt, waited = 0) {
     } else if (result && result.skip) {
       await failed($, String(result.skip))
     } else if (result && result.messages) {
+      ctxStale = tokensBefore
       cycleDone()
       await afterCompaction($, result, before)
     }
@@ -1673,13 +1701,20 @@ function registerCompact(on) {
       ck.promptPending = false
       ck.compacting = false
     }
-    if (e.agentId !== undefined || (await focusOff($))) return next(e)
+    const main = e.agentId === undefined && e.trigger !== 'precompute'
+    const tokensBefore = main ? await ctxTokensNow($) : undefined
+    if (e.agentId !== undefined || (await focusOff($))) {
+      const plain = await next(e)
+      if (main && plain && plain.messages) ctxStale = tokensBefore
+      return plain
+    }
     const before = e.trigger === 'precompute' ? undefined : await transcriptLines($)
     if (e.trigger !== 'precompute') await copyTranscriptIfNeeded($)
     // The engine always sends the transcript with the event; a call without it is passed on without one.
     const input = e.messages === undefined ? (({ messages, ...rest }) => rest)(e) : e
     const result = await next({ ...input, instructions: withFocus(e.instructions, backgroundNote(processHandles())) })
     if (e.trigger !== 'precompute' && result && result.messages) {
+      ctxStale = tokensBefore
       cycleDone()
       await afterCompaction($, result, before)
     }
@@ -3206,6 +3241,7 @@ async function uiNoteContext($, usage) {
   await uiRefreshPlace($)
   const c = usage?.context
   if (!c || typeof c.tokens !== 'number' || typeof c.window !== 'number' || c.window <= 0) return
+  if (compactCtxStale(c.tokens)) return // the size from before a compaction: no point for the graph, no toast
   uiCtxHistory = [...uiCtxHistory, Math.round((c.tokens / c.window) * 100)].slice(-24)
   try {
     if (!uiOn) return
@@ -3997,9 +4033,10 @@ async function uiFacts($, saverOn) {
   const usage = await $.session.usage()
   const askAt = await compactAskAt($, usage)
   const guard = guardSummary()
+  const stale = compactCtxStale(usage?.context?.tokens)
   return {
-    tokens: usage?.context?.tokens,
-    ctx: ctxChip(usage?.context, askAt, uiCtxHistory),
+    tokens: stale ? undefined : usage?.context?.tokens,
+    ctx: stale ? ctxStaleChip(usage?.context) : ctxChip(usage?.context, askAt, uiCtxHistory),
     five: windowChip(usage?.rateLimits, 'five_hour', now),
     week: windowChip(usage?.rateLimits, 'seven_day', now),
     guard: guard.loaded ? { on: guard.on, held: guard.held } : undefined,
