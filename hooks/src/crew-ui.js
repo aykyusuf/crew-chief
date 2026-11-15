@@ -32,7 +32,7 @@ import { guardSummary } from './guard.mjs'
 import { agentBar, agentCardText, agentFace, artElapsed, artTokens, CARD_LOOK, saverBadge, SAVER_LOOK } from './panel-art-logic.mjs'
 import { avBandCompose, avBandDraft, avBandDraftOf, avBandFullView, avBandName, avBandOpenPane, avBandSend, avBandView } from './agent-view.mjs'
 import { BAND_EXTRA_MAX, bandExtraRows, fitSections, sendPlan } from './agent-view-logic.mjs'
-import { bandRows, cardBudget, cardGrid, cardRowsFit, cardLine1Cells, cardNeedCells, cardTextRoom, CARD_CELLS, ctxAlert, ctxChip, demoContent, modeLabels, modelChip, COMPACT_ICON, COMPACT_LABEL, PERF_ASK, perfArg, perfChoices, perfIcon, perfParts, placeFolder, questionRows, quietFacts, spinnerWord, statusLineSegments, statusSegments, tailText, windowChip } from './ui-logic.mjs'
+import { bandRows, cardBudget, cardGrid, cardRowsFit, cardLine1Cells, cardNeedCells, cardTextRoom, CARD_CELLS, ctxAlert, ctxChip, demoContent, modeLabels, modelChip, COMPACT_ICON, COMPACT_LABEL, PERF_ASK, PERF_READERS_DIR, perfArg, perfChoices, perfIcon, perfInForce, perfParts, perfReaderLive, perfToggle, placeFolder, questionRows, quietFacts, spinnerWord, statusLineSegments, statusSegments, tailText, windowChip } from './ui-logic.mjs'
 
 const UI_STORE_KEY = 'crew_ui'
 const UI_MODE_KEY = 'crew_ui_mode' // 'quiet' (default) or 'full'
@@ -336,6 +336,9 @@ export async function uiSessionStart($) {
     uiRefreshPlace($).catch(() => {})
     // Not awaited either: other mods read the shared perf file, the session's start does not wait for it.
     perfFileWrite($, true).catch(() => {})
+    perfReaderRefresh($)
+      .then((changed) => changed && uiTouchNow($))
+      .catch(() => {})
     await uiFirstNotice($, choice)
     await $.command.register({ name: 'crew-ui', description: 'Show or hide the crew-chief band above the prompt', immediate: true, argumentHint: '[on|off|quiet|full|style <name>|panel capsule|cat|text|demo on|demo off|words on|words off|extras on|extras off|status]' })
   } catch (err) {
@@ -454,12 +457,54 @@ export async function perfFileWrite($, onlyIfStale = false) {
   }
 }
 
+// Whether a theme mod reads perf-mode.json (perfReaderLive over ~/.claude/perf-mode.readers/*.json), as last
+// read: on session start, a toggle press, /crew-perf and /crew-config, never while drawing.
+let uiPerfReader = false
+export function perfReaderKnown() {
+  return uiPerfReader
+}
+// Reads the readers' files again; true when the answer changed. Unreadable or missing: no reader.
+export async function perfReaderRefresh($) {
+  let live = false
+  try {
+    const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE'))
+    if (home) {
+      const dir = `${home}/${PERF_READERS_DIR}`
+      const entries = await $.fs.list(dir).catch(() => [])
+      const names = (Array.isArray(entries) ? entries : []).filter((x) => x && x.kind !== 'dir' && /\.json$/.test(String(x.name))).slice(0, 32)
+      const texts = []
+      for (const x of names) {
+        const text = await $.fs.read(`${dir}/${x.name}`).catch(() => undefined)
+        if (typeof text === 'string') texts.push(text)
+      }
+      live = perfReaderLive(texts, await $.clock.now())
+    }
+  } catch (err) {
+    live = false
+  }
+  const changed = live !== uiPerfReader
+  uiPerfReader = live
+  return changed
+}
+
+// With no theme reader there is nothing to ask: the agents part goes off <-> on directly. { text, changed }.
+async function uiPerfFlip($) {
+  return uiPerfSet($, perfToggle(await cfgGet($, 'panel.perf')))
+}
+
 // A press on the toggle asks what to still (uiPerfAsk); a press while that question is open closes it, nothing
-// changed. A toast only when the question could not open (the environment wins, or the band is busy).
+// changed. A toast only when the question could not open (the environment wins, or the band is busy). With no
+// theme mod reading perf-mode.json it does not ask: it switches the agents part (uiPerfFlip).
 async function uiPerfPress($) {
   try {
     if (uiPerfAsking !== undefined) {
       uiPerfAsking.close()
+      return
+    }
+    await perfReaderRefresh($)
+    if (!uiPerfReader) {
+      const f = await uiPerfFlip($)
+      if (!f.changed) $.ui.toast(f.text, { timeoutMs: 8000 })
       return
     }
     const r = await uiPerfAsk($)
@@ -963,7 +1008,7 @@ export function registerUi(on, saverOn) {
       let line
       let perf
       if (e.surface === 'desktop' && (await cfgGet($, 'ui.statusline')) === 'on') {
-        perf = { scope: await cfgGet($, 'panel.perf') }
+        perf = { scope: perfInForce(await cfgGet($, 'panel.perf'), uiPerfReader) }
         line = statusLineSegments({ folder: uiPlace.folder, branch: uiPlace.branch, five: facts.five, week: facts.week, ctx: facts.ctx, tokens: facts.tokens, model: uiMain.model ?? uiPlace.model, effort: uiMain.effort })
         facts.ctx = undefined
         facts.five = undefined
@@ -1048,7 +1093,7 @@ export function registerUi(on, saverOn) {
       if (cardsDrawn) {
         const now = await $.clock.now()
         // panel.perf agents or all: the characters stand fully still.
-        const perf = perfParts(await cfgGet($, 'panel.perf')).agents
+        const perf = perfParts(perfInForce(await cfgGet($, 'panel.perf'), uiPerfReader)).agents
         art = { Svg, style: panel, perf, now, prev: uiArtPrev(Array.isArray(agents) ? agents : [], now), columns, grid: cardLayout?.grid }
       }
       const tree = uiTree($, e, bandList, () => compactBandPress($), uiStyle, question, art, band, line, perf)
@@ -1115,8 +1160,15 @@ export function registerUi(on, saverOn) {
   })
 
   on('command.run', { command: 'crew-perf' }, async ($, e) => {
-    const scope = perfArg(e.args)
+    let scope = perfArg(e.args)
     if (scope === undefined) return { text: t(await resolveLang($), 'perf_bad') }
+    await perfReaderRefresh($)
+    // No theme mod reads perf-mode.json: no question, on means the agents, the theme cannot be stilled.
+    if (!uiPerfReader) {
+      if (scope === PERF_ASK) return { text: (await uiPerfFlip($)).text }
+      if (String(e.args ?? '').trim().toLowerCase() === 'on') scope = 'agents'
+      else if (scope === 'theme' || scope === 'all') return { text: t(await resolveLang($), 'perf_no_reader') }
+    }
     if (scope === PERF_ASK) return { text: (await uiPerfAsk($)).text }
     return { text: (await uiPerfSet($, scope)).text }
   })

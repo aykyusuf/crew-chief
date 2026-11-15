@@ -313,6 +313,7 @@ export const MESSAGES = {
     perf_ask_expired: 'Performance mode question unanswered: nothing was changed.',
     perf_ask_closed: 'Performance mode question closed: nothing was changed.',
     perf_store: 'The plugin store is not available here, so performance mode cannot be saved (set CREW_CHIEF_PANEL_PERF instead).',
+    perf_no_reader: 'No theme mod reads ~/.claude/perf-mode.json here, so only the agents can stand still: nothing was changed (/crew-perf agents | off). How a theme mod listens: the README, Performance mode.',
   },
   tr: {
     win_five_hour: '5 saatlik',
@@ -623,6 +624,7 @@ export const MESSAGES = {
     perf_ask_expired: 'Performans modu sorusu cevapsız kaldı: hiçbir şey değişmedi.',
     perf_ask_closed: 'Performans modu sorusu kapandı: hiçbir şey değişmedi.',
     perf_store: 'Eklenti deposu burada kullanılamıyor, performans modu kaydedilemedi (yerine CREW_CHIEF_PANEL_PERF ayarla).',
+    perf_no_reader: 'Burada ~/.claude/perf-mode.json dosyasını okuyan bir tema modu yok, sadece ajanlar durdurulabilir: hiçbir şey değişmedi (/crew-perf agents | off). Bir tema modunun nasıl dinleyeceği: README, Performans modu.',
   },
 }
 

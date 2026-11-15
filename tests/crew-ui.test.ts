@@ -1306,11 +1306,23 @@ const perfButton = async (ui: any) => {
   return kidsOfLine(foot).find((k: any) => keyOf(k) === 'band-perf')
 }
 
+// A theme mod that reads perf-mode.json announces itself in ~/.claude/perf-mode.readers/<name>.json; without one
+// the ⚡ only stills the agents. Adds the file to `files` and lists the folder from it; `read` also serves the reads.
+const readerAt = (daysAgo: number) => new Date(NOW - daysAgo * 86_400_000).toISOString()
+function withReader(on: any, files: Record<string, string> = {}, opts: { home?: string; at?: string; read?: boolean; text?: string } = {}) {
+  const dir = `${opts.home ?? '/home/t'}/.claude/perf-mode.readers`
+  files[`${dir}/a-theme.json`] = opts.text ?? JSON.stringify({ name: 'a-theme', theme: true, at: opts.at ?? readerAt(1) })
+  on('fs.list', ($: any, e: any) => ({ value: Object.keys(files).filter((k) => k.startsWith(e.path + '/')).map((k) => ({ name: k.slice(e.path.length + 1), kind: 'file', size: 1, mtimeMs: 0, isLink: false })) }))
+  if (opts.read !== false) on('fs.read', ($: any, e: any) => (e.path in files ? { value: files[e.path] } : { deny: 'ENOENT: no such file' }))
+  return files
+}
+
 const perfToasts = (s: any) => s.toasts.filter((x: string) => /^Performan/.test(x))
 const askButtons = async (ui: any) => (await ui.findAll({ type: 'Button' })).filter((b: any) => /^ask-\d$/.test(keyOf(b) ?? ''))
 
 test('/crew-perf all|agents|theme|off sets panel.perf directly, on is all, it is saved as /crew-config saves it, and it answers in the person\'s language', async ($, on) => {
-  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'tr' }, surfaces: ['desktop'] })
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'tr', HOME: '/home/t' }, surfaces: ['desktop'] })
+  withReader(on)
   await start($)
   const said: Record<string, string> = {
     all: 'Performans modu hepsi için açık: ajanlar ve tema duruyor.',
@@ -1346,7 +1358,8 @@ test('/crew-perf answers in English by default', async ($, on) => {
 })
 
 test('/crew-perf with no argument asks the same question in the band; its answer sets the scope', async ($, on) => {
-  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'tr' }, surfaces: ['desktop'], branch: 'main' })
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'tr', HOME: '/home/t' }, surfaces: ['desktop'], branch: 'main' })
+  withReader(on)
   await start($)
   const r = await $.command.run({ command: 'crew-perf', args: '' })
   expect(JSON.stringify(r)).toContain("neyin duracağını prompt'un üstünden seç")
@@ -1376,7 +1389,9 @@ test('/crew-perf, /crew-config and session start write ~/.claude/perf-mode.json 
     return JSON.parse(mine[mine.length - 1].text)
   }
   on('fs.exists', ($: any, e: any) => ({ value: writes.some((w) => w.path === e.path) }))
+  const readers = withReader(on, {}, { read: false })
   on('fs.read', ($: any, e: any) => {
+    if (e.path in readers) return { value: readers[e.path] }
     const mine = writes.filter((w) => w.path === e.path)
     return mine.length > 0 ? { value: mine[mine.length - 1].text } : { deny: 'ENOENT: no such file' }
   })
@@ -1430,6 +1445,7 @@ test('Desktop: a press on the ⚡ asks what to still (no change until answered);
     return { value: undefined }
   })
   const file = () => JSON.parse(files['/home/t/.claude/perf-mode.json'])
+  withReader(on, files, { read: false })
   await start($)
   s.agents.push({ id: 'a1', type: 'crew-chief:implementer', status: 'running', description: 'a task' })
   await step($, s, 'a1', 'claude-sonnet-5-5', 'medium')
@@ -1485,7 +1501,8 @@ test('Desktop: a press on the ⚡ asks what to still (no change until answered);
 })
 
 test('the perf question: no answer by the deadline, or a second ⚡ press, closes it and changes nothing', async ($, on) => {
-  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'en' }, surfaces: ['desktop'], branch: 'main', store: { cfg_panel_perf: 'agents' } })
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'en', HOME: '/home/t' }, surfaces: ['desktop'], branch: 'main', store: { cfg_panel_perf: 'agents' } })
+  withReader(on)
   await start($)
   let desk = await mountDesktop($)
   await desk.press({ key: 'band-perf' })
@@ -1572,7 +1589,8 @@ test('a card shows no model until the agent\'s first request names it, then the 
 })
 
 test('CREW_CHIEF_PANEL_PERF set: /crew-perf and the toggle say the environment wins, ask nothing and change nothing', async ($, on) => {
-  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_PANEL_PERF: 'theme', CREW_CHIEF_LANG: 'en' }, surfaces: ['desktop'], branch: 'main' })
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_PANEL_PERF: 'theme', CREW_CHIEF_LANG: 'en', HOME: '/home/t' }, surfaces: ['desktop'], branch: 'main' })
+  withReader(on)
   await start($)
   for (const args of ['off', '']) {
     const r = await $.command.run({ command: 'crew-perf', args })
@@ -1594,7 +1612,8 @@ test('CREW_CHIEF_PANEL_PERF set: /crew-perf and the toggle say the environment w
 
 for (const [value, still] of [['agents', true], ['theme', false], ['on', true]] as const) {
   test(`CREW_CHIEF_PANEL_PERF=${value} ${still ? 'stills' : 'leaves moving'} the faces`, async ($, on) => {
-    const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_PANEL_PERF: value }, surfaces: ['desktop'], branch: 'main' })
+    const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_PANEL_PERF: value, HOME: '/home/t' }, surfaces: ['desktop'], branch: 'main' })
+    withReader(on)
     await start($)
     s.agents.push({ id: 'a1', type: 'crew-chief:implementer', status: 'running', description: 'a task' })
     await step($, s, 'a1', 'claude-sonnet-5-5', 'medium')
@@ -1603,6 +1622,81 @@ for (const [value, still] of [['agents', true], ['theme', false], ['on', true]] 
     else expect(keyframes(face)).toContain('ham')
   })
 }
+
+test('no theme mod reads perf-mode.json: the ⚡ switches the agents off <-> on without a question', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'en', HOME: '/home/t' }, surfaces: ['desktop'], branch: 'main' })
+  await start($)
+  for (const [scope, icon] of [['agents', '⚡a'], ['off', '⚡']]) {
+    const desk = await mountDesktop($)
+    await desk.press({ key: 'band-perf' })
+    await settle()
+    await desk.unmount()
+    expect(s.stored.cfg_panel_perf).toBe(scope)
+    const after = await mountDesktop($)
+    expect(await after.find({ type: 'Box', key: 'ask-card' })).toBeUndefined() // no question
+    expect((await perfButton(after))?.props?.label).toBe(icon)
+    await after.unmount()
+  }
+  expect(perfToasts(s)).toEqual(['Performance mode — agents still, theme moves', 'Performance mode off — agents and theme move'])
+})
+
+test('no theme mod reads perf-mode.json: /crew-perf theme|all is refused, on means the agents, no argument switches them', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'en', HOME: '/home/t' }, surfaces: ['desktop'], branch: 'main' })
+  await start($)
+  for (const args of ['theme', 'all']) {
+    const r = await $.command.run({ command: 'crew-perf', args })
+    expect(JSON.stringify(r)).toContain('No theme mod reads ~/.claude/perf-mode.json here')
+    expect(JSON.stringify(r)).toContain('README')
+    expect(s.stored.cfg_panel_perf).toBeUndefined()
+  }
+  expect(perfToasts(s)).toEqual([])
+  await $.command.run({ command: 'crew-perf', args: 'on' })
+  expect(s.stored.cfg_panel_perf).toBe('agents')
+  await $.command.run({ command: 'crew-perf', args: '' })
+  expect(s.stored.cfg_panel_perf).toBe('off')
+  const desk = await mountDesktop($)
+  expect(await desk.find({ type: 'Box', key: 'ask-card' })).toBeUndefined()
+  await desk.unmount()
+})
+
+test('a fresh reader file brings the question back; a stale (20 days) or invalid one counts as none', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'en', HOME: '/home/t' }, surfaces: ['desktop'], branch: 'main' })
+  const files = withReader(on, {}, { at: readerAt(20) })
+  files['/home/t/.claude/perf-mode.readers/broken.json'] = '{not json'
+  files['/home/t/.claude/perf-mode.readers/no-theme.json'] = JSON.stringify({ name: 'x', theme: false, at: readerAt(0) })
+  await start($)
+  let desk = await mountDesktop($)
+  await desk.press({ key: 'band-perf' })
+  await settle()
+  await desk.unmount()
+  expect(s.stored.cfg_panel_perf).toBe('agents') // stale: toggled, not asked
+  expect(JSON.stringify(await $.command.run({ command: 'crew-perf', args: 'theme' }))).toContain('No theme mod reads')
+  files['/home/t/.claude/perf-mode.readers/a-theme.json'] = JSON.stringify({ name: 'a-theme', theme: true, at: readerAt(2) })
+  desk = await mountDesktop($)
+  await desk.press({ key: 'band-perf' })
+  await settle()
+  await desk.unmount()
+  desk = await mountDesktop($)
+  expect(await desk.find({ type: 'Box', key: 'ask-card' })).toBeDefined() // fresh: asked
+  expect((await askButtons(desk)).map((b: any) => b.text)).toEqual(['All (agents + theme)', 'Agents only ✓', 'Theme only', 'Turn off'])
+  await desk.unmount()
+  expect(s.stored.cfg_panel_perf).toBe('agents')
+  expect(JSON.stringify(await $.command.run({ command: 'crew-perf', args: 'theme' }))).toContain('Performance mode on for the theme only')
+  expect(s.stored.cfg_panel_perf).toBe('theme')
+})
+
+test('no theme mod reads perf-mode.json: a saved theme or all works as agents, drawn and reported so', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'en', HOME: '/home/t' }, surfaces: ['desktop'], branch: 'main', store: { cfg_panel_perf: 'theme' } })
+  await start($)
+  s.agents.push({ id: 'a1', type: 'crew-chief:implementer', status: 'running', description: 'a task' })
+  await step($, s, 'a1', 'claude-sonnet-5-5', 'medium')
+  expect(await implementerFace($)).not.toMatch(/@keyframes|animation/) // the agents stand still
+  const desk = await mountDesktop($)
+  expect((await perfButton(desk))?.props?.label).toBe('⚡a')
+  await desk.unmount()
+  expect(JSON.stringify(await $.command.run({ command: 'crew-config', args: '' }))).toContain('panel.perf = theme [saved] (works as agents: no theme mod reads ~/.claude/perf-mode.json')
+  expect(JSON.stringify(await $.command.run({ command: 'crew-config', args: 'set panel.perf all' }))).toContain('It works as agents')
+})
 
 test('the terminal has no performance mode toggle', async ($, on) => {
   const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_UI_STATUSLINE: 'on' }, surfaces: ['terminal', 'desktop'], branch: 'main' })

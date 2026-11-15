@@ -2,7 +2,7 @@
 // the saver asks, how long a question waits). A value is kept in the plugin's store, so it survives the
 // session; the environment variable of the same name, when set, still wins (kept for scripts).
 // Nothing is written to settings.json or any project file.
-import { perfFileWrite } from './crew-ui.mjs'
+import { perfFileWrite, perfReaderKnown, perfReaderRefresh } from './crew-ui.mjs'
 import { SETTINGS, SETTING_KEYS, checkSettings, envName, formatSetting, parseSetting, resolveSetting, storeText } from './config-logic.mjs'
 
 const storeKey = (key) => 'cfg_' + key.replace('.', '_')
@@ -86,7 +86,14 @@ async function allValues($) {
   return out
 }
 
+// panel.perf theme|all with no theme mod reading ~/.claude/perf-mode.json (perfReaderKnown): it works as agents.
+function perfNote(key, value) {
+  if (key !== 'panel.perf' || perfReaderKnown() || (value !== 'theme' && value !== 'all')) return ''
+  return ' (works as agents: no theme mod reads ~/.claude/perf-mode.json, see the README)'
+}
+
 async function listText($) {
+  await perfReaderRefresh($).catch(() => false)
   const lines = ['crew-config: the numbers crew-chief uses. Change one with /crew-config set <name> <value>, put one back with /crew-config reset <name> (or all).', '']
   let group = ''
   for (const key of SETTING_KEYS) {
@@ -97,7 +104,7 @@ async function listText($) {
     }
     const st = await cfgState($, key)
     const mark = st.source === 'default' ? '' : st.source === 'env' ? ` [${envName(key)} in the environment wins]` : ' [saved]'
-    lines.push(`  ${key} = ${formatSetting(key, st.value)}${mark}  ${def.what}`)
+    lines.push(`  ${key} = ${formatSetting(key, st.value)}${mark}${perfNote(key, st.value)}  ${def.what}`)
   }
   const problems = checkSettings(await allValues($))
   if (problems.length > 0) lines.push('', 'Note: ' + problems.join('; ') + '.')
@@ -142,9 +149,12 @@ export function registerConfig(on) {
     } catch (err) {
       return { text: 'crew-config: the plugin store is not available here, so the value cannot be saved (use the environment variable instead).' }
     }
-    if (key === 'panel.perf') await perfFileWrite($)
+    if (key === 'panel.perf') {
+      await perfFileWrite($)
+      await perfReaderRefresh($).catch(() => false)
+    }
     const st = await cfgState($, key)
-    const envNote = st.source === 'env' ? ` ${envName(key)} is set in the environment and still wins (${formatSetting(key, st.value)}).` : ''
+    const envNote = (st.source === 'env' ? ` ${envName(key)} is set in the environment and still wins (${formatSetting(key, st.value)}).` : '') + perfNote(key, st.value).replace(/^ \((.*)\)$/, ' It $1.')
     const problems = checkSettings(await allValues($))
     return { text: `crew-config: ${key} = ${formatSetting(key, parsed.value)}, saved.${envNote}${problems.length > 0 ? ' Note: ' + problems.join('; ') + '.' : ''}` }
   })

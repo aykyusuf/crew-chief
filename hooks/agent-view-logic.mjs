@@ -18,7 +18,8 @@ export const VIEW_STEPS = 30 // last tool calls the pane keeps (grouped into row
 export const VIEW_STEPS_SHOWN = 6 // step rows shown before 'show more'
 export const VIEW_TASK_SHORT = 160 // characters of the task shown folded
 export const VIEW_NOW_SHORT = 220 // characters of the agent's latest text shown folded
-export const VIEW_TASK_MAX = 4000 // characters of the task or the latest text kept
+export const VIEW_TASK_MAX = 20000 // characters of the task or the latest text kept (a drawing holds 100000)
+export const VIEW_ARG_MAX = 80 // characters of a step's argument (the row also cuts it at the pane's edge)
 export const VIEW_FINISHED_MAX = 8 // finished agents listed before 'show N more'
 export const VIEW_REFRESH_MS = 1500 // at most one refresh this often
 export const NOTIFY_BATCH_MS = 1500 // agents that end this close together share one notice
@@ -228,16 +229,26 @@ export function shortPaths(text) {
 const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const PATH_END = `(?![\\w.@+-])` // a whole path segment: /work is not /workspace
 
+// The project root alone, as a person reads it: ~/crew-chief right under home, else ~/…/crew-chief, or
+// …/crew-chief outside home (a bare "." reads as nothing).
+export function rootName(root, home) {
+  const r = String(root ?? '').replace(/\/+$/, '')
+  const base = r.split('/').pop() || r
+  const h = String(home ?? '').replace(/\/+$/, '') || (r.match(/^\/(?:Users|home)\/[^/]+/) ?? [''])[0]
+  if (h.length > 1 && r.startsWith(h + '/')) return r.slice(h.length + 1).includes('/') ? '~/…/' + base : '~/' + base
+  return '…/' + base
+}
+
 // Absolute paths in short forms for the pane: a scratchpad or session dir -> …/scratchpad, the project root -> ./
-// (the root itself -> .), the home dir -> ~ (given, else any /Users/x or /home/x), any other deep absolute path ->
-// …/its last two parts. root and home are plain paths without a trailing slash, or absent.
+// (the root itself -> rootName), the home dir -> ~ (given, else any /Users/x or /home/x), any other deep absolute
+// path -> …/its last two parts. root and home are plain paths without a trailing slash, or absent.
 export function tidyPaths(text, { root, home } = {}) {
   let s = String(text ?? '')
   s = s.replace(/(?<![\w.@+-])(?:~|\/)[^\s'"`]*?\/scratchpad(?![\w.@+-])/g, '…/scratchpad')
   const r = typeof root === 'string' ? root.replace(/\/+$/, '') : ''
   if (r.length > 1) {
     s = s.replace(new RegExp(`(?<![\\w.@+/-])${reEscape(r)}/`, 'g'), './')
-    s = s.replace(new RegExp(`(?<![\\w.@+/-])${reEscape(r)}${PATH_END}`, 'g'), '.')
+    s = s.replace(new RegExp(`(?<![\\w.@+/-])${reEscape(r)}${PATH_END}`, 'g'), () => rootName(r, home))
   }
   const h = typeof home === 'string' ? home.replace(/\/+$/, '') : ''
   if (h.length > 1) s = s.replace(new RegExp(`(?<![\\w.@+/-])${reEscape(h)}${PATH_END}`, 'g'), '~')
@@ -253,19 +264,39 @@ export function stripCd(command) {
   return s.trim()
 }
 
-// A text folded for the pane: `full` (its lines kept, each cleaned, markdown marks out, paths tidied), `short`
-// (the opening `n` characters as one line, cut at a word) and `more` (whether `short` leaves something out).
+// One line kept as written for a Markdown block: paths tidied, escapes and control characters out (a tab
+// stays), its indentation kept, trailing blanks gone.
+function keepLine(line, paths) {
+  return tidyPaths(line, paths)
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?/g, '')
+    .replace(/\u001b[@-_]?/g, '')
+    .replace(/[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/g, ' ')
+    .replace(/[‎‏‪-‮⁦-⁩]/g, '')
+    .trimEnd()
+}
+
+// A text folded for the pane: `full` (its lines kept, each cleaned, markdown marks out, paths tidied), `md` (the
+// whole text as markdown: paragraphs, bullets, indentation and fences kept, paths tidied; at most one blank line
+// in a row), `short` (the opening `n` characters as one line, cut at a word) and `more` (whether `short` leaves
+// something out).
 export function foldText(text, n, paths = {}) {
   const lines = String(text ?? '')
     .split(/\r?\n/)
     .map((l) => mdInline(cleanLine(tidyPaths(l, paths))).trim())
     .filter((l) => l !== '' && !/^[-*_=]{3,}$/.test(l))
   const full = lines.join('\n')
+  const md = String(text ?? '')
+    .split(/\r?\n/)
+    .map((l) => keepLine(l, paths))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
   const flat = lines.join(' ')
-  if (flat.length <= n) return { short: flat, full, more: false }
+  if (flat.length <= n) return { short: flat, full, md, more: false }
   const cut = flat.slice(0, n)
   const at = cut.lastIndexOf(' ')
-  return { short: (at > n * 0.6 ? cut.slice(0, at) : cut).replace(/[\s,.;:–-]+$/, '') + '…', full, more: true }
+  return { short: (at > n * 0.6 ? cut.slice(0, at) : cut).replace(/[\s,.;:–-]+$/, '') + '…', full, md, more: true }
 }
 
 // Steps in rows: consecutive calls of one tool (none failed) share a row { kind: 'group', id, tool, items, tone, pending },
@@ -449,7 +480,7 @@ export function paneDetail({ name, row, messages, deny, answer, done, calls } = 
   const list = tail.map((x, i) => {
     const handback = /handback/i.test(x.tool)
     const command = x.command !== undefined ? stripCd(tidy(x.command)) : undefined
-    const arg = handback ? '' : command !== undefined ? cutLine(command, 100) : cutLine(tidy(x.arg), 100)
+    const arg = handback ? '' : command !== undefined ? cutLine(command, VIEW_ARG_MAX) : cutLine(tidy(x.arg), VIEW_ARG_MAX)
     const label = x.desc ?? ''
     return {
       kind: 'tool',
@@ -466,6 +497,14 @@ export function paneDetail({ name, row, messages, deny, answer, done, calls } = 
   out.steps = stepGroups(list)
   return out
 }
+
+// Words of the pane kept here until the strings file takes them: the task's toggle and the message field's
+// placeholder (the heading above it already names the agent, so the field can stay short where it is narrow).
+const PANE_WORDS = {
+  en: { task_all: 'Show all', task_less: 'Show less', msg_placeholder: 'Write a message…' },
+  tr: { task_all: 'tamamını göster', task_less: 'kısalt', msg_placeholder: 'Mesaj yaz…' },
+}
+export const paneWord = (lang, key) => (PANE_WORDS[lang] ?? PANE_WORDS.en)[key] ?? PANE_WORDS.en[key]
 
 const STATUS_ICON = { running: ['⠋', 'ok'], waiting: ['◌', 'warn'], background: ['◌', 'dim'], done: ['✓', 'ok'], error: ['✗', 'crit'] }
 

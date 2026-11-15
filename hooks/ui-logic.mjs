@@ -490,6 +490,41 @@ export function perfChoices(scope) {
   return { scopes, current: scopes.indexOf(scope) }
 }
 
+// The theme part works only when a theme mod reads ~/.claude/perf-mode.json. Such a mod says so by writing
+// ~/.claude/perf-mode.readers/<name>.json = {"name", "theme": true, "at": <iso>} at its session start. A reader
+// counts while its "at" is at most PERF_READER_DAYS old (a day ahead allowed for clock drift); a file that is
+// not JSON, lacks theme:true or a valid "at" does not count. `texts` are the files' contents.
+export const PERF_READERS_DIR = '.claude/perf-mode.readers'
+export const PERF_READER_DAYS = 14
+export function perfReaderLive(texts, nowMs) {
+  const day = 86_400_000
+  for (const text of texts ?? []) {
+    let r
+    try {
+      r = JSON.parse(String(text))
+    } catch (err) {
+      continue
+    }
+    if (r === null || typeof r !== 'object' || r.theme !== true || typeof r.at !== 'string') continue
+    const at = Date.parse(r.at)
+    if (!Number.isFinite(at)) continue
+    const age = nowMs - at
+    if (age <= PERF_READER_DAYS * day && age >= -day) return true
+  }
+  return false
+}
+
+// The scope in force: with no theme reader the theme cannot be stilled, so theme or all works as agents.
+export function perfInForce(scope, reader) {
+  if (reader) return scope
+  return scope === 'agents' || scope === 'theme' || scope === 'all' ? 'agents' : 'off'
+}
+
+// With no theme reader the toggle does not ask: it switches the agents part, off <-> agents.
+export function perfToggle(scope) {
+  return perfInForce(scope, false) === 'off' ? 'agents' : 'off'
+}
+
 // The toggle draws the glyph alone: dim when off, a small a / t after it for agents or theme alone, lit for all.
 export const PERF_ICON = '⚡'
 // The Desktop app draws a plain Button's label as its text (seen live 2026-11-15), so the label is the glyph itself.

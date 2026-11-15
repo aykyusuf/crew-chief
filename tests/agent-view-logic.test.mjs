@@ -30,6 +30,7 @@ import {
   stepGroups,
   stripCd,
   tidyPaths,
+  rootName,
   foldText,
   summaryText,
   throttlePlan,
@@ -104,7 +105,7 @@ test('paneDetail: a running agent gets a title, its task and its last steps, res
   const d = paneDetail({ name: 'crew-chief:deep-reader', messages: MESSAGES, done: false }, { now: 0 })
   assert.equal(d.title.name, 'deep-reader')
   assert.equal(d.title.statusText, 'running')
-  assert.deepEqual(d.task, { short: 'Find the auth bug in src/auth', full: 'Find the auth bug\nin src/auth', more: false })
+  assert.deepEqual(d.task, { short: 'Find the auth bug in src/auth', full: 'Find the auth bug\nin src/auth', md: 'Find the auth bug\nin src/auth', more: false })
   assert.equal(d.now.short, 'Looking at the auth module.') // its latest narrative, not a tool's output
   assert.equal(d.report, undefined)
   assert.deepEqual(
@@ -194,7 +195,13 @@ test('paneDetail: the task is one short line first, the whole on demand; Now is 
 
 test('tidyPaths, stripCd and foldText', () => {
   const p = { root: '/work', home: '/Users/me' }
-  assert.equal(tidyPaths('/work/src/a.js and /work', p), './src/a.js and .')
+  assert.equal(tidyPaths('/work/src/a.js and /work', p), './src/a.js and …/work')
+  // The root alone reads as a place, never a bare '.'.
+  const repo = { root: '/Users/me/Documents/projects/crew-chief', home: '/Users/me' }
+  assert.equal(tidyPaths('Repo: /Users/me/Documents/projects/crew-chief (git)', repo), 'Repo: ~/…/crew-chief (git)')
+  assert.equal(tidyPaths('/Users/me/Documents/projects/crew-chief/hooks/a.js', repo), './hooks/a.js')
+  assert.equal(rootName('/Users/me/app', '/Users/me'), '~/app')
+  assert.equal(rootName('/home/u/a/b/app'), '~/…/app')
   assert.equal(tidyPaths('/workspace/a.js', p), '/workspace/a.js') // a whole segment only
   assert.equal(tidyPaths('/Users/me/x and /Users/other/y', p), '~/x and ~/y')
   assert.equal(tidyPaths('/private/tmp/claude-501/-Users-me/s1/scratchpad/a.png', p), '…/scratchpad/a.png')
@@ -203,9 +210,11 @@ test('tidyPaths, stripCd and foldText', () => {
   assert.equal(stripCd('cd /a/b && cd "c d" && make'), 'make')
   assert.equal(stripCd("cd '/x y'; ls"), 'ls')
   assert.equal(stripCd('make && cd x'), 'make && cd x')
-  assert.deepEqual(foldText('one\ntwo', 160), { short: 'one two', full: 'one\ntwo', more: false })
-  assert.deepEqual(foldText('aaa bbb ccc ddd', 9), { short: 'aaa bbb…', full: 'aaa bbb ccc ddd', more: true })
-  assert.deepEqual(foldText('short', 160), { short: 'short', full: 'short', more: false })
+  assert.deepEqual(foldText('one\ntwo', 160), { short: 'one two', full: 'one\ntwo', md: 'one\ntwo', more: false })
+  assert.deepEqual(foldText('aaa bbb ccc ddd', 9), { short: 'aaa bbb…', full: 'aaa bbb ccc ddd', md: 'aaa bbb ccc ddd', more: true })
+  assert.deepEqual(foldText('short', 160), { short: 'short', full: 'short', md: 'short', more: false })
+  // The markdown form keeps paragraphs, bullets, indentation and fences; escapes and extra blank lines go.
+  assert.equal(foldText('Do:\n\n\n\n- **one** in /work/a\n  - two \u001b[31mred\n```\ncode\n```', 10, p).md, 'Do:\n\n- **one** in ./a\n  - two red\n```\ncode\n```')
   assert.equal(stepGroups([{ kind: 'tool', id: '1', tool: 'Read' }, { kind: 'tool', id: '2', tool: 'Bash' }]).length, 2)
 })
 

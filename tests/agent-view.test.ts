@@ -431,7 +431,7 @@ test('pane: one send control, the field\'s own; a message goes on submit, the fi
   expect((await keysOf(ui)).filter((k: string) => !k.startsWith('agent-'))).toEqual([]) // no second send button
   expect(await ui.find({ type: 'Text', text: /^Message to implementer$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^implementer sees the message at its next step\.$/ })).toBeDefined()
-  expect(field?.props?.placeholder).toBe('Write a message to implementer…')
+  expect(field?.props?.placeholder).toBe('Write a message…') // short: the Desktop app sizes the field itself
   expect((await ui.find({ key: 'pane-msg-row-a1' }))?.props?.width).toBe('100%') // the field spans the pane
   expect(await ui.find({ type: 'Text', text: /^Messages$/ })).toBeUndefined() // nothing sent yet
   await ui.input({ key: 'pane-msg-a1', text: 'and the signup form', kind: 'change' })
@@ -478,7 +478,7 @@ test('pane: a finished agent is restarted by the field\'s own "Restart and send"
   const band = await mountBand($)
   const ui = await mountView($)
   expect(await ui.find({ type: 'Text', text: /^Gönderince implementer yeniden başlar \(token harcar\)\.$/ })).toBeDefined()
-  expect((await ui.find({ key: 'pane-msg-a1' }))?.props?.placeholder).toBe("implementer'a mesaj yaz…")
+  expect((await ui.find({ key: 'pane-msg-a1' }))?.props?.placeholder).toBe('Mesaj yaz…')
   expect((await ui.find({ key: 'pane-msg-a1' }))?.props?.submitLabel).toBe('Yeniden başlat ve gönder')
   expect((await keysOf(ui)).filter((k: string) => !k.startsWith('agent-'))).toEqual([])
   const toasts = s.toasts.length
@@ -595,11 +595,25 @@ test('pane: the task is one short line until devamını göster; Şu an shows th
   const short = await ui.find({ type: 'Text', text: /^Render the previews in \.\/themes\/wall-2\. Rules:/ })
   expect(short).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /scratchpad/ })).toBeUndefined()
+  expect((await ui.find({ type: 'Button', key: 'pane-task-a1' }))?.props?.label).toBe('tamamını göster')
   await ui.press({ key: 'pane-task-a1' })
   await settle()
-  expect(await ui.find({ type: 'Text', text: /^Scratch: …\/scratchpad\/out\.png$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Button', key: 'pane-task-a1' })).toBeDefined() // now "kısalt"
-  expect(await ui.find({ type: 'Text', text: /^kısalt$/ })).toBeDefined()
+  // Open: the whole brief as markdown, its paragraphs and lines kept, paths tidied.
+  const whole = await ui.find({ type: 'Markdown', key: 'pane-task-a1-full' })
+  expect(whole?.props?.text).toBe('Render the previews in ./themes/wall-2.\n\nRules: ' + 'keep it tidy '.repeat(30).trimEnd() + '\nScratch: …/scratchpad/out.png')
+  expect((await ui.find({ type: 'Button', key: 'pane-task-a1' }))?.props?.label).toBe('kısalt')
+  // A refresh (a new step of the agent, the slow tick) keeps it open.
+  s.transcript.a1.push({ role: 'assistant', text: 'Done rendering.', toolUses: [] })
+  await s.clock.advance(6000)
+  await settle()
+  expect(s.reads.length).toBeGreaterThan(reads) // the tick read the transcript again
+  expect(await ui.find({ type: 'Text', text: /^Done rendering\.$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Markdown', key: 'pane-task-a1-full' })).toBeDefined()
+  const readsAfter = s.reads.length
+  await ui.press({ key: 'pane-task-a1' })
+  await settle()
+  expect(await ui.find({ type: 'Markdown', key: 'pane-task-a1-full' })).toBeUndefined()
+  expect((await ui.find({ type: 'Button', key: 'pane-task-a1' }))?.props?.label).toBe('tamamını göster')
   // The Bash step: its description, the command only on a press and without the cd.
   expect(await ui.find({ type: 'Text', text: /^Render previews$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /python3 render\.py/ })).toBeUndefined()
@@ -608,9 +622,9 @@ test('pane: the task is one short line until devamını göster; Şu an shows th
   expect(await ui.find({ type: 'Text', text: /^python3 render\.py wall-2$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /cd \/work/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^\.\/themes\/wall-2\/index\.json$/ })).toBeDefined()
-  expect(s.reads.length).toBe(reads) // the presses only redraw
+  expect(s.reads.length).toBe(readsAfter) // the presses only redraw
   // The message field sits on its own full-width row, its placeholder whole.
-  expect((await ui.find({ key: 'pane-msg-a1' }))?.props?.placeholder).toBe("implementer'a mesaj yaz…")
+  expect((await ui.find({ key: 'pane-msg-a1' }))?.props?.placeholder).toBe('Mesaj yaz…')
   await ui.unmount()
 })
 

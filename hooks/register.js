@@ -27,12 +27,12 @@ import {
   paneDetail,
   paneGroups,
   paneRow,
+  paneWord,
   pickSelected,
   reportFold,
   sendPlan,
   throttlePlan,
   toggleOpen,
-  trDative,
 } from './agent-view-logic.mjs'
 import {
   minutesLabel,
@@ -217,6 +217,7 @@ import {
   COMPACT_ICON,
   COMPACT_LABEL,
   PERF_ASK,
+  PERF_READERS_DIR,
   bandRows,
   cardBudget,
   cardGrid,
@@ -232,7 +233,10 @@ import {
   perfArg,
   perfChoices,
   perfIcon,
+  perfInForce,
   perfParts,
+  perfReaderLive,
+  perfToggle,
   placeFolder,
   questionRows,
   quietFacts,
@@ -396,7 +400,14 @@ async function allValues($) {
   return out
 }
 
+// panel.perf theme|all with no theme mod reading ~/.claude/perf-mode.json (perfReaderKnown): it works as agents.
+function perfNote(key, value) {
+  if (key !== 'panel.perf' || perfReaderKnown() || (value !== 'theme' && value !== 'all')) return ''
+  return ' (works as agents: no theme mod reads ~/.claude/perf-mode.json, see the README)'
+}
+
 async function listText($) {
+  await perfReaderRefresh($).catch(() => false)
   const lines = ['crew-config: the numbers crew-chief uses. Change one with /crew-config set <name> <value>, put one back with /crew-config reset <name> (or all).', '']
   let group = ''
   for (const key of SETTING_KEYS) {
@@ -407,7 +418,7 @@ async function listText($) {
     }
     const st = await cfgState($, key)
     const mark = st.source === 'default' ? '' : st.source === 'env' ? ` [${envName(key)} in the environment wins]` : ' [saved]'
-    lines.push(`  ${key} = ${formatSetting(key, st.value)}${mark}  ${def.what}`)
+    lines.push(`  ${key} = ${formatSetting(key, st.value)}${mark}${perfNote(key, st.value)}  ${def.what}`)
   }
   const problems = checkSettings(await allValues($))
   if (problems.length > 0) lines.push('', 'Note: ' + problems.join('; ') + '.')
@@ -452,9 +463,12 @@ function registerConfig(on) {
     } catch (err) {
       return { text: 'crew-config: the plugin store is not available here, so the value cannot be saved (use the environment variable instead).' }
     }
-    if (key === 'panel.perf') await perfFileWrite($)
+    if (key === 'panel.perf') {
+      await perfFileWrite($)
+      await perfReaderRefresh($).catch(() => false)
+    }
     const st = await cfgState($, key)
-    const envNote = st.source === 'env' ? ` ${envName(key)} is set in the environment and still wins (${formatSetting(key, st.value)}).` : ''
+    const envNote = (st.source === 'env' ? ` ${envName(key)} is set in the environment and still wins (${formatSetting(key, st.value)}).` : '') + perfNote(key, st.value).replace(/^ \((.*)\)$/, ' It $1.')
     const problems = checkSettings(await allValues($))
     return { text: `crew-config: ${key} = ${formatSetting(key, parsed.value)}, saved.${envNote}${problems.length > 0 ? ' Note: ' + problems.join('; ') + '.' : ''}` }
   })
@@ -3290,6 +3304,9 @@ async function uiSessionStart($) {
     uiRefreshPlace($).catch(() => {})
     // Not awaited either: other mods read the shared perf file, the session's start does not wait for it.
     perfFileWrite($, true).catch(() => {})
+    perfReaderRefresh($)
+      .then((changed) => changed && uiTouchNow($))
+      .catch(() => {})
     await uiFirstNotice($, choice)
     await $.command.register({ name: 'crew-ui', description: 'Show or hide the crew-chief band above the prompt', immediate: true, argumentHint: '[on|off|quiet|full|style <name>|panel capsule|cat|text|demo on|demo off|words on|words off|extras on|extras off|status]' })
   } catch (err) {
@@ -3408,12 +3425,54 @@ async function perfFileWrite($, onlyIfStale = false) {
   }
 }
 
+// Whether a theme mod reads perf-mode.json (perfReaderLive over ~/.claude/perf-mode.readers/*.json), as last
+// read: on session start, a toggle press, /crew-perf and /crew-config, never while drawing.
+let uiPerfReader = false
+function perfReaderKnown() {
+  return uiPerfReader
+}
+// Reads the readers' files again; true when the answer changed. Unreadable or missing: no reader.
+async function perfReaderRefresh($) {
+  let live = false
+  try {
+    const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE'))
+    if (home) {
+      const dir = `${home}/${PERF_READERS_DIR}`
+      const entries = await $.fs.list(dir).catch(() => [])
+      const names = (Array.isArray(entries) ? entries : []).filter((x) => x && x.kind !== 'dir' && /\.json$/.test(String(x.name))).slice(0, 32)
+      const texts = []
+      for (const x of names) {
+        const text = await $.fs.read(`${dir}/${x.name}`).catch(() => undefined)
+        if (typeof text === 'string') texts.push(text)
+      }
+      live = perfReaderLive(texts, await $.clock.now())
+    }
+  } catch (err) {
+    live = false
+  }
+  const changed = live !== uiPerfReader
+  uiPerfReader = live
+  return changed
+}
+
+// With no theme reader there is nothing to ask: the agents part goes off <-> on directly. { text, changed }.
+async function uiPerfFlip($) {
+  return uiPerfSet($, perfToggle(await cfgGet($, 'panel.perf')))
+}
+
 // A press on the toggle asks what to still (uiPerfAsk); a press while that question is open closes it, nothing
-// changed. A toast only when the question could not open (the environment wins, or the band is busy).
+// changed. A toast only when the question could not open (the environment wins, or the band is busy). With no
+// theme mod reading perf-mode.json it does not ask: it switches the agents part (uiPerfFlip).
 async function uiPerfPress($) {
   try {
     if (uiPerfAsking !== undefined) {
       uiPerfAsking.close()
+      return
+    }
+    await perfReaderRefresh($)
+    if (!uiPerfReader) {
+      const f = await uiPerfFlip($)
+      if (!f.changed) $.ui.toast(f.text, { timeoutMs: 8000 })
       return
     }
     const r = await uiPerfAsk($)
@@ -3917,7 +3976,7 @@ function registerUi(on, saverOn) {
       let line
       let perf
       if (e.surface === 'desktop' && (await cfgGet($, 'ui.statusline')) === 'on') {
-        perf = { scope: await cfgGet($, 'panel.perf') }
+        perf = { scope: perfInForce(await cfgGet($, 'panel.perf'), uiPerfReader) }
         line = statusLineSegments({ folder: uiPlace.folder, branch: uiPlace.branch, five: facts.five, week: facts.week, ctx: facts.ctx, tokens: facts.tokens, model: uiMain.model ?? uiPlace.model, effort: uiMain.effort })
         facts.ctx = undefined
         facts.five = undefined
@@ -4002,7 +4061,7 @@ function registerUi(on, saverOn) {
       if (cardsDrawn) {
         const now = await $.clock.now()
         // panel.perf agents or all: the characters stand fully still.
-        const perf = perfParts(await cfgGet($, 'panel.perf')).agents
+        const perf = perfParts(perfInForce(await cfgGet($, 'panel.perf'), uiPerfReader)).agents
         art = { Svg, style: panel, perf, now, prev: uiArtPrev(Array.isArray(agents) ? agents : [], now), columns, grid: cardLayout?.grid }
       }
       const tree = uiTree($, e, bandList, () => compactBandPress($), uiStyle, question, art, band, line, perf)
@@ -4069,8 +4128,15 @@ function registerUi(on, saverOn) {
   })
 
   on('command.run', { command: 'crew-perf' }, async ($, e) => {
-    const scope = perfArg(e.args)
+    let scope = perfArg(e.args)
     if (scope === undefined) return { text: t(await resolveLang($), 'perf_bad') }
+    await perfReaderRefresh($)
+    // No theme mod reads perf-mode.json: no question, on means the agents, the theme cannot be stilled.
+    if (!uiPerfReader) {
+      if (scope === PERF_ASK) return { text: (await uiPerfFlip($)).text }
+      if (String(e.args ?? '').trim().toLowerCase() === 'on') scope = 'agents'
+      else if (scope === 'theme' || scope === 'all') return { text: t(await resolveLang($), 'perf_no_reader') }
+    }
     if (scope === PERF_ASK) return { text: (await uiPerfAsk($)).text }
     return { text: (await uiPerfSet($, scope)).text }
   })
@@ -4513,7 +4579,7 @@ const AV_TONE = { ok: { color: 'success' }, warn: { color: 'warning' }, crit: { 
 // The pane's drawing, from the last refresh only (no reads here). The terminal and VS Code get the same tree;
 // a tint marks the picked row on the Desktop app, a ▸ elsewhere. Text wraps: nothing the person needs is cut.
 function avTree($, e) {
-  const { Box, Text, Button, Input } = $.ui.resolve(e)
+  const { Box, Text, Button, Input, Markdown } = $.ui.resolve(e)
   const desktop = e.surface === 'desktop'
   const lang = avLang
   const txt = (s, props = {}) => Text({ wrap: 'wrap', ...props, children: [s] })
@@ -4592,22 +4658,32 @@ function avTree($, e) {
       ]),
     ]
     if (d.deny) section.push(txt(d.deny, toned('warn')))
-    // A folded text (the task, the latest narrative): one short line first, the whole on a press.
-    const folded = (key, f, stateKey, props = {}) => {
-      const open = avState[stateKey] === id
-      const out = [open ? col(f.full.split('\n').map((l) => txt(l, props)), { gap: 'xs' }) : txt(f.short, props)]
+    // A folded text (the task, the latest narrative): its opening words first; the toggle, a real button beside
+    // the heading (its label a string, so every surface draws and presses it), shows the whole text as markdown
+    // (paragraphs, bullets, code kept, wrapped by the surface), or as wrapped lines where Markdown is missing.
+    // Which one is open lives in avState, so the pane's refreshes keep it open.
+    const folded = (title, hint, key, f, stateKey, props = {}) => {
+      const open = f.more && avState[stateKey] === id
+      const head = [heading(title, hint)]
       if (f.more)
-        out.push(
-          linkButton(key, t(lang, open ? 'view_text_less' : 'view_text_more'), () => {
-            avState[stateKey] = open ? undefined : id
-            avRedraw($)
+        head.push(
+          Button({
+            key,
+            label: paneWord(lang, open ? 'task_less' : 'task_all'),
+            dimColor: true,
+            onPress: () => {
+              avState[stateKey] = open ? undefined : id
+              avRedraw($)
+            },
           }),
         )
-      return out
+      let body = txt(f.short, props)
+      if (open) body = typeof Markdown === 'function' && f.md ? Markdown({ key: key + '-full', text: f.md, ...(props.dimColor ? { dimColor: true } : {}) }) : col(f.full.split('\n').map((l) => txt(l, props)), { gap: 'xs' })
+      return col([line(head, { justifyContent: 'space-between', flexWrap: 'wrap' }), body], { gap: 'xs' })
     }
     // What it is doing now: its latest narrative, above everything else it did.
-    if (d.now) section.push(col([heading(t(lang, 'view_now'), t(lang, 'view_now_hint')), ...folded('pane-now-' + id, d.now, 'nowOpenFor', { italic: true })], { gap: 'xs' }))
-    if (d.task) section.push(col([heading(t(lang, 'view_task'), t(lang, 'view_task_hint')), ...folded('pane-task-' + id, d.task, 'taskOpenFor', { dimColor: true })], { gap: 'xs' }))
+    if (d.now) section.push(folded(t(lang, 'view_now'), t(lang, 'view_now_hint'), 'pane-now-' + id, d.now, 'nowOpenFor', { italic: true }))
+    if (d.task) section.push(folded(t(lang, 'view_task'), t(lang, 'view_task_hint'), 'pane-task-' + id, d.task, 'taskOpenFor', { dimColor: true }))
     if (d.report) {
       const fold = reportFold(d.report, { open: avState.reportOpenFor === id })
       const paras = fold.shown.map((b) => {
@@ -4651,6 +4727,11 @@ function avTree($, e) {
         if (st.arg) top.push(one(st.arg, { dimColor: true, mono: true, size: 'footnote' }))
         return top
       }
+      // A step's first row: the tool (a short button when it opens), a dot, then its words in a box that may
+      // shrink (minWidth 0), each cut at the pane's edge with an ellipsis. A Button's children are runs of one
+      // line that no surface cuts, so only the tool, the count and the arrow sit in it.
+      const stepHead = (lead, words) =>
+        words.length === 0 ? line([lead]) : line([lead, mute('·', { size: 'footnote' }), Box({ flexDirection: 'row', alignItems: 'center', gap: 1, flexShrink: 1, minWidth: 0, overflow: 'hidden', children: words })], { minWidth: 0 })
       const summary = (st) => (st.summary ? [txt(st.summary, { ...(st.tone === 'ok' ? { dimColor: true } : toned(st.tone)), size: 'footnote' })] : [])
       const command = (st) => (st.command ? [txt(st.command, { dimColor: true, mono: true, size: 'footnote' })] : [])
       for (const st of rows) {
@@ -4665,18 +4746,17 @@ function avTree($, e) {
         if (st.kind === 'group') {
           // Calls of one tool in a row: the count and the newest; a press lists them all.
           const lastOne = st.items[st.items.length - 1]
-          const head = Button({ key: 'pane-step-' + st.id, plain: true, onPress: toggle, children: [toolName, one('×' + st.items.length, { dimColor: true, size: 'footnote', tabular: true }), ...callTop(lastOne), one(open ? '▾' : '▸', { dimColor: true })] })
-          body = [head]
-          if (open) for (const it of st.items) body.push(col([line([markOf(it), ...callTop(it)]), ...summary(it), ...command(it)], { paddingLeft: 2 }))
+          const head = Button({ key: 'pane-step-' + st.id, plain: true, onPress: toggle, children: [toolName, one(' ×' + st.items.length, { dimColor: true, size: 'footnote', tabular: true }), one(open ? ' ▾' : ' ▸', { dimColor: true })] })
+          body = [stepHead(head, callTop(lastOne))]
+          if (open) for (const it of st.items) body.push(col([stepHead(markOf(it), callTop(it)), ...summary(it), ...command(it)], { paddingLeft: 2, minWidth: 0 }))
           else body.push(...summary(lastOne))
         } else {
-          const top = [toolName, ...callTop(st)]
           // A Bash call drawn by its description: the command it ran, on a press.
-          body = st.command ? [Button({ key: 'pane-step-' + st.id, plain: true, onPress: toggle, children: [...top, one(open ? '▾' : '▸', { dimColor: true })] })] : [line(top)]
+          body = st.command ? [stepHead(Button({ key: 'pane-step-' + st.id, plain: true, onPress: toggle, children: [toolName, one(open ? ' ▾' : ' ▸', { dimColor: true })] }), callTop(st))] : [stepHead(toolName, callTop(st))]
           if (open) body.push(...command(st))
           body.push(...summary(st))
         }
-        steps.push(line([markOf(st), col(body, { flexShrink: 1, flexGrow: 1 })], { alignItems: 'flex-start' }))
+        steps.push(line([markOf(st), col(body, { flexShrink: 1, flexGrow: 1, minWidth: 0 })], { alignItems: 'flex-start' }))
       }
       section.push(col(steps, { gap: 'xs' }))
     } else if (d.empty) section.push(mute(t(lang, 'view_empty')))
@@ -4709,7 +4789,9 @@ function avTree($, e) {
     const note = avState.paneNotes.get(id)
     const field = Input({
       key: 'pane-msg-' + id,
-      placeholder: t(lang, 'view_msg_placeholder', { name: lang === 'tr' ? trDative(name) : name }),
+      // Short: the Desktop app sizes the field itself (no width prop, wrappers and flexGrow do not widen it), and
+      // the heading above already names the agent.
+      placeholder: paneWord(lang, 'msg_placeholder'),
       submitLabel: done ? sendPlan(true, lang).label : t(lang, 'view_msg_send'),
       ...(typeof draft === 'string' ? { value: draft } : {}),
       onInput: (value) => {
@@ -4719,7 +4801,8 @@ function avTree($, e) {
       onSubmit: (value) => avPaneSend($, id, value, done),
     })
     // Input is a leaf with no width prop: the field sits alone on its row, every box from the pane down to it
-    // spans the full width and stretches its children, so the field (and its placeholder) gets the whole line.
+    // spans the full width and stretches its children. Seen live, the Desktop app still draws the field at its own
+    // width with its submit beside it, so the placeholder is short enough for that width.
     const box = [
       heading(t(lang, 'view_msg_title', { name })),
       Box({ key: 'pane-msg-row-' + id, flexDirection: 'column', width: '100%', alignItems: 'stretch', children: [Box({ flexDirection: 'column', width: '100%', flexGrow: 1, alignItems: 'stretch', children: [field] })] }),

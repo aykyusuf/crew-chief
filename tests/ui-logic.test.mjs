@@ -443,7 +443,7 @@ test('statusSegments: the agents past the cards come first in the row, as a smal
   assert.equal(quietFacts({ more: '+2 more' }).more, '+2 more')
 })
 
-import { PERF_ASK, perfArg, perfChoices, perfIcon, perfParts } from '../hooks/ui-logic.mjs'
+import { PERF_ASK, PERF_READER_DAYS, perfArg, perfChoices, perfIcon, perfInForce, perfParts, perfReaderLive, perfToggle } from '../hooks/ui-logic.mjs'
 
 test('perfArg: no argument asks, a scope or on sets it, anything else is refused', () => {
   assert.equal(perfArg(''), PERF_ASK)
@@ -473,4 +473,33 @@ test('perfIcon: dim ⚡ off, ⚡a agents only, ⚡t theme only, bold ⚡ for all
   assert.deepEqual(perfIcon('agents'), { text: '⚡a', lit: true, bold: false })
   assert.deepEqual(perfIcon('theme'), { text: '⚡t', lit: true, bold: false })
   assert.deepEqual(perfIcon('all'), { text: '⚡', lit: true, bold: true })
+})
+
+test('perfReaderLive: a theme reader counts while its at is at most 14 days old; invalid, stale or theme-less files do not', () => {
+  const now = Date.parse('2026-11-16T12:00:00Z')
+  const file = (o) => JSON.stringify(o)
+  const ago = (d) => new Date(now - d * 86_400_000).toISOString()
+  assert.equal(PERF_READER_DAYS, 14)
+  assert.equal(perfReaderLive([], now), false)
+  assert.equal(perfReaderLive(undefined, now), false)
+  assert.equal(perfReaderLive([file({ name: 't', theme: true, at: ago(1) })], now), true)
+  assert.equal(perfReaderLive([file({ name: 't', theme: true, at: ago(14) })], now), true)
+  assert.equal(perfReaderLive([file({ name: 't', theme: true, at: ago(20) })], now), false)
+  assert.equal(perfReaderLive([file({ name: 't', theme: true, at: ago(-3) })], now), false) // far in the future
+  assert.equal(perfReaderLive([file({ name: 't', theme: false, at: ago(1) })], now), false)
+  assert.equal(perfReaderLive([file({ name: 't', theme: 'yes', at: ago(1) })], now), false)
+  assert.equal(perfReaderLive([file({ name: 't', theme: true, at: 'soon' })], now), false)
+  assert.equal(perfReaderLive([file({ name: 't', theme: true })], now), false)
+  assert.equal(perfReaderLive(['{broken', 'null', '7'], now), false)
+  assert.equal(perfReaderLive(['{broken', file({ name: 't', theme: true, at: ago(2) })], now), true) // one good file is enough
+})
+
+test('perfInForce and perfToggle: with no theme reader theme and all work as agents, the toggle goes off <-> agents', () => {
+  for (const sc of ['off', 'agents', 'theme', 'all']) assert.equal(perfInForce(sc, true), sc)
+  assert.equal(perfInForce('off', false), 'off')
+  assert.equal(perfInForce('agents', false), 'agents')
+  assert.equal(perfInForce('theme', false), 'agents')
+  assert.equal(perfInForce('all', false), 'agents')
+  assert.equal(perfToggle('off'), 'agents')
+  for (const sc of ['agents', 'theme', 'all']) assert.equal(perfToggle(sc), 'off')
 })
