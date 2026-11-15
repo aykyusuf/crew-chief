@@ -126,17 +126,39 @@ export function artPrefix(seed) {
 const r2 = (n) => Math.round(n * 100) / 100
 
 // One drawing's motion: keyframes and class rules collected while it is built.
+// Keyframes for one there-and-back loop from one way's keyframes: each stop at p% lands at p/2 % and at
+// (100 - p/2) %, so the motion runs forward over the first half and back over the second, with the same easing
+// per segment. `from`/`to` count as 0%/100%; a stop left out stays implicit (the element's own style).
+export function mirrorFrames(body) {
+  const out = new Map()
+  for (const m of String(body).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    for (const raw of m[1].split(',')) {
+      const sel = raw.trim()
+      const p = sel === 'from' ? 0 : sel === 'to' ? 100 : parseFloat(sel)
+      if (!Number.isFinite(p)) continue
+      for (const q of new Set([r2(p / 2), r2(100 - p / 2)])) out.set(q, m[2])
+    }
+  }
+  return [...out.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([q, decl]) => `${q}%{${decl}}`)
+    .join('')
+}
+
 function motion(P, now) {
   const frames = new Map()
   const t = typeof now === 'number' && Number.isFinite(now) ? now : 0
   return {
     frames,
     // `name` keyframes `body`; the element style for it: duration (s), timing, alternate or not, a phase from `now`.
+    // A back-and-forth motion is written out as one there-and-back loop (mirrorFrames) instead of relying on
+    // `animation-direction: alternate`: on the Desktop app the cat's tail ran one way and snapped back on every
+    // swing (seen live 2026-11-15), as if the direction were dropped.
     anim(name, body, dur, { ease = 'ease-in-out', alt = true, origin, box = 'view-box', delayMs } = {}) {
-      frames.set(name, body)
+      frames.set(name, alt ? mirrorFrames(body) : body)
       const cycle = dur * 1000 * (alt ? 2 : 1)
       const delay = delayMs !== undefined ? delayMs : -Math.round(t % cycle)
-      const parts = [`animation:${P}${name} ${r2(dur)}s ${ease} ${delay}ms infinite${alt ? ' alternate' : ''}`]
+      const parts = [`animation:${P}${name} ${r2(cycle / 1000)}s ${ease} ${delay}ms infinite`]
       if (box) parts.push(`transform-box:${box}`)
       if (origin) parts.push(`transform-origin:${origin}`)
       return `class="${P}a" style="${parts.join(';')}"`
