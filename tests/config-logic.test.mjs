@@ -60,3 +60,17 @@ test('percent settings scale the sizes on a small window, and the defaults are u
   assert.deepEqual(compactThresholds(200_000, { arm: 150_000 }), { arm: 150_000, ask: 170_000 })
   assert.deepEqual(compactThresholds(200_000, { arm: 150_000, ask: 190_000 }), { arm: 150_000, ask: 190_000 })
 })
+
+test('panel.perf: off by default, on|off round-trips, the environment wins', () => {
+  assert.equal(SETTINGS['panel.perf'].def, 'off')
+  assert.equal(SETTINGS['panel.perf'].env, 'CREW_CHIEF_PANEL_PERF')
+  for (const v of ['on', 'off']) {
+    const parsed = parseSetting('panel.perf', v)
+    assert.equal(parsed.ok, true)
+    assert.equal(formatSetting('panel.perf', parsed.value), v)
+    assert.equal(resolveSetting('panel.perf', undefined, storeText('panel.perf', parsed.value)).value, v)
+  }
+  assert.equal(parseSetting('panel.perf', 'fast').ok, false)
+  assert.deepEqual(resolveSetting('panel.perf', undefined, undefined), { value: 'off', source: 'default' })
+  assert.equal(resolveSetting('panel.perf', 'on', 'off').value, 'on')
+})

@@ -80,6 +80,13 @@ export const SETTINGS = {
   'handoff.minutes': { group: 'handoff', parse: whole(5, 600), def: HANDOFF_DEFAULTS.minutes, what: 'minutes of editing after which a third of that many files is enough to remind' },
   'handoff.max': { group: 'handoff', parse: whole(1, 50), def: HANDOFF_DEFAULTS.max, what: 'most reminders per session (rule, decision, commit and limit reminders are counted apart)' },
   'agents.warn': { group: 'band', parse: whole(2, 50), def: 5, what: 'the band notes the cost of watching when more than this many subagents run at once' },
+  'panel.style': { group: 'band', parse: choice(['capsule', 'cat', 'text']), def: 'capsule', env: 'CREW_CHIEF_PANEL_STYLE', what: 'how the band draws a running subagent outside the terminal: capsule (a yellow capsule buddy), cat (a blue point kitten) or text (the plain line, no pictures); the terminal always gets the line' },
+  'panel.click': { group: 'band', parse: onOff, def: 'on', env: 'CREW_CHIEF_PANEL_CLICK', what: 'outside the terminal, a click on a subagent row of the band opens what it is doing under it, with Full view and a message field (on|off; /crew-agents works either way)' },
+  'panel.perf': { group: 'band', parse: onOff, def: 'off', env: 'CREW_CHIEF_PANEL_PERF', what: 'performance mode for the agent pictures outside the terminal: on keeps each character still but for a short blink now and then, off lets it move fully (on|off; the progress bar is still either way)' },
+  'ui.statusline': { group: 'band', parse: onOff, def: 'on', env: 'CREW_CHIEF_UI_STATUSLINE', what: 'on the Desktop app, the band ends with one status line right above the prompt: folder, git branch, limit windows, context, tokens, model and effort (on|off)' },
+  'notify.agent': { group: 'notify', parse: onOff, def: 'on', env: 'CREW_CHIEF_NOTIFY_AGENT', what: 'a toast when a subagent finishes: name, time, tokens, tool calls (on|off)' },
+  'notify.native': { group: 'notify', parse: onOff, def: 'on', env: 'CREW_CHIEF_NOTIFY_NATIVE', what: 'the same as a system notification, through your own notification channel (on|off; skipped quietly where none can be raised)' },
+  'notify.min': { group: 'notify', parse: whole(0, 3600), def: 10, env: 'CREW_CHIEF_NOTIFY_MIN', what: 'seconds a subagent must have run before its end is announced (0-3600; an error is always announced)' },
 }
 
 export const SETTING_KEYS = Object.keys(SETTINGS)
@@ -89,7 +96,7 @@ export function formatSetting(key, value) {
   const def = SETTINGS[key]
   if (!def) return String(value)
   if (key === 'ask.timeout') return value === 0 ? 'off' : `${value} min`
-  if (key === 'compact.quiet') return `${value} s`
+  if (key === 'compact.quiet' || key === 'notify.min') return `${value} s`
   if (key.endsWith('pct')) return `${value} %`
   if (Array.isArray(value)) return value.join(',')
   if (typeof value === 'number' && value >= 1000) return value % 1_000_000 === 0 ? `${value / 1_000_000}m` : value % 1000 === 0 ? `${value / 1000}k` : String(value)

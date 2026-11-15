@@ -74,17 +74,112 @@ function bareGit(cmd) {
     .replace(/(^|\s)(-m|--message)(\s+|=)("[^"]*"|'[^']*')/g, ' $2 ')
 }
 
+// A DROP or TRUNCATE statement, not the word: it starts a statement (the start of the command or a line, or
+// right after ; ( or a quote, as in psql -c "...", execute('...') or a heredoc fed to a client) and names
+// what it drops. TRUNCATE also needs TABLE or a name that ends the statement, so 'truncate-end', a grep for
+// the word or a line of prose ("Truncate long lines") is not one. No SQL client is required: a database
+// script in Python or Node (cur.execute("DROP TABLE t")) is still caught.
+const SQL_NAME = String.raw`[\w"\`\[.$:{]`
+const SQL_DESTRUCTIVE = new RegExp(
+  String.raw`(?:^|[;(\n'"\`])\s*(?:` +
+    String.raw`DROP\s+(?:TABLE|DATABASE|SCHEMA|INDEX|VIEW)(?![\w-])\s+(?:IF\s+EXISTS\s+)?${SQL_NAME}` +
+    String.raw`|TRUNCATE(?![\w-])\s+(?:TABLE\s+${SQL_NAME}|(?:ONLY\s+)?${SQL_NAME}[^\s;,)'"\`]*\s*(?:$|[;,)'"\`]|(?:CASCADE|RESTRICT|RESTART|CONTINUE)\b))` +
+    ')',
+  'im',
+)
+
+// With a SQL client in the command (echo DROP TABLE t | psql) the words alone are enough.
+const SQL_WORD = /\b(?:DROP\s+(?:TABLE|DATABASE|SCHEMA|INDEX|VIEW)|TRUNCATE)(?![\w-])/i
+const SQL_CLIENTS = ['psql', 'mysql', 'mariadb', 'sqlite3', 'sqlcmd', 'duckdb', 'clickhouse-client', 'cockroach', 'snowsql', 'bq']
+function runsSqlClient(cmd) {
+  return segments(tokenize(cmd).tokens).some((seg) => SQL_CLIENTS.includes(base(stripWrappers(seg.words)[0])))
+}
+
 export function clipText(text, n = CLIP) {
   const s = String(text ?? '').replace(/\s+/g, ' ').trim()
   return s.length > n ? s.slice(0, n - 1) + '…' : s
 }
 
+// The command without heredoc bodies that are only data. A body stays when a shell or ssh reads it
+// (bash <<EOF, ssh host <<'EOF', cat <<EOF | sh): there its lines are commands.
+function runnableHeredocs(cmd) {
+  return cmd.replace(/(?<!<)<<(?!<)-?\s*(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)\n\s*\2\b/g, (m, q, tag, rest, body, off, all) => {
+    const head = all.slice(all.lastIndexOf('\n', off) + 1, off) + ' ' + rest
+    const runs = segments(tokenize(head).tokens).some((seg) => {
+      const w = stripWrappers(seg.words)
+      return w.length > 0 && [...SHELLS, 'ssh', 'autossh'].includes(base(w[0]))
+    })
+    return runs ? ` ${rest}\n${body}\n` : ` ${rest}\n`
+  })
+}
+
+// The argument lists of every rm that really runs: a command word (also after sudo, if, xargs, find -exec),
+// inside a bash -c / sh -c / eval / ssh string, a $(...) or backticks, or a heredoc fed to a shell. The same
+// words in a node -e or python -c string, a commit message, echo text or a data heredoc are not a command.
+function rmCalls(cmd, depth = 0, out = []) {
+  if (typeof cmd !== 'string' || depth > 3) return out
+  const { tokens, flags } = tokenize(runnableHeredocs(cmd))
+  if (flags.unbalanced) {
+    // Quotes the tokenizer cannot follow: fall back to the plain word match.
+    for (const m of cmd.matchAll(/\brm\s+((?:-\S+\s+)+[^;&|\n]*)/g)) out.push(m[1].trim().split(/\s+/))
+    return out
+  }
+  for (const seg of segments(tokens)) {
+    // Command substitution in a double-quoted or unquoted word runs too.
+    const live = seg.words.filter((w) => w.dyn || !w.quoted)
+    if (live.some((w) => w.dyn)) {
+      for (const m of live.map((w) => w.v).join(' ').matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) rmCalls(m[1] ?? m[2], depth + 1, out)
+    }
+    rmWords(seg.words, depth, out)
+  }
+  return out
+}
+
+function rmWords(all, depth, out) {
+  let words = stripWrappers(all)
+  while (words.length > 0 && !words[0].quoted && ['if', 'elif', 'while', 'until'].includes(words[0].v)) words = stripWrappers(words.slice(1))
+  if (words.length === 0) return
+  const name = base(words[0])
+  const args = words.slice(1)
+  if (name === 'rm') out.push(args.map((w) => w.v))
+  else if (SHELLS.includes(name)) {
+    const c = words.findIndex((w, i) => i > 0 && /^-[a-z]*c[a-z]*$/.test(w.v))
+    if (c > 0 && words[c + 1]) rmCalls(words[c + 1].v, depth + 1, out)
+  } else if (name === 'eval') rmCalls(args.map((w) => w.v).join(' '), depth + 1, out)
+  else if (name === 'ssh' || name === 'autossh') {
+    const call = parseSsh(words, name)
+    if (call?.remote) rmCalls(call.remote, depth + 1, out)
+  } else if (name === 'xargs' || name === 'parallel' || name === 'watch') {
+    let i = 0
+    while (i < args.length && args[i].v.startsWith('-')) i += /^-[IdEsnPLa]$|^--(max-args|max-procs|delimiter|arg-file|interval)$/.test(args[i].v) ? 2 : 1
+    if (depth < 3) rmWords(args.slice(i), depth + 1, out)
+  } else if (name === 'find') {
+    args.forEach((w, i) => {
+      if (!/^-(exec|execdir|ok|okdir)$/.test(w.v)) return
+      const end = args.findIndex((x, j) => j > i && (x.v === ';' || x.v === '+'))
+      if (depth < 3) rmWords(args.slice(i + 1, end < 0 ? undefined : end), depth + 1, out)
+    })
+  }
+}
+
+const RM_ORDER = { deny: 0, confirm: 1, warn: 2 }
+
 function rmVerdict(cmd) {
-  const m = /\brm\s+((?:-\S+\s+)+)([^;&|\n]*)/.exec(cmd)
-  if (!m) return null
-  const flags = m[1]
+  let worst = null
+  for (const args of rmCalls(cmd)) {
+    const v = rmArgsVerdict(args)
+    if (v && (!worst || RM_ORDER[v.level] < RM_ORDER[worst.level])) worst = v
+  }
+  return worst
+}
+
+function rmArgsVerdict(args) {
+  const n = args.findIndex((a) => !a.startsWith('-'))
+  const flagList = n < 0 ? args : args.slice(0, n)
+  if (flagList.length === 0) return null
+  const flags = flagList.join(' ')
   if (!/-[a-zA-Z]*r|--recursive/.test(flags) || !/-[a-zA-Z]*f|--force/.test(flags)) return null
-  const targets = m[2].trim().split(/\s+/).filter(Boolean)
+  const targets = n < 0 ? [] : args.slice(n).filter(Boolean)
   if (targets.length > 0 && targets.every((t) => BUILD_DIRS.test(t) || /^\/(tmp|private\/tmp)\//.test(t))) return null
   // Only wiping the whole disk or home is a hard block; a risky target asks once; the rest is a warning.
   const catastrophic = targets.filter((t) => /^["']?(\/|\/\*|~|~\/|~\/\*|\$HOME|\$HOME\/|\$HOME\/\*|\*)["']?$/.test(t))
@@ -120,7 +215,7 @@ function builtinMatches(tool, input) {
   if (writesConfig(cmd)) out.push({ level: 'deny', rule: 'guard-config', text: CONFIG_TEXT })
   const rm = rmVerdict(cmd)
   if (rm?.level === 'deny') out.push(rm)
-  if (/\bDROP\s+(TABLE|DATABASE|SCHEMA|INDEX|VIEW)\b|\bTRUNCATE\b/i.test(cmd)) out.push({ level: 'confirm', rule: 'sql-destructive', text: 'DROP or TRUNCATE statement' })
+  if (SQL_DESTRUCTIVE.test(cmd) || (SQL_WORD.test(cmd) && runsSqlClient(cmd))) out.push({ level: 'confirm', rule: 'sql-destructive', text: 'DROP or TRUNCATE statement' })
   const git = bareGit(cmd)
   if (/\bgit\s+push\b[^;&|\n]*(--force\b|--force-with-lease\b|\s-f\b|\s\+\S)/.test(git)) out.push({ level: 'confirm', rule: 'git-force-push', text: 'git push --force' })
   if (/\bgit\s+reset\s+--hard\b/.test(git)) out.push({ level: 'confirm', rule: 'git-reset-hard', text: 'git reset --hard' })
@@ -634,6 +729,22 @@ function parseSsh(words, tool) {
 
 const REMOTE_OPERAND = /^(?:([^@/:\s]+)@)?(\[[^\]]+\]|[^/:@\s]+):(?!:)/
 
+// A file operand the local shell expands ($C/, "${SRC:-dist}/"): scp and rsync go remote only through a
+// colon (host:path, $HOST:/srv), so one without a colon outside the variable names is a local path.
+// Command substitution, or a colon in a variable's default value, can hide a host: 'unknown'.
+function dynOperand(v) {
+  if (/\$\(|`/.test(v)) return 'unknown'
+  let hidden = false
+  const rest = v
+    .replace(/\$\{[#!]?\w*([^}]*)\}/g, (m, op) => {
+      if (op.replace(/^:?[-=+?]/, '').includes(':')) hidden = true
+      return ''
+    })
+    .replace(/\$(\w+|[@*#?$!-])/g, '')
+  // A `$` left over is the start of $( ... ), which the tokenizer split off.
+  return hidden || /[:$]/.test(rest) ? 'unknown' : 'local'
+}
+
 function parseCopy(words, tool) {
   const argSet = tool === 'sftp' ? SFTP_ARG : SCP_ARG
   const operands = []
@@ -662,10 +773,11 @@ function parseCopy(words, tool) {
     operands.push(w)
   }
   operands.forEach((w, idx) => {
-    if (w.dyn) {
+    if (w.dyn && ((tool === 'sftp' && idx === 0) || dynOperand(w.v) === 'unknown')) {
       calls.push({ tool, unknown: 'a variable in a file operand', host: undefined, jumps, hostnames: [] })
       return
     }
+    if (w.dyn) return // a local path
     let spec = w.v
     if (/^(scp|sftp):\/\//i.test(spec)) spec = spec.replace(/^(scp|sftp):\/\//i, '').replace(/(:\d+)?(\/.*)?$/, '') + ':'
     if (tool === 'sftp' && idx === 0 && !REMOTE_OPERAND.test(spec)) spec += ':'
@@ -715,11 +827,11 @@ function parseRsync(words) {
   }
   const calls = []
   operands.forEach((w, idx) => {
-    if (w.dyn) {
-      calls.push({ tool: 'rsync', unknown: 'a variable in a file operand', host: undefined, jumps: [], hostnames: [] })
-      return
-    }
     if (/^rsync:\/\//i.test(w.v)) return // the rsync daemon, not ssh
+    if (w.dyn) {
+      if (dynOperand(w.v) === 'unknown') calls.push({ tool: 'rsync', unknown: 'a variable in a file operand', host: undefined, jumps: [], hostnames: [] })
+      return // else a local path
+    }
     const m = REMOTE_OPERAND.exec(w.v)
     if (!m) return
     calls.push({ tool: 'rsync', user: m[1] ?? sshUser, host: m[2].replace(/^\[(.*)\]$/, '$1').toLowerCase(), jumps: [], hostnames: [], unknown, upload: idx === operands.length - 1 })
@@ -902,6 +1014,25 @@ export function normaliseCommand(command) {
 
 const loopKey = (loop) => (loop === undefined || loop === null || loop === '' ? 'main' : String(loop))
 
+// A short fixed-size digest of a text (cyrb53-style, two 32-bit lanes) plus its length, so a long heredoc
+// keeps the first-attempt map, and its copy in the plugin store, small.
+export function hashText(text) {
+  const s = String(text)
+  let h1 = 0xdeadbeef
+  let h2 = 0x41c6ce57
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    h1 = Math.imul(h1 ^ c, 2654435761)
+    h2 = Math.imul(h2 ^ c, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (h1 >>> 0).toString(16).padStart(8, '0') + (h2 >>> 0).toString(16).padStart(8, '0') + '.' + s.length.toString(36)
+}
+
+// The one key of a Bash command in the first-attempt map (the confirm rules and the ssh gate share it).
+const commandKey = (loop, command) => loopKey(loop) + '\u0000' + hashText(normaliseCommand(command))
+
 // The gate's answer for one call; nothing is recorded here (gateRecord does it once the deny or the
 // warning is really returned). action: 'pass' | 'deny' | 'warn'; kind: 'first' | 'risky' | 'readonly'.
 export function gateDecide(state, touches, { mode, loop, readOnly, now, ttlMs, command }) {
@@ -915,7 +1046,7 @@ export function gateDecide(state, touches, { mode, loop, readOnly, now, ttlMs, c
     return risky.length ? { action: mode === 'warn' ? 'warn' : 'deny', kind: 'readonly', hosts, why, unknown } : { action: 'pass' }
   }
   const fresh = touches.filter((t) => t.host !== undefined && !state.contacted.has(lk + '\u0000' + t.host)).map((t) => t.host)
-  const key = lk + '\u0000' + normaliseCommand(command)
+  const key = commandKey(loop, command)
   const at = state.commands.get(key)
   const retry = at !== undefined && now - at <= ttlMs
   const base = { hosts, why, unknown, loop: lk, key, firstHosts: [...new Set(fresh)] }
@@ -988,8 +1119,37 @@ export function readOnlyDenyMessage(v) {
 // The key of a call in the shared first-attempt map: the agent loop plus the normalised command (Bash) or
 // the tool and path (file tools).
 export function callKey(loop, tool, input) {
-  const what = tool === 'Bash' ? normaliseCommand(input.command) : `${tool} ${fileOf(input)}`
-  return loopKey(loop) + '\u0000' + what
+  return tool === 'Bash' ? commandKey(loop, input.command) : loopKey(loop) + '\u0000' + hashText(`${tool} ${fileOf(input)}`)
+}
+
+// The gate state lives in the module, which a plugin reload or a worker respawn starts again (and runs
+// session.start again) in the same session: without a copy outside it, an approved retry was held twice.
+// The copy is kept in the plugin store under one key per session.
+export const GATE_STORE_PREFIX = 'guard_gate_'
+
+export function gateSnapshot(state, now) {
+  return { at: now, contacted: [...state.contacted], commands: [...state.commands] }
+}
+
+const entryOk = (e) => Array.isArray(e) && e.length === 2 && typeof e[0] === 'string' && typeof e[1] === 'number' && Number.isFinite(e[1])
+
+// Adds a stored snapshot to the state (what is in memory wins); commands older than ttlMs are left out.
+// Anything malformed is ignored.
+export function gateRestore(state, snap, now, ttlMs) {
+  if (!snap || typeof snap !== 'object') return
+  for (const e of Array.isArray(snap.contacted) ? snap.contacted.slice(-MAX_STATE) : []) {
+    if (entryOk(e) && !state.contacted.has(e[0])) state.contacted.set(e[0], e[1])
+  }
+  for (const e of Array.isArray(snap.commands) ? snap.commands.slice(-MAX_STATE) : []) {
+    if (entryOk(e) && now - e[1] <= ttlMs && !state.commands.has(e[0])) state.commands.set(e[0], e[1])
+  }
+  capMap(state.contacted)
+  capMap(state.commands)
+}
+
+// A stored snapshot of another session that can be dropped: older than the longest approval window.
+export function gateSnapshotStale(snap, now) {
+  return !snap || typeof snap !== 'object' || typeof snap.at !== 'number' || now - snap.at > 1440 * 60_000
 }
 
 export function isFresh(state, key, now, ttlMs) {

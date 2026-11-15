@@ -2,8 +2,13 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   agentSegments,
+  bandRows,
   bandLines,
   bar,
+  cardGrid,
+  cardLine1Cells,
+  cardNeedCells,
+  cardTextRoom,
   demoContent,
   ctxAlert,
   ctxChip,
@@ -22,6 +27,7 @@ import {
   untilLabel,
   windowChip,
 } from '../hooks/ui-logic.mjs'
+import { agentCardText } from '../hooks/panel-art-logic.mjs'
 
 test('effortMeter: dots grow with the effort, no effort draws nothing', () => {
   assert.deepEqual(effortMeter('low'), { glyph: '●○○○○', tone: 'ok', label: 'low', rainbow: false })
@@ -109,6 +115,14 @@ test('statusSegments puts the chips on one line, the compact key last', () => {
   assert.equal(line.at(-1).key, 'compact') // the drawing part turns this one into a button
 })
 
+test('statusSegments: the compact key names its shortcut only when asked to', () => {
+  assert.equal(lineText(statusSegments({ compactKey: true })), '[1] compact')
+  assert.equal(lineText(statusSegments({ compactKey: true }, true)), '[1] compact')
+  const plain = statusSegments({ compactKey: true }, false)
+  assert.equal(lineText(plain), 'compact')
+  assert.equal(plain[0].key, 'compact') // still the button
+})
+
 test('statusSegments leaves out what is unknown', () => {
   assert.deepEqual(statusSegments({}), [])
   assert.equal(lineText(statusSegments({ guard: { on: false } })), 'guard off')
@@ -117,7 +131,7 @@ test('statusSegments leaves out what is unknown', () => {
 
 test('agentSegments: name, model, effort meter, bar, tokens, step', () => {
   const line = agentSegments({ name: 'deep-reader', model: 'claude-sonnet-5-5', effort: 'medium', tokens: 12_400, pct: 40, step: 'reading auth' })
-  assert.equal(lineText(line), 'deep-reader        sonnet-5.5 ●●○○○ medium ▓▓░░░░ 40%  12k  reading auth')
+  assert.equal(lineText(line), 'deep-reader        Sonnet 5.5 ● ● ○ ○ ○ Medium ▓▓░░░░ 40%  12k  reading auth')
   assert.equal(line[2].tone, 'sonnet')
 })
 
@@ -207,11 +221,11 @@ test('the bar of an agent line is two segments: filled in colour, empty dim', ()
 
 test('demoContent has every part of the band', () => {
   const d = demoContent(Date.parse('2026-10-28T20:00:00Z'))
-  assert.equal(d.agents.length, 3)
+  assert.equal(d.agents.length, 4) // fresh, stale and no estimate, plus a type and model the art does not know
   assert.equal(d.facts.week.percent, 96)
   assert.equal(d.facts.compactKey, true)
-  const lines = bandLines({ status: statusSegments(d.facts), agents: d.agents, maxLines: 4 })
-  assert.equal(lines.length, 4)
+  const lines = bandLines({ status: statusSegments(d.facts), agents: d.agents, maxLines: 5 })
+  assert.equal(lines.length, 5)
   assert.ok(lineText(lines[0]).includes('[1] compact'))
 })
 
@@ -241,7 +255,7 @@ test('spinnerWord by model family', () => {
 test('an agent on max effort draws five dots in five colours, then the word in its own tone', () => {
   const line = agentSegments({ name: 'implementer-hard', model: 'claude-opus-5-5', effort: 'max' })
   assert.deepEqual(line.filter((s) => s.t === '●').map((s) => s.tone), ['rb0', 'rb1', 'rb2', 'rb3', 'rb4'])
-  assert.equal(lineText(line), 'implementer-hard   opus-5.5 ●●●●● max')
+  assert.equal(lineText(line), 'implementer-hard   Opus 5.5 ● ● ● ● ● Max')
   assert.equal(line.at(-1).tone, 'max')
   assert.equal(agentSegments({ name: 'a', model: 'claude-opus-5-5', effort: 'xhigh' }).filter((s) => s.tone.startsWith('rb')).length, 0)
 })
@@ -257,17 +271,27 @@ test('elapsedLabel: seconds, minutes, hours; nothing under a second or for a non
 
 test('an agent whose model never reached us draws no model or effort, not a "starting" that stays', () => {
   const line = agentSegments({ name: 'implementer-hard', unknown: true, calls: 34, elapsedMs: 252_000 })
-  assert.equal(lineText(line), 'implementer-hard     34 calls · 4m12s')
+  assert.equal(lineText(line), 'implementer-hard     4m12s')
   assert.ok(!lineText(line).includes('starting'))
   assert.ok(lineText(agentSegments({ name: 'Explore' })).includes('starting')) // a young agent still says so
 })
 
-test('tempo: calls and time when no percentage was reported, only the time when one was', () => {
+test('tempo: only the time, never a call count', () => {
   const none = lineText(agentSegments({ name: 'a', model: 'claude-haiku-5-5', calls: 12, elapsedMs: 75_000 }))
-  assert.ok(none.endsWith('  12 calls · 1m15s'), none)
+  assert.ok(none.endsWith('Haiku 5.5  1m15s'), none)
   const reported = lineText(agentSegments({ name: 'a', model: 'claude-haiku-5-5', calls: 12, pct: 40, elapsedMs: 75_000 }))
   assert.ok(reported.includes('40%') && reported.endsWith('1m15s') && !reported.includes('calls'), reported)
-  assert.ok(!lineText(agentSegments({ name: 'a', model: 'claude-haiku-5-5', calls: 0, elapsedMs: 500 })).includes('calls'))
+})
+
+test('max effort: five rainbow dots apart and the word Max', () => {
+  const line = agentSegments({ name: 'r', model: 'claude-opus-5-5', effort: 'max' })
+  assert.ok(lineText(line).includes('Opus 5.5 ● ● ● ● ● Max'), lineText(line))
+})
+
+test('bandRows says which line is which', () => {
+  const rows = bandRows({ status: [{ t: 'guard on', tone: 'ok' }], agents: [{ name: 'a' }, { name: 'b' }, { name: 'c' }], maxLines: 3 })
+  assert.deepEqual(rows.map((r) => r.kind), ['status', 'agent', 'more'])
+  assert.equal(rows[1].agent.name, 'a')
 })
 
 test('busy note: shown in quiet mode, with the count; ultra-saver stays visible in quiet mode', () => {
@@ -301,4 +325,68 @@ test('ctxAlert: one toast per crossing, again only after dropping below', () => 
   assert.equal(r.fire, false)
   assert.equal(ctxAlert(chip(450_000), r.state).fire, true)
   assert.equal(ctxAlert(undefined, r.state).fire, false)
+})
+
+import { placeFolder, statusLineSegments, STATUS_LINE_SEP } from '../hooks/ui-logic.mjs'
+
+test('statusLineSegments: the Desktop status line, in order, with what is missing left out', () => {
+  const now = Date.parse('2026-11-15T12:00:00Z')
+  const week = windowChip([{ kind: 'seven_day', percentUsed: 47.4, resetsAt: '2026-11-19T04:00:00Z' }], 'seven_day', now)
+  const line = statusLineSegments({ folder: 'shop', branch: 'main', week, ctx: { percent: 12 }, tokens: 116_900, model: 'claude-haiku-5-5', effort: 'medium' })
+  assert.equal(lineText(line), 'shop   |   main   |   7d: %47 ~3d 16h   |   ctx:12%   |   116k   |   Haiku 5.5 ●●○○○ Medium')
+  assert.deepEqual(line.filter((s) => s.t === STATUS_LINE_SEP).map((s) => s.tone), ['dim', 'dim', 'dim', 'dim', 'dim'])
+  assert.equal(line[0].color, '#ff3030')
+  assert.equal(line[2].color, '#2ecc40')
+  assert.equal(line[line.length - 1].color, '#ff5fff')
+  const five = windowChip([{ kind: 'five_hour', percentUsed: 4, resetsAt: '2026-11-15T16:20:00Z' }], 'five_hour', now)
+  assert.equal(lineText(statusLineSegments({ five, tokens: 1_240_000 })), '5h: %4 ~4h 20m   |   1.2M')
+  assert.deepEqual(statusLineSegments({}), [])
+})
+
+test('placeFolder: the last part of the path, never a spare folder of the Desktop app', () => {
+  assert.equal(placeFolder('/Users/me/projects/shop'), 'shop')
+  assert.equal(placeFolder('/Users/me/projects/shop/'), 'shop')
+  assert.equal(placeFolder('/Users/me/.claude/spares/spare-hYNb89'), '')
+  assert.equal(placeFolder(undefined), '')
+})
+
+// ---- agent cards: the width one needs and the grid ----------------------------------------------------------
+
+const crewCard = (name, model, effort) => agentCardText({ name: 'crew-chief:' + name, model, effort })
+const CREW = [
+  crewCard('scanner', 'claude-haiku-5-5', 'low'),
+  crewCard('deep-reader', 'claude-sonnet-5-5', 'medium'),
+  crewCard('implementer', 'claude-sonnet-5-5', 'medium'),
+  crewCard('mechanic', 'claude-haiku-5-5', 'low'),
+  crewCard('reviewer', 'claude-opus-5-5', 'high'),
+]
+
+test('cardGrid: five agents at 145 columns go two to a row (2, 2, 1); wide bands take three, narrow ones one', () => {
+  const needs = CREW.map((c) => cardNeedCells(c, 'details ›'))
+  const g = cardGrid(145, needs)
+  assert.equal(g.per, 2)
+  assert.ok(g.cell >= g.need && g.minWidth <= g.cell)
+  assert.equal(cardGrid(230, needs).per, 3) // 3 and 2
+  const narrow = cardGrid(60, needs)
+  assert.equal(narrow.per, 1)
+  assert.ok(narrow.minWidth <= 60)
+})
+
+test('cardGrid: the longest line 1 (implementer-hard, Sonnet, Medium, details ›) still fits two to a row at 145', () => {
+  const need = cardNeedCells(crewCard('implementer-hard', 'claude-sonnet-5-5', 'medium'), 'details ›')
+  assert.equal(cardGrid(145, [need, need, need]).per, 2)
+})
+
+test('cardGrid: a lone card is not stretched past 1.5x its need (an empty cell takes the rest); balanced rows', () => {
+  const need = cardNeedCells(CREW[2], 'details ›')
+  assert.equal(cardGrid(145, [need]).per, 2)
+  assert.equal(cardGrid(100, [need]).per, 1) // under 1.5x: the card takes the row
+  assert.equal(cardGrid(230, [need, need, need, need, need]).per, 3)
+})
+
+test('the first-run tag is drawn only where line 1 has room for it', () => {
+  const c = crewCard('implementer-hard', 'claude-sonnet-5-5', 'medium')
+  assert.ok(cardLine1Cells(c, true) > cardLine1Cells(c))
+  assert.ok(cardLine1Cells(c, true) > cardTextRoom(71.5, 'details ›'))
+  assert.ok(cardLine1Cells(crewCard('scanner', 'claude-haiku-5-5', 'low'), true) <= cardTextRoom(71.5, 'details ›'))
 })

@@ -165,6 +165,28 @@ export function checkSummary(summary, { constraints = [], tasks = [] } = {}) {
   return { missingConstraints, missingTasks }
 }
 
+// ---- the question card ----------------------------------------------------------------------
+
+export const CARD_FACTS_MAX = 4
+export const CARD_FACT_WIDTH = 32
+
+// The small facts under a question card's line (crew-ui.js draws them as chips): the empty ones dropped, each on
+// one line and cut to `width` characters with an ellipsis (Claude's phase summary can be a whole sentence), at
+// most `max` of them, in the given order.
+export function cardFacts(facts, max = CARD_FACTS_MAX, width = CARD_FACT_WIDTH) {
+  if (!Array.isArray(facts)) return []
+  const out = []
+  for (const f of facts) {
+    if (typeof f !== 'string') continue
+    const one = f.replace(/\s+/g, ' ').trim()
+    if (one === '') continue
+    const chars = [...one]
+    out.push(chars.length > width ? chars.slice(0, width - 1).join('').trimEnd() + '…' : one)
+    if (out.length >= max) break
+  }
+  return out
+}
+
 // ---- PROGRESS.md: archive by age ------------------------------------------------------------
 
 export const PROGRESS_ARCHIVE_DAYS = 60

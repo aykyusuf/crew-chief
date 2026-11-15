@@ -3,6 +3,37 @@
 // declared here, so every part that touches `$` is joined into this one readable file. Pure helpers that
 // never see `$` stay in their own files and are imported below.)
 import {
+  BAND_EXTRA_MAX,
+  MESSAGE_MAX,
+  MSG_KEPT,
+  NOTIFY_BATCH_MS,
+  VIEW_FINISHED_MAX,
+  VIEW_LIST_MAX,
+  VIEW_REFRESH_MS,
+  agentListLine,
+  bandExtraRows,
+  bandSection,
+  checkMessage,
+  fitSections,
+  msgFallback,
+  msgPending,
+  msgTrack,
+  msgView,
+  nativeWanted,
+  notifyText,
+  notifyWanted,
+  paneChips,
+  paneDetail,
+  paneGroups,
+  paneRow,
+  pickSelected,
+  reportFold,
+  sendPlan,
+  throttlePlan,
+  toggleOpen,
+  trDative,
+} from './agent-view-logic.mjs'
+import {
   minutesLabel,
   pickFallback,
 } from './ask-logic.mjs'
@@ -11,6 +42,7 @@ import {
   backgroundNote,
   backupName,
   backupsToPrune,
+  cardFacts,
   checkSummary,
   compactThresholds,
   openTasks,
@@ -36,6 +68,7 @@ import {
 import {
   DEFAULTS_NOTE,
   DEFAULT_TTL_MIN,
+  GATE_STORE_PREFIX,
   GUARD_NOTE,
   READONLY_AGENTS,
   SETUP_KEY,
@@ -50,6 +83,9 @@ import {
   gateDecide,
   gateReason,
   gateRecord,
+  gateRestore,
+  gateSnapshot,
+  gateSnapshotStale,
   guardOn,
   guardStatusText,
   isDefaultConfig,
@@ -88,7 +124,19 @@ import {
   overlapping,
 } from './overlap-logic.mjs'
 import {
+  CARD_LOOK,
+  SAVER_LOOK,
+  agentBar,
+  agentCardText,
+  agentFace,
+  artElapsed,
+  artTokens,
+  modelColor,
+  saverBadge,
+} from './panel-art-logic.mjs'
+import {
   guardPane,
+  guardView,
   taskPane,
   timelinePane,
 } from './panes-logic.mjs'
@@ -160,14 +208,26 @@ import {
   summarizeMcp,
 } from './tidy-logic.mjs'
 import {
-  bandLines,
+  CARD_CELLS,
+  COMPACT_ICON,
+  COMPACT_LABEL,
+  PERF_ICON,
+  PERF_LABEL,
+  bandRows,
+  cardGrid,
+  cardLine1Cells,
+  cardNeedCells,
+  cardTextRoom,
   ctxAlert,
   ctxChip,
   demoContent,
   modeLabels,
   modelChip,
+  perfNext,
+  placeFolder,
   quietFacts,
   spinnerWord,
+  statusLineSegments,
   statusSegments,
   tailText,
   windowChip,
@@ -267,6 +327,20 @@ async function envRaw($, key) {
         return await $.env.get('CREW_CHIEF_ASK_TIMEOUT_MIN')
       case 'handoff.mode':
         return await $.env.get('CREW_CHIEF_HANDOFF')
+      case 'notify.agent':
+        return await $.env.get('CREW_CHIEF_NOTIFY_AGENT')
+      case 'notify.native':
+        return await $.env.get('CREW_CHIEF_NOTIFY_NATIVE')
+      case 'notify.min':
+        return await $.env.get('CREW_CHIEF_NOTIFY_MIN')
+      case 'panel.style':
+        return await $.env.get('CREW_CHIEF_PANEL_STYLE')
+      case 'panel.click':
+        return await $.env.get('CREW_CHIEF_PANEL_CLICK')
+      case 'panel.perf':
+        return await $.env.get('CREW_CHIEF_PANEL_PERF')
+      case 'ui.statusline':
+        return await $.env.get('CREW_CHIEF_UI_STATUSLINE')
       default:
         return undefined
     }
@@ -290,6 +364,20 @@ async function cfgState($, key) {
 
 async function cfgGet($, key) {
   return (await cfgState($, key)).value
+}
+
+// Saves one value as /crew-config set does (for the short forms other commands offer, such as /crew-ui panel).
+// { ok: true, value, source } with the value in force afterwards, or { ok: false, error: 'invalid' | 'store' }.
+async function cfgSet($, key, text) {
+  const parsed = parseSetting(key, text)
+  if (!parsed.ok) return { ok: false, error: 'invalid' }
+  try {
+    await $.store.set(storeKey(key), storeText(key, parsed.value))
+  } catch (err) {
+    return { ok: false, error: 'store' }
+  }
+  const st = await cfgState($, key)
+  return { ok: true, value: st.value, source: st.source }
 }
 
 async function allValues($) {
@@ -340,6 +428,7 @@ function registerConfig(on) {
           return { text: 'crew-config: the plugin store is not available here, so nothing can be saved or reset (the environment variables still work).' }
         }
       }
+      if (keys.includes('panel.perf')) await perfFileWrite($)
       return { text: `crew-config: ${target === 'all' ? 'every value is' : target + ' is'} back to the default${target === 'all' ? '' : ' (' + formatSetting(target, SETTINGS[target].def) + ')'}.` }
     }
     const rest = verb === 'set' ? words.slice(1) : words
@@ -353,6 +442,7 @@ function registerConfig(on) {
     } catch (err) {
       return { text: 'crew-config: the plugin store is not available here, so the value cannot be saved (use the environment variable instead).' }
     }
+    if (key === 'panel.perf') await perfFileWrite($)
     const st = await cfgState($, key)
     const envNote = st.source === 'env' ? ` ${envName(key)} is set in the environment and still wins (${formatSetting(key, st.value)}).` : ''
     const problems = checkSettings(await allValues($))
@@ -381,7 +471,8 @@ const EXPIRED = Symbol('expired')
 //     hook that asks is still running (a $ call made after its hook returned skips this mod's own hooks);
 //   - the race below, so the flow moves on with the default in every case, even when the dialog could
 //     not be closed (then a late click on it changes nothing).
-async function askWithDeadline($, question, answers, fallback) {
+// `look` (optional) only changes how the band draws the question outside the terminal (see uiAskStart).
+async function askWithDeadline($, question, answers, fallback, look) {
   let entry
   try {
     const ms = (await cfgGet($, 'ask.timeout')) * 60_000
@@ -398,7 +489,7 @@ async function askWithDeadline($, question, answers, fallback) {
   }
   await rowRefreshSurfaces($)
   if (entry === undefined) {
-    const band = uiAskStart($, question, answers)
+    const band = uiAskStart($, question, answers, look)
     if (band === undefined) return $.ui.ask(question, answers)
     try {
       return await band.promise
@@ -409,7 +500,7 @@ async function askWithDeadline($, question, answers, fallback) {
   const owner = !deadlines.has(question)
   if (owner) deadlines.set(question, entry)
   let timer
-  const band = uiAskStart($, question, answers)
+  const band = uiAskStart($, question, answers, look)
   try {
     const asked = band !== undefined ? band.promise : $.ui.ask(question, answers)
     asked.catch(() => {}) // dismissed after the deadline: nobody is listening any more
@@ -1078,14 +1169,27 @@ function processHandles() {
   return ck.bgTasks.map((task) => (task.id ? task.id + ': ' : '') + (task.command || task.description || '')).filter(Boolean)
 }
 
+// The state in one sentence (the question's plain text: the terminal, the dialog) and as short facts (the
+// Desktop card's chips), from one read of the agents, the background processes and git.
 async function stateLine($, lang, agents, waiting) {
   const parts = [t(lang, 'ck_state_agents', { n: agents })]
-  if (waiting > 0) parts.push(t(lang, 'ck_state_waiting', { n: waiting }))
+  const facts = []
+  if (waiting > 0) {
+    parts.push(t(lang, 'ck_state_waiting', { n: waiting }))
+    facts.push(t(lang, 'ck_fact_waiting', { n: waiting }))
+  }
   const names = processNames()
-  if (names.length > 0) parts.push(t(lang, 'ck_state_shells', { n: names.length, list: names.slice(0, 3).map((n) => n.slice(0, 40)).join(', ') }))
+  if (names.length > 0) {
+    parts.push(t(lang, 'ck_state_shells', { n: names.length, list: names.slice(0, 3).map((n) => n.slice(0, 40)).join(', ') }))
+    facts.push(t(lang, 'ck_fact_shells', { n: names.length }))
+  }
   const dirty = await dirtyFiles($)
-  if (dirty !== undefined) parts.push(t(lang, 'ck_state_dirty', { n: dirty }))
-  return t(lang, 'ck_state', { parts: parts.join(', ') })
+  if (dirty !== undefined) {
+    parts.push(t(lang, 'ck_state_dirty', { n: dirty }))
+    facts.push(t(lang, 'ck_fact_dirty', { n: dirty }))
+  }
+  facts.push(t(lang, 'ck_fact_agents', { n: agents }))
+  return { line: t(lang, 'ck_state', { parts: parts.join(', ') }), facts }
 }
 
 async function askAndPlan($, why) {
@@ -1101,10 +1205,19 @@ async function askAndPlan($, why) {
     const answers = [t(lang, 'ck_yes'), t(lang, 'ck_later'), t(lang, 'ck_never')]
     const phase = why.phase ? t(lang, 'ck_phase', { phase: why.phase }) : ''
     const state = await stateLine($, lang, agents, waiting)
+    // On Desktop the question is a card: a topic, one short line, the facts as chips, what happens in one line.
+    const card = {
+      kind: 'card',
+      topic: t(lang, 'ck_topic'),
+      question: t(lang, 'ck_question'),
+      facts: cardFacts([t(lang, 'ck_fact_ctx', { tokens: tokensLabel(tokens) }), why.phase ? t(lang, 'ck_fact_phase', { phase: why.phase }) : '', ...state.facts]),
+      note: t(lang, 'ck_note'),
+      quiet: 2, // "don't ask again": a quiet text button at the end
+    }
     let answer
     try {
       // Unanswered: "not now", the same as clicking it.
-      answer = await askWithDeadline($, t(lang, 'ck_ask', { tokens: tokensLabel(tokens), phase, state }), answers, answers[1])
+      answer = await askWithDeadline($, t(lang, 'ck_ask', { tokens: tokensLabel(tokens), phase, state: state.line }), answers, answers[1], card)
     } catch (err) {
       return 'unavailable'
     }
@@ -1955,6 +2068,18 @@ async function progressInfo($, agentId) {
 }
 
 // After the call ran: the reminder rides with the result, next to what the guard may have added.
+// The agent's own estimate for the drawings of the band, stale or not: { pct, stale } (stale: more than the
+// fresh window of calls or minutes has passed since it was sent), or undefined when it never sent one.
+async function progressEstimate($, agentId) {
+  try {
+    const entry = progressAgents.get(agentId)
+    if (!entry || typeof entry.pct !== 'number') return undefined
+    return { pct: entry.pct, stale: freshPct(entry, await $.clock.now()) === undefined }
+  } catch (err) {
+    return undefined
+  }
+}
+
 function progressAfter(r, text) {
   try {
     if (!r || r.deny !== undefined || text === undefined) return r
@@ -2083,6 +2208,17 @@ function rowClear($) {
   }
 }
 
+// An agent whose turn has ended (turn.complete with its agentId) while the list still says `waiting` is waiting
+// on background work it owns (a Bash run_in_background, a Monitor, ...): AgentStatus in the host types says
+// `waiting` is "on background work it owns", and it resumes under the same id when that work is done. It is not
+// finished, so the band keeps its card (calm) and the pane keeps it under running. A turn ended while the list
+// says `running` is the list lagging behind the end (hidden as before); `completed`/`failed`/`killed` ended.
+// Assumption: in a background subagent `waiting` may also mean an Agent call it waits on; that is work it owns
+// too, so it is shown the same way.
+function rowBgWaiting(a) {
+  return a.status === 'waiting' && rowState.done.has(a.id)
+}
+
 function rowAgentName(a) {
   if (typeof a.teammateId === 'string' && a.teammateId !== '') return a.teammateId.replace(/@.*$/, '')
   return a.type || a.description || 'agent'
@@ -2153,8 +2289,11 @@ async function rowBandRows($) {
   }
   const rows = []
   const now = await $.clock.now()
+  let lang // read once, only when an agent waits on its background work
   for (const a of Array.isArray(list) ? list : []) {
-    if (!a || !ROW_LIVE.includes(a.status) || rowState.done.has(a.id)) continue
+    if (!a || !ROW_LIVE.includes(a.status)) continue
+    const bgWait = rowBgWaiting(a)
+    if (rowState.done.has(a.id) && !bgWait) continue
     const info = rowState.agents.get(a.id) ?? {}
     const prog = await progressInfo($, a.id)
     if (!rowState.seen.has(a.id)) {
@@ -2164,13 +2303,20 @@ async function rowBandRows($) {
       if (typeof a.type === 'string') rowState.types.add(a.type)
     }
     const since = info.startMs ?? rowState.seen.get(a.id)
+    const est = await progressEstimate($, a.id)
     rows.push({
+      id: a.id,
       name: rowAgentName(a),
       model: info.model,
       effort: info.effort,
       tokens: info.tokens,
       pct: prog?.pct,
-      step: prog?.step,
+      // The drawings outside the terminal also show a stale estimate, faded and marked old.
+      artPct: est?.pct,
+      artStale: est?.stale === true,
+      step: bgWait ? t(lang ?? (lang = await resolveLang($)), 'row_bg_waiting') : prog?.step,
+      bgWait: bgWait || undefined,
+      bgTag: bgWait ? t(lang ?? (lang = await resolveLang($)), 'row_bg_tag') : undefined,
       calls: progressStats(a.id)?.calls,
       fresh: rowState.fresh.has(a.id),
       elapsedMs: now - since,
@@ -2196,14 +2342,17 @@ async function rowTimeline($, max = 10) {
     if (typeof info.startMs !== 'number') continue
     const a = live.get(id)
     if (a) info.name = rowAgentName(a)
-    const done = info.endMs !== undefined || rowState.done.has(id)
+    const bgWait = a !== undefined && rowBgWaiting(a)
+    const done = !bgWait && (info.endMs !== undefined || rowState.done.has(id))
     const prog = done ? undefined : await progressInfo($, id)
     rows.push({
+      id,
       name: info.name ?? 'agent',
       model: info.model,
       effort: info.effort,
       tokens: info.tokens,
-      status: done ? 'done' : a && a.status === 'waiting' ? 'waiting' : 'running',
+      status: done ? 'done' : bgWait ? 'background' : a && a.status === 'waiting' ? 'waiting' : 'running',
+      failed: (a && (a.status === 'failed' || a.status === 'killed')) || undefined,
       startMs: info.startMs,
       endMs: done ? info.endMs ?? info.startMs : undefined,
       pct: prog?.pct,
@@ -2212,6 +2361,15 @@ async function rowTimeline($, max = 10) {
   }
   rows.sort((x, y) => x.startMs - y.startMs)
   return rows.slice(-max)
+}
+
+// What the mod knows of one subagent, for the notice when it ends (hooks/src/agent-view.js): its name as
+// $.agent.list gave it (undefined for an id no list named, such as the engine's own forks), whether it is a
+// teammate, its latest request's tokens and when its first request went out.
+function rowAgentFacts(agentId) {
+  const info = rowState.agents.get(agentId)
+  if (!info) return undefined
+  return { name: info.name, teammate: info.teammate === true, tokens: info.tokens, startMs: info.startMs }
 }
 
 // At most one redraw waits at a time; several requests in a burst draw once.
@@ -2245,16 +2403,21 @@ async function rowStepStart($, request) {
     // The name is learned while the agent is in the list (once, at its first request), so the timeline can still
     // name it after it has ended and left the list.
     let name = prev.name
+    let teammate = prev.teammate
     if (name === undefined && prev.startMs === undefined) {
       try {
         const list = await $.agent.list()
         const found = (Array.isArray(list) ? list : []).find((a) => a && a.id === request.agentId)
-        if (found) name = rowAgentName(found)
+        if (found) {
+          name = rowAgentName(found)
+          teammate = typeof found.teammateId === 'string' && found.teammateId !== ''
+        }
       } catch (err) {
         // The name stays unknown; the timeline says "agent".
       }
     }
-    rowState.agents.set(request.agentId, { ...prev, name, model: request.model, effort: request.effort, startMs: prev.startMs ?? (await $.clock.now()) })
+    // endMs cleared: an agent that resumes (after its background work, or a message) runs again.
+    rowState.agents.set(request.agentId, { ...prev, name, teammate, model: request.model, effort: request.effort, startMs: prev.startMs ?? (await $.clock.now()), endMs: undefined })
     rowState.done.delete(request.agentId)
     uiTouch($)
     await rowMaybeSchedule($)
@@ -2325,7 +2488,8 @@ async function rowTurnComplete($, e) {
 //   - first run: in an interactive session with no config file and no SETUP_KEY in the plugin store, the
 //     default config is written once (CREW_CHIEF_GUARD_AUTOSETUP=off or CREW_CHIEF_GUARD=off prevent it);
 //     the marker keeps a deleted file from coming back. /crew-guard on|off is the only other write.
-// The config is read once per session. Gate state lives in memory and ends with the session.
+// The config is read once per session. Gate state lives in memory, with a copy in the plugin store (one key
+// per session) so a plugin reload or worker respawn mid-session keeps approved retries; it ends with the session.
 // A speed bump, not a security boundary. Any failure lets the call through (fail open).
 const GUARD_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit']
 const GUARD_TTL = DEFAULT_TTL_MIN * 60_000
@@ -2343,6 +2507,7 @@ function guardFresh() {
     why: 'not loaded yet',
     config: undefined,
     gate: newGateState(),
+    sid: undefined, // the session id the gate copy is stored under (undefined: memory only)
     agentTypes: new Map(), // agentId -> read-only (true/false), once the agent list named it
     suggestions: [],
     suggestToasted: false,
@@ -2478,6 +2643,36 @@ async function guardLoad($) {
   else if (loaded === undefined) st.why = 'no config file at ' + (path ?? '~/.claude/crew-chief-guard.json')
   else st.why = loaded.config.enabled ? 'the config file says enabled: true' : 'the config file says enabled: false'
   if (st.on) $.ui.log('crew-chief guard: on, ' + st.config.rules.length + ' personal rules, ssh ' + st.config.ssh.mode, { to: 'debug' })
+  if (st.on) await guardGateLoad($)
+}
+
+// Brings back this session's gate copy (after a reload) and drops other sessions' stale copies. Any failure
+// leaves the gate in memory only.
+async function guardGateLoad($) {
+  const st = guardState
+  try {
+    const sid = await $.session.id()
+    if (typeof sid !== 'string' || !sid) return
+    st.sid = sid
+    const now = await $.clock.now()
+    const ttl = Math.max(st.config.confirmTtlMs, st.config.ssh.ttlMs)
+    gateRestore(st.gate, await $.store.get(GATE_STORE_PREFIX + sid), now, ttl)
+    for (const k of await $.store.keys()) {
+      if (k.startsWith(GATE_STORE_PREFIX) && k !== GATE_STORE_PREFIX + sid && gateSnapshotStale(await $.store.get(k), now)) await $.store.delete(k)
+    }
+  } catch (err) {
+    // No session id or no store: the gate still works for this module's lifetime.
+  }
+}
+
+async function guardGateSave($, now) {
+  const st = guardState
+  if (st.sid === undefined) return
+  try {
+    await $.store.set(GATE_STORE_PREFIX + st.sid, gateSnapshot(st.gate, now))
+  } catch (err) {
+    // The deny or the warning stands; only a reload before the retry would forget it.
+  }
 }
 
 async function guardEnsure($) {
@@ -2548,8 +2743,15 @@ async function guardRegisterTool($) {
   }
 }
 
-function guardSessionEnd() {
+async function guardSessionEnd($) {
+  const sid = guardState.sid
   guardState = guardFresh()
+  if (sid === undefined) return
+  try {
+    await $.store.delete(GATE_STORE_PREFIX + sid)
+  } catch (err) {
+    // A stale copy is dropped by a later session's load.
+  }
 }
 
 // Synchronous, so a call the guard never looks at (and every call while it is off) passes untouched.
@@ -2621,6 +2823,7 @@ async function guardCheck($, e) {
       gateRecord(st.gate, d, now)
     }
     markCommand(st.gate, key, now)
+    await guardGateSave($, now)
     st.held += 1
     $.ui.log('crew-chief guard: first attempt held' + (confirmDue ? ' (' + v.rule + ')' : '') + (d.action === 'deny' ? ' (ssh ' + d.kind + ')' : ''), { to: 'debug' })
     const what = d.action === 'deny' ? 'ssh ' + d.hosts.join(', ') : v.text
@@ -2632,6 +2835,7 @@ async function guardCheck($, e) {
   if (confirm) return undefined
   if (d.action === 'warn') {
     gateRecord(st.gate, d, now)
+    await guardGateSave($, now)
     return { contexts: [sshWarnContext(d)], notes: ['ssh ' + d.hosts.join(', ') + (d.kind === 'first' ? ': first contact' : ': ' + d.why)] }
   }
   return v !== null ? { contexts: [ruleWarnContext(v)], notes: [v.text] } : undefined
@@ -2818,7 +3022,14 @@ let uiCtxHistory = [] // the context percent after each main turn, for the graph
 let uiCtxState = { past: false, high: false } // which context thresholds the last turn was past (for the one toast)
 let uiQuestion // { text, answers, resolve }: the one question the band is asking
 const UI_ASK_MAX = 4 // answers that fit digit hotkeys
+const UI_CARD_FACTS = 4 // facts a question card shows at most (compact-logic.mjs cardFacts cuts them to this too)
 let uiMain = { model: undefined, effort: undefined } // the main loop's last request
+const UI_CARDS_MAX = 6 // agent cards shown at most (two or three rows of them); the rest is '+N more'
+const UI_CARD_ROW_ROWS = 3 // rows one row of agent cards takes (two lines and its frame), for the band's budget
+let uiArtMemo = new Map() // agent id -> what its drawing showed last and when it changed (for the rolling digits)
+// The status line at the foot of the band on the Desktop app (ui.statusline): the folder, the git branch and the
+// session's model, read on events (session start, a main turn's start and end), never while drawing.
+let uiPlace = { folder: '', branch: '', model: undefined }
 
 // Whether the band replaces the status line of agent-row.js: only where the band is drawn.
 function uiCovers(surfaces) {
@@ -2848,8 +3059,10 @@ async function uiReadChoice($) {
 
 // Called after each finished main turn with the usage: one more point for the context graph, and one toast
 // the first time the context passes the compaction size or 70 % (again only after it has dropped below, e.g.
-// after a compaction). Never from a render.
+// after a compaction). Never from a render. Also reads the status line's folder, branch and model again (a
+// checkout or a move between turns); the mod has one turn.complete hook, which calls this.
 async function uiNoteContext($, usage) {
+  await uiRefreshPlace($)
   const c = usage?.context
   if (!c || typeof c.tokens !== 'number' || typeof c.window !== 'number' || c.window <= 0) return
   uiCtxHistory = [...uiCtxHistory, Math.round((c.tokens / c.window) * 100)].slice(-24)
@@ -2867,6 +3080,34 @@ async function uiNoteContext($, usage) {
 // Called from the mod's turn.step hook with the main loop's request: the model and effort the turn runs on.
 function uiNoteMainStep(e) {
   if (typeof e.model === 'string' && e.model !== '') uiMain = { model: e.model, effort: e.effort }
+}
+
+// Reads the folder, branch and model for the status line. Skipped while the band or the line is off, and in a
+// session that draws in the terminal only (the line is drawn on the Desktop app).
+async function uiRefreshPlace($) {
+  try {
+    if (!uiOn || (await cfgGet($, 'ui.statusline')) !== 'on') return
+    const surfaces = await $.session.surfaces()
+    if (Array.isArray(surfaces) && surfaces.length > 0 && !surfaces.includes('desktop')) return
+    const folder = placeFolder(await $.session.cwd())
+    let model
+    try {
+      model = await $.session.model()
+    } catch (err) {
+      model = undefined
+    }
+    let branch = ''
+    try {
+      const r = await $.process.run(['git', 'symbolic-ref', '--short', 'HEAD'], { timeoutMs: 3000 })
+      branch = r.exitCode === 0 ? String(r.stdout ?? '').trim() : ''
+    } catch (err) {
+      branch = '' // not a repository, a detached head, or no git
+    }
+    uiPlace = { folder, branch, model: typeof model === 'string' && model !== '' ? model : undefined }
+    uiTouch($)
+  } catch (err) {
+    // The line keeps what it had.
+  }
 }
 
 async function uiMainChip($) {
@@ -2889,7 +3130,12 @@ function uiRewrite(next, e, props) {
 // The plugin's questions go to the band, as buttons, when it can show them: no dialog opens and nothing holds
 // the turn (the deadline of ask.js still applies). `undefined` -> the caller opens the usual dialog. Only the
 // plugin's own questions come here; Claude's AskUserQuestion is never touched.
-function uiAskStart($, text, answers) {
+// `look` (optional) dresses a question outside the terminal: { kind: 'card', topic, question, facts: [], note,
+// labels, quiet, accent } the question card's parts (a topic, a short line, up to four facts, a note, short
+// labels for the answers' buttons, the index of the quiet answer and of the accented one). Without it the card
+// shows `text`. The terminal and the dialog always show `text`. The answers, their order, keys and what they
+// do never change with it.
+function uiAskStart($, text, answers, look) {
   try {
     if (!uiCovers(rowSurfaces()) || uiQuestion !== undefined) return undefined
     if (!Array.isArray(answers) || answers.length < 1 || answers.length > UI_ASK_MAX) return undefined
@@ -2897,7 +3143,7 @@ function uiAskStart($, text, answers) {
     const promise = new Promise((r) => {
       resolve = r
     })
-    const question = { text: String(text), answers: [...answers], resolve }
+    const question = { text: String(text), answers: [...answers], resolve, look }
     uiQuestion = question
     try {
       $.ui.invalidate('ui.render')
@@ -2964,13 +3210,85 @@ async function uiSessionStart($) {
     uiWords = (await safeStoreGet($, UI_WORDS_KEY)) === 'on'
     uiCtxHistory = []
     uiCtxState = { past: false, high: false }
+    uiArtMemo = new Map()
     const savedStyle = await safeStoreGet($, UI_STYLE_KEY)
     uiStyle = UI_STYLES.includes(savedStyle) ? savedStyle : 'boxed'
     uiStatusLine = { at: -Infinity, has: false }
+    uiPlace = { folder: '', branch: '', model: undefined }
+    // Not awaited: the git read must not hold up the session's start.
+    uiRefreshPlace($).catch(() => {})
+    // Not awaited either: other mods read the shared perf file, the session's start does not wait for it.
+    perfFileWrite($, true).catch(() => {})
     await uiFirstNotice($, choice)
-    await $.command.register({ name: 'crew-ui', description: 'Show or hide the crew-chief band above the prompt', immediate: true, argumentHint: '[on|off|quiet|full|style <name>|demo on|demo off|words on|words off|extras on|extras off|status]' })
+    await $.command.register({ name: 'crew-ui', description: 'Show or hide the crew-chief band above the prompt', immediate: true, argumentHint: '[on|off|quiet|full|style <name>|panel capsule|cat|text|demo on|demo off|words on|words off|extras on|extras off|status]' })
   } catch (err) {
     // The name is taken, or an older Claude Code: the band can still be switched with CREW_CHIEF_UI.
+  }
+  try {
+    await $.command.register({ name: 'crew-perf', description: 'Switch performance mode for the agent pictures (still but for a blink, or moving)', immediate: true, argumentHint: '[on|off]' })
+  } catch (err) {
+    // The name is taken, or an older Claude Code: /crew-config set panel.perf and the status line toggle still work.
+  }
+}
+
+// /crew-perf and the toggle on the status line: panel.perf as /crew-config saves it, the band redrawn at once.
+// args '' toggles. { text, changed }: one short line in the person's language; the environment variable, when
+// set, wins and nothing is changed.
+async function uiPerfSet($, args) {
+  const lang = await resolveLang($)
+  const st = await cfgState($, 'panel.perf')
+  if (st.source === 'env') return { text: t(lang, 'perf_env', { value: st.value }), changed: false }
+  const next = perfNext(args, st.value)
+  if (next === undefined) return { text: t(lang, 'perf_bad'), changed: false }
+  const r = await cfgSet($, 'panel.perf', next)
+  if (!r.ok) return { text: t(lang, 'perf_store'), changed: false }
+  await perfFileWrite($)
+  try {
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    // Nothing to redraw.
+  }
+  try {
+    $.ui.toast(t(lang, r.value === 'on' ? 'perf_toast_on' : 'perf_toast_off'), { timeoutMs: 4000 })
+  } catch (err) {
+    // The toast is a courtesy; the drawing and the command's answer say it too.
+  }
+  return { text: t(lang, r.value === 'on' ? 'perf_on' : 'perf_off'), changed: true }
+}
+
+// The shared performance-mode file other mods read (desktop-themes draws its light scenes while it is on):
+// ~/.claude/perf-mode.json = {"on": true|false, "at": <iso>}, the value in force (the environment wins).
+// Written whenever panel.perf changes; at session start (`onlyIfStale`) only when the file says otherwise, a
+// missing file counting as off. A failed write never fails the toggle.
+async function perfFileWrite($, onlyIfStale = false) {
+  try {
+    const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE'))
+    if (!home) return false
+    const on = (await cfgGet($, 'panel.perf')) === 'on'
+    const path = `${home}/.claude/perf-mode.json`
+    if (onlyIfStale) {
+      const exists = await $.fs.exists(path).catch(() => false)
+      if (!exists && !on) return false
+      if (exists) {
+        const was = await $.fs.read(path).then((text) => JSON.parse(text).on === true, () => undefined)
+        if (was === on) return false
+      }
+    }
+    const at = new Date(await $.clock.now()).toISOString()
+    await $.fs.write(path, JSON.stringify({ on, at }) + '\n')
+    return true
+  } catch (err) {
+    return false
+  }
+}
+
+// A press on the toggle: uiPerfSet toasts the change; here a toast only when nothing could change.
+async function uiPerfPress($) {
+  try {
+    const r = await uiPerfSet($, '')
+    if (!r.changed) $.ui.toast(r.text, { timeoutMs: 8000 })
+  } catch (err) {
+    // The toggle is a convenience; /crew-perf still works.
   }
 }
 
@@ -3013,28 +3331,145 @@ function uiChips(line) {
   return chips
 }
 
-function uiTree($, e, lines, onCompact, style, question) {
-  const { Box, Text, Button } = $.ui.resolve(e)
+// The rolling digits need what each agent's drawing showed before and when it changed; one entry per agent id,
+// removed once the agent leaves the band.
+function uiArtPrev(agents, now) {
+  const seen = new Set()
+  const out = new Map()
+  for (const a of agents) {
+    if (!a || typeof a.id !== 'string') continue
+    seen.add(a.id)
+    const tokens = artTokens(a.tokens)
+    const time = artElapsed(a.elapsedMs)
+    const m = uiArtMemo.get(a.id)
+    if (!m) {
+      uiArtMemo.set(a.id, { tokens, time, prevTokens: undefined, prevTime: undefined, tokensAt: -Infinity, timeAt: -Infinity })
+    } else {
+      if (m.tokens !== tokens) Object.assign(m, { prevTokens: m.tokens, tokens, tokensAt: now })
+      if (m.time !== time) Object.assign(m, { prevTime: m.time, time, timeAt: now })
+    }
+    const m2 = uiArtMemo.get(a.id)
+    out.set(a.id, { tokens: m2.prevTokens, tokensAt: m2.tokensAt, time: m2.prevTime, timeAt: m2.timeAt })
+  }
+  for (const id of [...uiArtMemo.keys()]) if (!seen.has(id)) uiArtMemo.delete(id)
+  return out
+}
+
+// rows: bandRows (hooks/ui-logic.mjs). art: { Svg, style, now, prev } where pictures may be drawn (not the
+// terminal, panel.style not text, the surface has Svg), else undefined: then everything is the line of text.
+// band: { view, fits, lang, viewing, canInput } where an agent row opens on a click (panel.click, not the
+// terminal), else undefined. An Svg takes no press, so a picture row gets a small ▸/▾ button at its end; a row
+// of text is itself the button.
+// perf: { on } on the Desktop status line, where its end holds the performance mode toggle; else undefined.
+function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
+  const { Box, Text, Button, Input } = $.ui.resolve(e)
   const hex = style !== 'plain'
   const look = (tone) => (hex ? { color: UI_HEX[tone] ?? UI_HEX.other } : UI_TONES[tone] ?? {})
   const text = (s) => {
-    const props = { ...look(s.tone), wrap: 'truncate-end', children: [s.t] }
+    const props = { ...(typeof s.color === 'string' ? { color: s.color } : look(s.tone)), wrap: 'truncate-end', children: [s.t] }
     if (s.bold) props.weight = 'bold'
     return Text(props)
   }
-  const button = () => Button({ label: '1 compact', hotkey: '1', variant: 'primary', onPress: onCompact })
-  const piece = (s) => (s.key === 'compact' ? button() : text(s))
+  const badge = (s) => {
+    const b = saverBadge(s.badge, art.now)
+    return art.Svg({ source: b.source, alt: b.alt, width: b.width, height: b.height })
+  }
+  // '[1] compact' is a button with the shortcut '1'; without the hint (not the terminal) it is just 'compact'.
+  const button = (s) => {
+    const hint = s.t.startsWith('[1] ')
+    return Button({ label: hint ? '1 compact' : 'compact', ...(hint ? { hotkey: '1' } : {}), variant: 'primary', onPress: onCompact })
+  }
+  const piece = (s) => (s.key === 'compact' ? button(s) : s.badge && art ? badge(s) : text(s))
   const pill = (chip) => {
-    if (chip.some((s) => s.key === 'compact')) return button()
+    const key = chip.find((s) => s.key === 'compact')
+    if (key) return button(key)
+    const b = chip.find((s) => s.badge)
+    if (b && art) return badge(b)
     const value = chip.find((s) => s.tone !== 'dim') ?? chip[0]
     const bg = UI_HEX[value.tone] ?? UI_HEX.other
     return Text({ backgroundColor: bg, color: UI_PILL_TEXT, weight: 'bold', wrap: 'truncate-end', children: [' ' + chip.map((s) => s.t).join('') + ' '] })
   }
-  const row = (line, i) => {
-    // The first line is the status line, unless it is an agent line (a model family tone gives that away).
-    const isStatus = i === 0 && !line.some((s) => UI_FAMILIES.includes(s.tone))
-    if (style === 'pills' && isStatus) return Box({ flexDirection: 'row', gap: 1, children: uiChips(line).map(pill) })
-    return Box({ flexDirection: 'row', children: line.map(piece) })
+  const rowId = (r) => (r.kind === 'agent' && typeof r.agent?.id === 'string' ? r.agent.id : r.kind === 'ended' ? r.id : undefined)
+  const isOpen = (id) => band !== undefined && band.view.open.includes(id)
+  const arrow = (id) => Text({ ...look('info'), weight: 'bold', children: [isOpen(id) ? '▾ ' : '▸ '] })
+  // No hotkey: digits answer the band's questions and the compact key. Focus (ctrl+x tab, Tab) and Enter work.
+  // A press opens the agent in the side pane (/crew-agents). The Desktop app draws a plain Button's label as its
+  // text, so the label is the short hint itself; the agent's name is in the row beside it.
+  const opener = (id, children) =>
+    Button({ key: 'open-' + id, plain: true, label: t(band.lang, 'band_open_hint'), onPress: () => avBandOpenPane($, id), children })
+  const detailButton = (id) => opener(id, [Text({ ...look('info'), weight: 'bold', children: [t(band.lang, 'band_open_hint')] })])
+  // One agent as a card: the character, two lines of Text (name, model, effort and the 'first run' tag where it
+  // fits; the bar, the estimate, the step), tokens and time in a fixed column, and the details button. Nothing
+  // wraps: every Text but the step sits in a Box that does not shrink; the step alone is cut short. The cells of
+  // a row are one width (cardGrid in hooks/ui-logic.mjs), so the figures and the button sit at one x in every
+  // card. Only the two small pictures are Svg, and neither holds a clock, so the face's motion runs on (see
+  // agentFace in hooks/panel-art-logic.mjs; panel.perf keeps it still but for a blink).
+  // Until the agent's first request names its model the card shows none (no 'starting', no hollow dots): the
+  // drawn text and the width measured for the grid both come from here, so they agree.
+  const cardText = (a) => {
+    const c = agentCardText(a)
+    return typeof a.model === 'string' && a.model !== '' ? c : { ...c, model: '', dots: '', effort: '' }
+  }
+  const cardAgent = (agent) => ({ ...agent, pct: typeof agent.artPct === 'number' ? agent.artPct : agent.pct, stale: agent.artStale === true })
+  const openLabel = band !== undefined ? t(band.lang, 'band_open_hint') : ''
+  const fixed = (key, text) => Box({ key, flexShrink: 0, children: [text] })
+  const card = (agent, id, grid) => {
+    const a = cardAgent(agent)
+    const c = cardText(a)
+    // An agent waiting on its own background work (rowBandRows: bgWait) stands still but for a blink, as in
+    // performance mode, for its card alone: it is not finished, only resting.
+    const face = agentFace(a, { style: art.style, perf: art.perf || a.bgWait === true })
+    const bar = agentBar(a)
+    const k = id ?? agent.id
+    const dim = (t) => Text({ color: CARD_LOOK.mute, children: [t] })
+    const line1 = [fixed('name', Text({ color: c.color, weight: 'bold', children: [c.name] }))]
+    if (c.model) line1.push(fixed('model', dim(c.model)))
+    if (c.dots) line1.push(fixed('dots', Text({ color: c.color, children: [c.dots.replace(/ /g, '')] })))
+    if (c.effort) line1.push(fixed('effort', dim(c.effort)))
+    // The 'first run' tag: after the effort where the cell has room for it, else left out (the estimate already
+    // says 'no estimate').
+    // A small calm tag for an agent waiting on its background work, in the same room ('first run' gives way to it).
+    const tagFits = cardLine1Cells(c, true) <= cardTextRoom(grid.cell, id !== undefined ? openLabel : '')
+    if (a.bgWait === true && a.bgTag && tagFits) line1.push(fixed('bgwait', Text({ color: CARD_LOOK.mute, children: [a.bgTag] })))
+    else if (c.fresh && tagFits) line1.push(fixed('fresh', Text({ color: CARD_LOOK.warn, weight: 'bold', children: ['first run'] })))
+    // Each picture sits in a Box keyed by the agent (an Svg takes no key): a redraw finds the same element at the
+    // same place and the Desktop app keeps the image, so its animation runs on instead of starting over.
+    const svg = (p) => art.Svg({ source: p.source, alt: p.alt, width: p.width, height: p.height })
+    const pic = (name, p) => Box({ key: name + '-' + k, flexShrink: 0, children: [svg(p)] })
+    // The bar is still (nothing in it moves), so a new 5% step may load it again without a visible jump.
+    const line2 = [pic('agentbar', bar)]
+    line2.push(fixed('pct', Text({ color: c.hasPct ? CARD_LOOK.ink : CARD_LOOK.mute, ...(c.hasPct ? { weight: 'bold' } : {}), children: [c.pct] })))
+    // The step: the one piece that gives way, cut short at the card's edge.
+    if (c.step) line2.push(Box({ key: 'step', flexShrink: 1, flexGrow: 1, minWidth: 0, children: [Text({ color: CARD_LOOK.mute, wrap: 'truncate-end', children: [c.step] })] }))
+    // A fixed width, right-aligned: tokens and time end at the same x in every card, the button after them.
+    const figures = Box({ key: 'figs', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', width: CARD_CELLS.figs, flexShrink: 0, children: [fixed('tokens', Text({ color: CARD_LOOK.ink, weight: 'bold', children: [c.tokens || ' '] })), fixed('time', dim(c.time || ' '))] })
+    // minWidth 0: a long step is cut short instead of pushing the figures and the button out.
+    const lineBox = (children) => Box({ flexDirection: 'row', alignItems: 'center', gap: 1, minWidth: 0, children })
+    const children = [
+      pic('agentface', face),
+      Box({ flexDirection: 'column', flexGrow: 1, flexShrink: 1, minWidth: 0, children: [lineBox(line1), lineBox(line2)] }),
+      figures,
+    ]
+    if (id !== undefined) children.push(Box({ key: 'open', flexShrink: 0, children: [detailButton(id)] }))
+    return Box({ key: 'agentrow-' + k, ...cardFrame(CARD_LOOK.border, grid), backgroundColor: CARD_LOOK.bg, children })
+  }
+  // The frame every cell of the grid shares (cards and the empty fillers): width 0 and an equal grow, so the
+  // cells of a row split it evenly whatever they hold; the same border, padding and least width, so a filler is
+  // exactly as wide as a card.
+  const cardFrame = (borderColor, grid) => ({ flexDirection: 'row', alignItems: 'center', gap: 1, borderStyle: 'round', borderColor, paddingX: 1, width: 0, minWidth: grid.minWidth, flexGrow: 1, flexShrink: 1 })
+  const row = (r) => {
+    const id = band !== undefined ? rowId(r) : undefined
+    if (r.kind === 'agent' && art) return card(r.agent, id, grid)
+    if (id !== undefined) return opener(id, [arrow(id), ...r.line.map(text)])
+    if (style === 'pills' && r.kind === 'status') return Box({ flexDirection: 'row', gap: 1, children: uiChips(r.line).map(pill) })
+    return Box({ flexDirection: 'row', ...(art ? { alignItems: 'center' } : {}), children: r.line.map(piece) })
+  }
+  const answerPress = (q, answer) => () => {
+    if (uiQuestion === q) {
+      uiQuestion = undefined
+      q.resolve(answer)
+      uiTouchNow($)
+    }
   }
   const askBlock = () => {
     const q = question
@@ -3044,13 +3479,7 @@ function uiTree($, e, lines, onCompact, style, question) {
         label: `${i + 1} ${answer}`,
         hotkey: String(i + 1),
         variant: i === 0 ? 'primary' : 'secondary',
-        onPress: () => {
-          if (uiQuestion === q) {
-            uiQuestion = undefined
-            q.resolve(answer)
-            uiTouchNow($)
-          }
-        },
+        onPress: answerPress(q, answer),
       }),
     )
     return Box({
@@ -3058,25 +3487,229 @@ function uiTree($, e, lines, onCompact, style, question) {
       children: [Text({ backgroundColor: UI_LILAC, color: UI_PILL_TEXT, weight: 'bold', wrap: 'wrap', children: [' crew-chief asks: ' + q.text + ' '] }), Box({ flexDirection: 'row', gap: 2, children: buttons })],
     })
   }
-  const body = Box({ flexDirection: 'column', children: [...(question ? [askBlock()] : []), ...lines.map(row)] })
-  if (style !== 'boxed') return body
-  return Box({ borderStyle: 'round', borderColor: question ? UI_LILAC : UI_HEX.dim, paddingX: 1, flexDirection: 'column', children: [body] })
+  // A plugin question outside the terminal: a quiet card in the agent cards' look (a faint frame, a see-through
+  // fill), three rows at most so the status line under it stays in view. Row one: a lilac mark, 'crew-chief'
+  // muted, the topic in bold, the short question. Row two: the facts as small chips, then what happens next in
+  // one muted line, cut short at the edge. Row three: the answers as normal Buttons, the first (the recommended
+  // one) primary, the others secondary, the `quiet` one (don't ask again) a dim plain button at the end; the
+  // `accent` one's text in the saver's ultra colour. The labels are `labels[i]` or the answers themselves: a
+  // desktop draws a Button's label as its text and its hotkey as a small badge. Same answers, keys, hotkeys and
+  // order as the terminal's strip; a press answers with the answer, never the label. A question with no card
+  // form (look.kind 'card': { topic, question, facts, note, labels, quiet, accent }) shows its plain text.
+  const questionCard = () => {
+    const q = question
+    const c = q.look && q.look.kind === 'card' ? q.look : {}
+    const topic = typeof c.topic === 'string' ? c.topic : ''
+    const line = typeof c.question === 'string' && c.question !== '' ? c.question : q.text
+    const facts = Array.isArray(c.facts) ? c.facts.filter((f) => typeof f === 'string' && f !== '').slice(0, UI_CARD_FACTS) : []
+    const note = typeof c.note === 'string' ? c.note : ''
+    const labels = Array.isArray(c.labels) ? c.labels : []
+    const quiet = Number.isInteger(c.quiet) && c.quiet > 0 ? c.quiet : -1
+    const accent = Number.isInteger(c.accent) && c.accent > 0 ? c.accent : -1
+    const mute = (s) => Text({ color: CARD_LOOK.mute, children: [s] })
+    const fixedText = (key, el) => Box({ key, flexShrink: 0, children: [el] })
+    const head = Box({
+      key: 'ask-head',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 1,
+      minWidth: 0,
+      children: [
+        fixedText('ask-mark', Text({ color: UI_LILAC, children: ['◆'] })),
+        fixedText('ask-from', mute('crew-chief')),
+        ...(topic !== '' ? [fixedText('ask-dot', mute('·')), fixedText('ask-topic', Text({ color: CARD_LOOK.ink, weight: 'bold', children: [topic] }))] : []),
+        Box({ key: 'ask-line', flexShrink: 1, minWidth: 0, children: [Text({ color: CARD_LOOK.ink, wrap: topic !== '' ? 'truncate-end' : 'wrap', children: [line] })] }),
+      ],
+    })
+    const chips = facts.map((f, i) => fixedText('ask-fact-' + i, Text({ color: CARD_LOOK.mute, backgroundColor: CARD_LOOK.border, children: [' ' + f + ' '] })))
+    const info = [...chips, ...(note !== '' ? [Box({ key: 'ask-note', flexShrink: 1, minWidth: 0, children: [Text({ color: CARD_LOOK.mute, wrap: 'truncate-end', children: [note] })] })] : [])]
+    const buttons = q.answers.map((answer, i) => {
+      const label = typeof labels[i] === 'string' && labels[i] !== '' ? labels[i] : answer
+      const base = { key: 'ask-' + (i + 1), label, hotkey: String(i + 1), onPress: answerPress(q, answer) }
+      if (i === quiet) return Button({ ...base, plain: true, dimColor: true })
+      const tint = i === accent ? { children: [Text({ color: SAVER_LOOK.ultra.text, children: [label] })] } : {}
+      return Button({ ...base, variant: i === 0 ? 'primary' : 'secondary', ...tint })
+    })
+    return Box({
+      key: 'ask-card',
+      flexDirection: 'column',
+      gap: 'xs',
+      borderStyle: 'round',
+      borderColor: CARD_LOOK.border,
+      backgroundColor: CARD_LOOK.bg,
+      paddingX: 1,
+      children: [
+        head,
+        ...(info.length > 0 ? [Box({ key: 'ask-facts', flexDirection: 'row', alignItems: 'center', gap: 1, minWidth: 0, children: info })] : []),
+        Box({ key: 'ask-answers', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 1, children: buttons }),
+      ],
+    })
+  }
+  const desk = e.surface !== 'terminal'
+  const ask = () => (desk ? questionCard() : askBlock())
+  // Under an open agent: its last steps (or its report), then Full view and the message button, and the field.
+  const section = (id) => {
+    const fit = band.fits.get(id)
+    if (!fit || fit.hidden) return []
+    const lang = band.lang
+    const entry = band.view.cache.get(id)
+    const plan = sendPlan(entry?.done === true, lang)
+    const composing = band.view.composing.has(id)
+    const out = fit.lines.map((line, i) => Box({ key: 'sec-' + id + '-' + i, flexDirection: 'row', paddingLeft: 2, children: line.map(text) }))
+    const write = composing ? t(lang, 'band_cancel') : plan.label
+    out.push(
+      Box({
+        key: 'ctl-' + id,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 1,
+        paddingLeft: 2,
+        children: [
+          Button({ key: 'full-' + id, label: t(lang, 'band_full'), variant: 'secondary', onPress: () => avBandFullView($, id) }),
+          // Without a text field on this surface, writing goes through the full view: the prompt's next Enter goes to the agent.
+          Button({ key: 'write-' + id, label: write, variant: 'secondary', onPress: () => (band.canInput ? avBandCompose($, id) : avBandFullView($, id)) }),
+          Text({ dimColor: true, wrap: 'truncate-end', children: [fit.more > 0 ? t(lang, 'band_more', { n: fit.more }) : t(lang, 'band_view_hint')] }),
+        ],
+      }),
+    )
+    if (composing && band.canInput) {
+      const draft = avBandDraftOf(id)
+      out.push(
+        Input({
+          key: 'msg-' + id,
+          placeholder: t(lang, plan.noteKey, { name: avBandName(id) }),
+          submitLabel: plan.confirm ? plan.label : t(lang, 'band_send'),
+          autoFocus: true,
+          ...(typeof draft === 'string' ? { value: draft } : {}),
+          onInput: (value) => avBandDraft(id, value),
+          onSubmit: (value) => {
+            avBandSend($, id, value)
+          },
+        }),
+      )
+    }
+    return out
+  }
+  const back = () =>
+    Box({
+      key: 'view-back-row',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 1,
+      children: [
+        Button({ key: 'view-back', label: t(band.lang, 'band_back'), variant: 'primary', onPress: () => avBandFullView($, undefined) }),
+        Text({ dimColor: true, wrap: 'truncate-end', children: [t(band.lang, 'band_viewing', { name: avBandName(band.viewing) })] }),
+      ],
+    })
+  const drawn = []
+  // Cards that follow each other form a grid: rows of `per` cells, every cell the same width, the last row
+  // filled out with empty cells so the columns line up. How many share a row comes from the width the widest
+  // card needs (cardGrid), worked out once for every card in the band, so all of them are one width and the
+  // buttons sit at one x. Keys are by the group's order among card groups and the row's index, never by what is
+  // drawn before them (the status line comes and goes; a key that moved with it made every picture load again).
+  const needOf = (r) => cardNeedCells(cardText(cardAgent(r.agent)), band !== undefined && rowId(r) !== undefined ? openLabel : '')
+  const gridFor = (list) => cardGrid(art?.columns, list.map(needOf))
+  const shown = art ? rows.filter((r) => r.kind === 'agent' && !(band !== undefined && rowId(r) !== undefined && isOpen(rowId(r)))) : []
+  const grid = gridFor(shown)
+  const per = grid.per
+  let cards = []
+  let groups = 0
+  const flush = () => {
+    if (cards.length > 0) {
+      const g = groups++
+      const lines = []
+      for (let i = 0; i < cards.length; i += per) {
+        const cells = cards.slice(i, i + per)
+        for (let j = cells.length; j < per; j++) cells.push(Box({ key: `agentfill-${g}-${i / per}-${j}`, ...cardFrame('rgba(0,0,0,0)', grid) }))
+        lines.push(Box({ key: `agentline-${g}-${i / per}`, flexDirection: 'row', gap: 'md', children: cells }))
+      }
+      drawn.push(Box({ key: 'agentcards-' + g, flexDirection: 'column', gap: 'md', children: lines }))
+    }
+    cards = []
+  }
+  for (const r of rows) {
+    const id = band !== undefined ? rowId(r) : undefined
+    if (r.kind === 'agent' && art && !(id !== undefined && isOpen(id))) {
+      cards.push(card(r.agent, id, grid))
+      continue
+    }
+    flush()
+    drawn.push(row(r))
+    if (id !== undefined && isOpen(id)) drawn.push(...section(id))
+  }
+  flush()
+  const top = band !== undefined && band.viewing !== undefined ? [back()] : []
+  // Pictures get room between them (the cards sat edge to edge); lines of text stay tight.
+  const content = [...top, ...(question ? [ask()] : []), ...drawn]
+  const frame = (key, children) => {
+    const body = Box({ ...(style !== 'boxed' ? key : {}), flexDirection: 'column', ...(art ? { gap: 'sm' } : {}), children })
+    if (style !== 'boxed') return body
+    // The terminal's strip asks in lilac, frame and all; on Desktop the question is its own card, the frame stays quiet.
+    return Box({ ...key, borderStyle: 'round', borderColor: question && !desk ? UI_LILAC : UI_HEX.dim, paddingX: 1, flexDirection: 'column', children: [body] })
+  }
+  if (!Array.isArray(line) || line.length === 0) return frame({}, content)
+  // The status line is the band's last row, under the frame, right above the prompt; with nothing else to say
+  // the band is that line alone (no empty frame). The wrapper and both parts keep their keys from one drawing
+  // to the next, so the pictures in the frame stay where they were.
+  // Its right end holds the performance mode toggle (Desktop only): the ⚡ alone, dim when off, lit when on; the
+  // label names it. Before it, while compaction is advised and no agent is on the band, the compact key in the
+  // same small style (no hotkey: the Desktop band is not focused; the terminal keeps its '1 compact').
+  const compactKey = perf && perf.compact
+    ? [
+        Button({
+          key: 'band-compact',
+          plain: true,
+          label: COMPACT_LABEL,
+          hover: { color: '#ffffff' },
+          onPress: onCompact,
+          children: [Text({ color: UI_HEX.info, children: [COMPACT_ICON] })],
+        }),
+      ]
+    : []
+  const toggle = perf
+    ? [
+        ...compactKey,
+        Button({
+          key: 'band-perf',
+          plain: true,
+          label: PERF_LABEL,
+          ...(perf.on ? {} : { dimColor: true }),
+          hover: { color: '#ffffff' },
+          onPress: () => uiPerfPress($),
+          children: [Text({ color: perf.on ? UI_HEX.warn : UI_HEX.dim, ...(perf.on ? { weight: 'bold' } : {}), children: [PERF_ICON] })],
+        }),
+      ]
+    : []
+  const segs = Box({ key: 'band-statusline-text', flexDirection: 'row', alignItems: 'center', flexGrow: 1, flexShrink: 1, children: line.map(text) })
+  const foot = Box({ key: 'band-statusline', flexDirection: 'row', alignItems: 'center', gap: 'sm', children: [segs, ...toggle] })
+  return Box({ key: 'band-with-line', flexDirection: 'column', ...(art ? { gap: 'sm' } : {}), children: [...(content.length > 0 ? [frame({ key: 'band-body' }, content)] : []), foot] })
+}
+
+// Whether the band is asking one of the plugin's questions now (it asks one at a time).
+function uiAsking() {
+  return uiQuestion !== undefined
 }
 
 function uiLilac() {
   return UI_LILAC
 }
 
-// Lines of segments (hooks/ui-logic.mjs) as one column of rows, in the band's colours; for the panes.
-function uiLinesTree($, e, lines) {
-  const { Box, Text } = $.ui.resolve(e)
+// One segment (hooks/ui-logic.mjs) as a Text in the band's colours; for the panes.
+function uiSegmentText($, e) {
+  const { Text } = $.ui.resolve(e)
   const hex = uiStyle !== 'plain'
   const look = (tone) => (hex ? { color: UI_HEX[tone] ?? UI_HEX.other } : UI_TONES[tone] ?? {})
-  const text = (s) => {
+  return (s) => {
     const props = { ...look(s.tone), wrap: 'truncate-end', children: [s.t] }
     if (s.bold) props.weight = 'bold'
     return Text(props)
   }
+}
+
+// Lines of segments as one column of rows, in the band's colours; for the panes.
+function uiLinesTree($, e, lines) {
+  const { Box } = $.ui.resolve(e)
+  const text = uiSegmentText($, e)
   return Box({ flexDirection: 'column', children: lines.map((line) => Box({ flexDirection: 'row', children: line.map(text) })) })
 }
 
@@ -3130,18 +3763,96 @@ function registerUi(on, saverOn) {
         facts.five = undefined
         facts.week = undefined
       }
+      // On the Desktop app the band ends with the status line (ui.statusline): it takes the context and the
+      // windows, so the status row leaves them out instead of showing them twice.
+      let line
+      let perf
+      if (e.surface === 'desktop' && (await cfgGet($, 'ui.statusline')) === 'on') {
+        perf = { on: (await cfgGet($, 'panel.perf')) === 'on' }
+        line = statusLineSegments({ folder: uiPlace.folder, branch: uiPlace.branch, five: facts.five, week: facts.week, ctx: facts.ctx, tokens: facts.tokens, model: uiMain.model ?? uiPlace.model, effort: uiMain.effort })
+        facts.ctx = undefined
+        facts.five = undefined
+        facts.week = undefined
+      }
       // The sparkline of blocks is large outside the terminal (Desktop): there the context is the figures only.
       if (e.surface !== 'terminal' && facts.ctx?.spark) facts.ctx = { ...facts.ctx, spark: '' }
       const agents = demo ? demo.agents : await rowBandRows($)
       // Past agents.warn running at once, say so: attention, not tokens, is what runs out first.
       const warnAt = await cfgGet($, 'agents.warn')
       facts.busy = Array.isArray(agents) && agents.length > warnAt ? agents.length : undefined
-      const lines = bandLines({ status: statusSegments(uiFull || demo ? facts : quietFacts(facts)), agents, maxLines, width: columns })
-      if (lines.length === 0 && question === undefined) return next(e)
-      return uiTree($, e, lines, () => compactBandPress($), uiStyle, question)
+      // No compact key while a subagent is on the band or runs (pending, running, or waiting: the band draws all
+      // three, the running count alone missed the last): pressing it could only say "wait"; it comes back after.
+      if (!demo && facts.compactKey && ((Array.isArray(agents) && agents.length > 0) || (await runningAgents($)) > 0)) facts.compactKey = false
+      // With the Desktop status line the key sits at its end, beside the performance toggle, not in the frame.
+      if (perf && line && line.length > 0) {
+        perf.compact = facts.compactKey === true
+        facts.compactKey = false
+      }
+      // Cards sit two or three to a row outside the terminal, so more agents fit than lines of text would.
+      const panel = await cfgGet($, 'panel.style')
+      const cardsDrawn = e.surface !== 'terminal' && panel !== 'text' && typeof $.ui.resolve(e).Svg === 'function'
+      const lines = line && line.length > 0 ? Math.max(1, maxLines - 1) : maxLines
+      const status = statusSegments(uiFull || demo ? facts : quietFacts(facts), e.surface === 'terminal')
+      let cap = cardsDrawn ? Math.max(lines, 1 + UI_CARDS_MAX) : lines
+      // A question and cards together must fit the engine's room, or the band scrolls and the status line at its
+      // foot goes out of view: the cards give way (whole rows of them, the rest '+N more'), never the question or
+      // the status line.
+      if (cardsDrawn && question && Array.isArray(agents) && agents.length > 0) {
+        const per = cardGrid(columns, agents.map((a) => cardNeedCells(agentCardText(a)))).per
+        const room = maxLines - (line && line.length > 0 ? 1 : 0) - (status.length > 0 ? 1 : 0)
+        const fit = per * Math.max(1, Math.floor(Math.max(0, room - 1) / UI_CARD_ROW_ROWS))
+        cap = Math.min(cap, (status.length > 0 ? 1 : 0) + (agents.length > fit ? fit + 1 : fit))
+      }
+      const bandList = bandRows({ status, agents, maxLines: cap, width: columns })
+      // A click on an agent row opens what it does under it (not the terminal; panel.click). What is drawn was
+      // read by hooks/src/agent-view.js on an event or a press; nothing is read here.
+      let band
+      if (!demo && e.surface !== 'terminal' && (await cfgGet($, 'panel.click')) === 'on') {
+        const view = avBandView()
+        const viewing = typeof e.props?.view?.agentId === 'string' && e.props.view.agentId !== '' ? e.props.view.agentId : undefined
+        const live = new Set(bandList.filter((r) => r.kind === 'agent').map((r) => r.agent?.id))
+        // An open agent that has finished leaves the live rows: it keeps a line of its own while it is open.
+        const before = bandList.length
+        for (const id of view.open) {
+          const c = view.cache.get(id)
+          if (!live.has(id) && c && Array.isArray(c.rowLine)) bandList.push({ kind: 'ended', id, line: c.rowLine })
+        }
+        const shown = new Set(bandList.map((r) => (r.kind === 'agent' ? r.agent?.id : r.kind === 'ended' ? r.id : undefined)))
+        // A mobile app may get an empty Box for an Input it did not declare, and a hook cannot tell: the field is
+        // drawn on the Desktop app only; elsewhere Write opens the full view.
+        const canInput = e.surface === 'desktop' && typeof $.ui.resolve(e).Input === 'function'
+        const specs = view.open
+          .filter((id) => shown.has(id))
+          .map((id) => {
+            const sec = view.cache.get(id)?.section ?? { lines: [[{ t: t(view.lang, 'band_reading'), tone: 'dim' }]], keep: 'head' }
+            return { id, lines: sec.lines, keep: sec.keep, fixed: 1 + (canInput && view.composing.has(id) ? 1 : 0) }
+          })
+        const used = bandList.length + (uiStyle === 'boxed' ? 2 : 0) + (question ? 4 : 0) + (viewing ? 1 : 0)
+        // The finished agents' own lines count toward the 12 rows the open agents may add in all.
+        const fits = new Map(fitSections(specs, bandExtraRows(rows, used, Math.max(0, BAND_EXTRA_MAX - (bandList.length - before)))).map((f) => [f.id, f]))
+        band = { view, fits, lang: view.lang, viewing, canInput }
+      }
+      if (bandList.length === 0 && question === undefined && band?.viewing === undefined && !(line && line.length > 0)) return next(e)
+      // Pictures outside the terminal (panel.style capsule or cat), where the surface draws Svg.
+      const { Svg } = $.ui.resolve(e)
+      let art
+      if (cardsDrawn) {
+        const now = await $.clock.now()
+        // panel.perf on: the characters stand still but for a short blink.
+        const perf = (await cfgGet($, 'panel.perf')) === 'on'
+        art = { Svg, style: panel, perf, now, prev: uiArtPrev(Array.isArray(agents) ? agents : [], now), columns }
+      }
+      return uiTree($, e, bandList, () => compactBandPress($), uiStyle, question, art, band, line, perf)
     } catch (err) {
       return next(e)
     }
+  })
+
+  // The status line's folder, branch and model: read again at a main turn's start while the folder is not known
+  // yet (the first read can fall in the Desktop app's spare folder); after every main turn see uiNoteContext.
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined && uiPlace.folder === '') await uiRefreshPlace($)
+    return next(e)
   })
 
   // The small touches: plain text added to the engine's own drawing (no colour there). Each leaves the
@@ -3186,6 +3897,10 @@ function registerUi(on, saverOn) {
     } catch (err) {
       return next(e)
     }
+  })
+
+  on('command.run', { command: 'crew-perf' }, async ($, e) => {
+    return { text: (await uiPerfSet($, e.args)).text }
   })
 
   on('command.run', { command: 'crew-ui' }, async ($, e) => {
@@ -3234,6 +3949,20 @@ function registerUi(on, saverOn) {
       }
       return { text: `crew-ui: style ${name}.` }
     }
+    if (word === 'panel' || word.startsWith('panel ')) {
+      const name = word.slice(5).trim()
+      const now = await cfgGet($, 'panel.style')
+      if (!['capsule', 'cat', 'text'].includes(name)) return { text: `crew-ui: panel is ${now}; choose capsule (a yellow capsule buddy), cat (a blue point kitten) or text (the plain line). Outside the terminal each running subagent is drawn as a small picture; the terminal always gets the line. Same as /crew-config set panel.style <name>.` }
+      const r = await cfgSet($, 'panel.style', name)
+      if (!r.ok) return { text: 'crew-ui: the plugin store is not available here, so the panel style cannot be saved (set CREW_CHIEF_PANEL_STYLE instead).' }
+      try {
+        $.ui.invalidate('ui.render')
+      } catch (err) {
+        // Nothing to redraw.
+      }
+      if (r.source === 'env') return { text: `crew-ui: panel ${name} is saved, but CREW_CHIEF_PANEL_STYLE=${r.value} is set in the environment and wins.` }
+      return { text: `crew-ui: panel ${name}${name === 'text' ? ': the plain line everywhere, no pictures.' : ': outside the terminal each running subagent is drawn as a ' + (name === 'cat' ? 'blue point kitten' : 'capsule buddy') + '. The terminal keeps the line.'}` }
+    }
     if (word === 'demo on' || word === 'demo off') {
       uiDemo = word === 'demo on'
       try {
@@ -3273,9 +4002,811 @@ function registerUi(on, saverOn) {
     }
     const surfaces = await $.session.surfaces()
     return {
-      text: `crew-ui: the band is ${uiOn ? 'on' : 'off'} (${choice.source}), ${uiFull ? 'full' : 'quiet'} mode. Surfaces here: ${Array.isArray(surfaces) && surfaces.length > 0 ? surfaces.join(', ') : 'none'}; the band is drawn on ${UI_SURFACES.join(' and ')}. /crew-ui on | off | quiet | full | style <name> | demo on | words on | extras on | extras off.`,
+      text: `crew-ui: the band is ${uiOn ? 'on' : 'off'} (${choice.source}), ${uiFull ? 'full' : 'quiet'} mode. Surfaces here: ${Array.isArray(surfaces) && surfaces.length > 0 ? surfaces.join(', ') : 'none'}; the band is drawn on ${UI_SURFACES.join(' and ')}. /crew-ui on | off | quiet | full | style <name> | panel capsule|cat|text | demo on | words on | extras on | extras off.`,
     }
   })
+}
+
+// ===== agent-view ============================================================
+// crew-chief agent view and agent-done notices. Part of the mod in hooks/register.js (Claude Code 2.1.287+).
+//
+// On the Desktop app a subagent cannot be opened and watched the way the terminal allows, and its end is easy
+// to miss. Two things help:
+//   - a notice when a subagent finishes: a toast ("implementer finished: 3:35 · 58k · 14 calls") and the same
+//     as a system notification through the person's own channel ($.ui.notify). Runs that end within
+//     NOTIFY_BATCH_MS share one notice; a run shorter than notify.min, a run the person stopped, a teammate's
+//     turn and the engine's own forks are not announced. /crew-config notify.agent, notify.native, notify.min.
+//   - /crew-agents: a pane with this session's subagents (count chips; running ones first, then finished, each
+//     row a button) and, for the one picked, a title (status, time, tokens), its report wrapped and folded, its
+//     last steps from its transcript ($.session.messages({ agentId })) with each result summarised, and, on the
+//     Desktop app, a message field with a send button.
+// Reads happen in events (the command, a press, the agents' own turn.step / tool.call / turn.complete,
+// throttled to one refresh per VIEW_REFRESH_MS, and a slow tick while the pane is open), never while
+// drawing: the pane's hook only draws what the last refresh kept. The transcript is kept in memory for the
+// open pane alone; it is never written, stored, logged or sent, and is dropped when the pane closes.
+// Any failure leaves the turn, the call and the engine's own drawing alone.
+const AV_PANE_ID = 'crew-agent-view'
+const AV_TICK_MS = 5000 // while the pane is open: durations move, an agent that left the list is seen
+const AV_ANSWER_MAX = 4000 // characters of an agent's report kept for the pane
+const AV_ANSWERS_KEPT = 30
+const AV_CONFIRM_MS = 60_000 // a send that restarts a finished agent waits this long for a yes, then is dropped
+
+function avFresh() {
+  return {
+    open: false,
+    selected: undefined,
+    snapshot: undefined, // { chips, rows, detail } as the last refresh left it; what the pane draws
+    finishedAll: false, // the pane lists every finished agent, not only the newest VIEW_FINISHED_MAX
+    reportOpenFor: undefined, // the agent whose report is shown whole
+    detailFor: undefined, // the agent the detail was read for
+    detailStale: true,
+    selectedLive: false, // the picked agent still runs (the slow tick reads its transcript again)
+    paneDrafts: new Map(), // agentId -> what is typed in the pane's message field; never stored, gone with the pane
+    paneNotes: new Map(), // agentId -> { kind: 'error', text }: the line under the field when a message is refused
+    // agentId -> the bubbles sent from the pane (agent-view-logic msgTrack): in memory for the session alone, never
+    // stored, logged or sent anywhere; kept when the pane closes, gone with the session.
+    paneSent: new Map(),
+    lastRefreshAt: undefined,
+    refreshBooked: false,
+    tick: undefined,
+    ended: new Map(), // agentId -> { reason, answer }: in memory, for the pane's status and report
+    announced: new Set(), // agentId|turnId of runs already counted for a notice
+    batch: [],
+    batchBooked: false,
+    mainEndedAt: undefined,
+    // Agents opened in the band (a click on their row, hooks/src/crew-ui.js); the same refresh and throttle as
+    // the pane. In memory only, gone with the session or a reload of the module.
+    band: {
+      open: [], // agent ids, oldest first (toggleOpen)
+      cache: new Map(), // agentId -> { section, done, name, rowLine, stale }: what the band draws for it
+      composing: new Set(), // agents whose message field is shown
+      drafts: new Map(), // agentId -> the text being typed, until it is sent or the field closes; never stored
+    },
+  }
+}
+
+let avState = avFresh()
+let avLang = 'en' // the language of the last refresh, for the one line drawn without one
+
+function avStopTick() {
+  try {
+    if (avState.tick) avState.tick.cancel()
+  } catch (err) {
+    // Already stopped.
+  }
+  avState.tick = undefined
+}
+
+// A new session, /clear, /resume or the session's end: nothing of the last one stays.
+function avReset() {
+  avStopTick()
+  avState = avFresh()
+}
+
+// The pane was closed (its mark, ctrl+x x, Esc, /crew-agents again, /crew-panel close): the transcript goes too.
+function avClosed() {
+  avStopTick()
+  avState.open = false
+  avState.snapshot = undefined
+  avState.detailFor = undefined
+  avState.detailStale = true
+  avState.finishedAll = false
+  avState.reportOpenFor = undefined
+  avState.paneDrafts.clear()
+  avState.paneNotes.clear()
+}
+
+// ---- the notice ----------------------------------------------------------------------------------
+
+async function avFlush($) {
+  avState.batchBooked = false
+  const items = avState.batch
+  avState.batch = []
+  if (items.length === 0) return
+  try {
+    const lang = await resolveLang($)
+    const text = notifyText(lang, items)
+    if (text === '') return
+    if ((await cfgGet($, 'notify.agent')) === 'on') $.ui.toast(text, { timeoutMs: 10000 })
+    const native = nativeWanted({ nativeOn: (await cfgGet($, 'notify.native')) === 'on', mainEndedAt: avState.mainEndedAt, firstEndAt: Math.min(...items.map((i) => i.endedAt)) })
+    if (native) {
+      try {
+        await $.ui.notify(text, { title: 'crew-chief' })
+      } catch (err) {
+        // No channel, notifications off, or a hook refused it: the toast has said it.
+      }
+    }
+  } catch (err) {
+    // A missed notice is better than a broken turn.
+  }
+}
+
+async function avAnnounce($, e, now) {
+  const toast = (await cfgGet($, 'notify.agent')) === 'on'
+  const native = (await cfgGet($, 'notify.native')) === 'on'
+  if (!toast && !native) return
+  const key = e.agentId + '|' + String(e.turnId)
+  const facts = rowAgentFacts(e.agentId) ?? {}
+  let known = facts.name !== undefined
+  let teammate = facts.teammate === true
+  let name = facts.name
+  if (!known) {
+    // An agent whose first request the mod missed is still named by the list (it may say completed now).
+    try {
+      const list = await $.agent.list()
+      const found = (Array.isArray(list) ? list : []).find((a) => a && a.id === e.agentId)
+      if (found) {
+        known = true
+        teammate = typeof found.teammateId === 'string' && found.teammateId !== ''
+        name = found.name || found.type || found.description || 'agent'
+      }
+    } catch (err) {
+      // Unknown: not announced.
+    }
+  }
+  const durationMs = typeof e.durationMs === 'number' ? e.durationMs : typeof facts.startMs === 'number' ? now - facts.startMs : undefined
+  const minSec = await cfgGet($, 'notify.min')
+  if (!notifyWanted({ known, teammate, reason: e.reason, durationMs, minSec, already: avState.announced.has(key) })) return
+  avState.announced.add(key)
+  avState.batch.push({ name, durationMs, tokens: facts.tokens, calls: progressStats(e.agentId)?.calls, error: e.reason === 'error' || e.reason === 'refusal', endedAt: now })
+  if (avState.batchBooked) return
+  avState.batchBooked = true
+  try {
+    $.clock.after(NOTIFY_BATCH_MS, () => {
+      avFlush($)
+    })
+  } catch (err) {
+    avState.batchBooked = false
+  }
+}
+
+// Called from the mod's turn.complete hook for every turn: the main loop's end is noted (the host raises its
+// own notice then), a subagent's run is remembered for the pane and, maybe, announced.
+async function avTurnComplete($, e) {
+  try {
+    const now = await $.clock.now()
+    if (e.agentId === undefined) {
+      avState.mainEndedAt = now
+      return
+    }
+    const answer = typeof e.answer === 'string' ? e.answer.slice(0, AV_ANSWER_MAX) : undefined
+    avState.ended.delete(e.agentId)
+    avState.ended.set(e.agentId, { reason: e.reason, answer, durationMs: typeof e.durationMs === 'number' ? e.durationMs : undefined, at: now })
+    while (avState.ended.size > AV_ANSWERS_KEPT) avState.ended.delete(avState.ended.keys().next().value)
+    await avAnnounce($, e, now)
+    avNote($, e.agentId)
+  } catch (err) {
+    // The turn ends either way.
+  }
+}
+
+// ---- the pane ------------------------------------------------------------------------------------
+
+// One refresh for both readers: the pane when it is open, the agents opened in the band. Only from events,
+// presses and the pane's tick (throttled by avNote), never while drawing.
+async function avRefresh($) {
+  try {
+    if (!avState.open && avState.band.open.length === 0) return
+    const now = await $.clock.now()
+    avState.lastRefreshAt = now
+    const lang = await resolveLang($)
+    avLang = lang
+    if (avState.open) await avPaneRefresh($, now, lang)
+    if (avState.band.open.length > 0) await avBandRefresh($, now, lang)
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    // The pane and the band keep what they drew last.
+  }
+}
+
+async function avPaneRefresh($, now, lang) {
+  try {
+    // Only agents the list named: the engine's own forks (compaction, memory) make requests too.
+    const named = (await rowTimeline($, VIEW_LIST_MAX * 2)).filter((r) => rowAgentFacts(r.id)?.name !== undefined)
+    const rows = named.slice(-VIEW_LIST_MAX).reverse().map((r) => {
+      const ended = avState.ended.get(r.id)
+      const error = r.failed === true || (ended !== undefined && (ended.reason === 'error' || ended.reason === 'refusal'))
+      return { ...r, status: error ? 'error' : r.status }
+    })
+    const selected = pickSelected(rows, avState.selected)
+    avState.selected = selected
+    let detail = avState.snapshot?.detail
+    if (selected === undefined) {
+      detail = undefined
+    } else if (avState.detailStale || avState.detailFor !== selected || detail === undefined) {
+      const row = rows.find((r) => r.id === selected)
+      let found
+      try {
+        found = await $.session.messages({ agentId: selected })
+      } catch (err) {
+        found = { deny: String(err && err.message ? err.message : err) }
+      }
+      const ended = avState.ended.get(selected)
+      avPaneTrack(selected, found, ended)
+      detail = paneDetail(
+        {
+          name: row?.name ?? rowAgentFacts(selected)?.name,
+          row,
+          messages: Array.isArray(found) ? found : undefined,
+          deny: Array.isArray(found) ? undefined : String(found?.deny ?? 'unknown'),
+          answer: ended?.answer,
+          done: row ? row.status === 'done' || row.status === 'error' : ended !== undefined,
+          calls: progressStats(selected)?.calls,
+        },
+        { lang, now },
+      )
+      avState.detailFor = selected
+      avState.detailStale = false
+    } else {
+      // Only the figures move between two reads of the transcript.
+      const row = rows.find((r) => r.id === selected)
+      if (row) {
+        const fresh = paneRow(row, now)
+        detail = { ...detail, title: { ...detail.title, time: fresh.time, tokens: fresh.tokens } }
+      }
+    }
+    const picked = rows.find((r) => r.id === selected)
+    avState.selectedLive = picked !== undefined && (picked.status === 'running' || picked.status === 'waiting' || picked.status === 'background')
+    avState.snapshot = { chips: paneChips(rows, lang), rows: rows.map((r) => paneRow(r, now)), detail }
+  } catch (err) {
+    // The pane keeps what it drew last.
+  }
+}
+
+// The picked agent's bubbles moved by what was just read: its transcript when the session can read it, and its
+// tool calls and the end of its run since each was sent.
+function avPaneTrack(id, found, ended) {
+  const sent = avState.paneSent.get(id)
+  if (!sent || sent.length === 0) return
+  // Both only move a bubble forward: the transcript first, then what the agent did since, for a message the
+  // transcript does not show as sent (framed or escaped differently).
+  avState.paneSent.set(id, msgFallback(msgTrack(sent, found), { calls: progressStats(id)?.calls, endedAt: ended?.at, answer: ended?.answer }))
+}
+
+// An agent did something (a request, a tool call, the end of its run): refresh the open pane, at most once
+// per VIEW_REFRESH_MS, the last event never lost. Not awaited by the hooks that call it.
+function avNote($, agentId) {
+  // An open agent did something: read it again (a finished one that runs again after a message, too).
+  const cached = agentId !== undefined ? avState.band.cache.get(agentId) : undefined
+  if (cached) cached.stale = true
+  if (!avState.open && avState.band.open.length === 0) return
+  if (agentId !== undefined && agentId === avState.selected) avState.detailStale = true
+  $.clock
+    .now()
+    .then((now) => {
+      const plan = throttlePlan(avState.lastRefreshAt, now, VIEW_REFRESH_MS, avState.refreshBooked)
+      if (plan.run === 'now') return avRefresh($)
+      if (plan.run === 'later') {
+        avState.refreshBooked = true
+        $.clock.after(plan.delayMs, () => {
+          avState.refreshBooked = false
+          avRefresh($)
+        })
+      }
+      return undefined
+    })
+    .catch(() => {
+      avState.refreshBooked = false
+    })
+}
+
+// A row was pressed: show that agent (a person's act, so no throttle).
+function avSelect($, id) {
+  avState.selected = id
+  avState.paneNotes.clear()
+  avState.detailStale = true
+  avRefresh($)
+}
+
+// A press that only changes what is shown of the last refresh: no read, a redraw.
+function avRedraw($) {
+  try {
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    // Nothing to redraw.
+  }
+}
+
+// Theme keys for the tones, so the pane follows the theme the person picked; the model colour is the band's.
+const AV_TONE = { ok: { color: 'success' }, warn: { color: 'warning' }, crit: { color: 'error' }, info: { color: 'suggestion' }, dim: { dimColor: true } }
+
+// The pane's drawing, from the last refresh only (no reads here). The terminal and VS Code get the same tree;
+// a tint marks the picked row on the Desktop app, a ▸ elsewhere. Text wraps: nothing the person needs is cut.
+function avTree($, e) {
+  const { Box, Text, Button, Input } = $.ui.resolve(e)
+  const desktop = e.surface === 'desktop'
+  const lang = avLang
+  const txt = (s, props = {}) => Text({ wrap: 'wrap', ...props, children: [s] })
+  const one = (s, props = {}) => Text({ wrap: 'truncate-end', ...props, children: [s] }) // a name or an argument: one line
+  const mute = (s, props = {}) => txt(s, { dimColor: true, ...props })
+  const label = (s) => mute(s, { size: 'footnote', weight: 'semibold' })
+  // A section's title and, beside it, what the section is, in a few words.
+  const heading = (title, hint) => line([one(title, { size: 'footnote', weight: 'semibold' }), ...(hint ? [one(hint, { dimColor: true, size: 'footnote' })] : [])])
+  const toned = (tone) => AV_TONE[tone] ?? {}
+  const col = (children, props = {}) => Box({ flexDirection: 'column', ...props, children })
+  const line = (children, props = {}) => Box({ flexDirection: 'row', alignItems: 'center', gap: 1, ...props, children })
+  const linkButton = (key, text, onPress) => Button({ key, plain: true, dimColor: true, onPress, children: [Text({ size: 'footnote', children: [text] })] })
+  const snap = avState.snapshot
+  // No refresh behind it: the session restarted (/clear, /resume) under a pane that stayed on screen.
+  if (!snap) return col([mute(t(lang, 'view_reopen'))], { paddingX: 1 })
+  const children = []
+
+  // The counts, as small chips.
+  if (snap.chips.length > 0) {
+    const chip = (c) => Box({ borderStyle: 'round', borderColor: CARD_LOOK.border, paddingX: 1, children: [one(c.text, { ...toned(c.tone), size: 'footnote', weight: 'medium' })] })
+    children.push(line(snap.chips.map(chip), { flexWrap: 'wrap' }))
+  } else children.push(mute(t(lang, 'view_none')))
+
+  // The list: running first, then finished; each row one button, its time and tokens at the right edge.
+  const selected = avState.selected
+  const agentRow = (r) => {
+    const on = r.id === selected
+    const parts = []
+    if (!desktop) parts.push(Text({ color: 'suggestion', weight: 'bold', children: [on ? '▸ ' : '  '] }))
+    parts.push(Text({ ...toned(r.tone), children: [r.glyph + ' '] }))
+    parts.push(one(r.name, { color: modelColor(r.rawModel), weight: on ? 'bold' : 'medium' }))
+    if (r.model) parts.push(one('  ' + r.model, { dimColor: true, size: 'footnote' }))
+    // Its group says running or finished; a wait or a failure is said in words too.
+    if (r.status === 'waiting' || r.status === 'background' || r.status === 'error') parts.push(one('  ' + t(lang, 'view_status_' + r.status), { ...toned(r.tone), size: 'footnote' }))
+    const figures = [r.time, r.tokens].filter((x) => x !== '').join(' · ')
+    const look = desktop ? (on ? { backgroundColor: CARD_LOOK.border } : { hover: { backgroundColor: CARD_LOOK.bg } }) : {}
+    return Box({
+      key: 'row-' + r.id,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 1,
+      paddingX: 1,
+      ...look,
+      children: [Button({ key: 'agent-' + r.id, plain: true, onPress: () => avSelect($, r.id), children: parts }), one(figures || ' ', { dimColor: !on, tabular: true, size: 'footnote' })],
+    })
+  }
+  const groups = paneGroups(snap.rows, { selected, all: avState.finishedAll })
+  const finishedTotal = snap.rows.filter((r) => !r.live).length
+  if (groups.running.length > 0) children.push(col([label(t(lang, 'view_group_running')), ...groups.running.map(agentRow)]))
+  if (groups.finished.length > 0) {
+    const list = [label(t(lang, 'view_group_done')), ...groups.finished.map(agentRow)]
+    if (groups.hidden > 0 || (avState.finishedAll && finishedTotal > VIEW_FINISHED_MAX)) {
+      const more = groups.hidden > 0
+      list.push(
+        linkButton('pane-more-agents', more ? t(lang, 'view_show_more', { n: groups.hidden }) : t(lang, 'view_show_less'), () => {
+          avState.finishedAll = more
+          avRedraw($)
+        }),
+      )
+    }
+    children.push(col(list))
+  }
+
+  // The picked agent: title, task, report, last steps.
+  const d = snap.detail
+  const id = selected
+  const listed = id !== undefined && snap.rows.some((r) => r.id === id)
+  if (d && listed) {
+    const ti = d.title
+    const facts = [ti.model, ti.time, ti.tokens ? t(lang, 'view_tokens', { n: ti.tokens }) : '', ti.calls].filter((x) => x !== '').join(' · ')
+    const section = [
+      col([
+        line([one(ti.name, { color: modelColor(ti.rawModel), weight: 'bold', size: 'heading' }), one(ti.glyph + ' ' + ti.statusText, { ...toned(ti.tone), size: 'footnote', weight: 'medium' })]),
+        ...(facts ? [mute(facts, { size: 'footnote', tabular: true })] : []),
+      ]),
+    ]
+    if (d.deny) section.push(txt(d.deny, toned('warn')))
+    if (d.task) section.push(col([heading(t(lang, 'view_task'), t(lang, 'view_task_hint')), mute(d.task)]))
+    if (d.report) {
+      const fold = reportFold(d.report, { open: avState.reportOpenFor === id })
+      const paras = fold.shown.map((b) => {
+        if (b.kind === 'heading') return txt(b.text, { weight: 'semibold' })
+        if (b.kind === 'code') return txt(b.text, { mono: true, dimColor: true })
+        if (b.kind === 'bullet') return b.numbered ? txt(b.text) : line([mute('•'), col([txt(b.text)], { flexShrink: 1, flexGrow: 1 })], { alignItems: 'flex-start' })
+        return txt(b.text)
+      })
+      const box = [heading(t(lang, 'view_report'), t(lang, 'view_report_hint')), col(paras, { gap: 'xs' })]
+      const folds = reportFold(d.report).hidden > 0
+      if (folds) {
+        const more = fold.hidden > 0
+        box.push(
+          linkButton('pane-more-report', more ? t(lang, 'view_report_more', { n: fold.hidden }) : t(lang, 'view_report_less'), () => {
+            avState.reportOpenFor = more ? id : undefined
+            avRedraw($)
+          }),
+        )
+      }
+      section.push(col(box, desktop ? { gap: 'xs', padding: 1, borderStyle: 'round', borderColor: CARD_LOOK.border, backgroundColor: CARD_LOOK.bg } : {}))
+    }
+    if (d.steps.length > 0) {
+      const steps = [heading(t(lang, 'view_steps'), t(lang, 'view_steps_hint'))]
+      if (d.hidden > 0) steps.push(mute(t(lang, 'view_earlier', { n: d.hidden }), { size: 'footnote' }))
+      for (const st of d.steps) {
+        if (st.kind === 'text') {
+          steps.push(line([mute('›'), col([txt(st.text, { italic: true })], { flexShrink: 1, flexGrow: 1 })], { alignItems: 'flex-start' }))
+          continue
+        }
+        const top = [one(st.tool, { weight: 'semibold' })]
+        if (st.arg) top.push(one(st.arg, { dimColor: true, mono: true, size: 'footnote' }))
+        const body = [line(top)]
+        if (st.summary) body.push(txt(st.summary, { ...(st.tone === 'ok' ? { dimColor: true } : toned(st.tone)), size: 'footnote' }))
+        const mark = Text({ ...toned(st.tone), children: [st.pending ? '◌' : st.tone === 'crit' ? '✗' : '•'] })
+        steps.push(line([mark, col(body, { flexShrink: 1, flexGrow: 1 })], { alignItems: 'flex-start' }))
+      }
+      section.push(col(steps))
+    } else if (d.empty) section.push(mute(t(lang, 'view_empty')))
+    children.push(col(section, { gap: 1, paddingTop: 1 }))
+  }
+
+  // The messages sent to the picked agent from here, oldest first, each a bubble: its text (four lines at most),
+  // how long ago, and how far it got (sending, delivered, read, replied; a failure in red with its reason).
+  // Drawn from memory: the refreshes moved them, nothing is read here.
+  const bubbles = listed ? msgView(avState.paneSent.get(id), { now: avState.lastRefreshAt, lang }) : []
+  if (bubbles.length > 0) {
+    const rows = [heading(t(lang, 'view_msgs'), t(lang, 'view_msgs_hint'))]
+    for (const b of bubbles) {
+      const body = [txt(b.text), line([one(b.status, { ...toned(b.tone), size: 'footnote', weight: 'medium' }), ...(b.ago ? [one(b.ago, { dimColor: true, size: 'footnote' })] : [])], { justifyContent: 'space-between' })]
+      if (b.reply) body.push(txt(b.reply, { dimColor: true, italic: true, size: 'footnote' }))
+      const look = desktop ? { paddingX: 1, borderStyle: 'round', borderColor: b.tone === 'crit' ? 'error' : CARD_LOOK.border, backgroundColor: CARD_LOOK.bg } : { paddingLeft: 2 }
+      rows.push(col(body, { key: 'msg-' + b.id, ...look }))
+    }
+    children.push(col(rows, { gap: 'xs', paddingTop: 1 }))
+  }
+
+  // A message to the picked agent (the Desktop app, where a hook knows the field is drawn): one field across the
+  // pane, its own submit is the only send control. A finished agent is started again by it: the line under the
+  // field and the submit's label ("Restart and send") say so, and that press is the yes; nothing is asked
+  // elsewhere. An empty or too long message is said on one more line under it.
+  if (listed && desktop && typeof Input === 'function') {
+    const done = !avState.selectedLive
+    const name = avBandName(id)
+    const draft = avState.paneDrafts.get(id)
+    const note = avState.paneNotes.get(id)
+    const field = Input({
+      key: 'pane-msg-' + id,
+      placeholder: t(lang, 'view_msg_placeholder', { name: lang === 'tr' ? trDative(name) : name }),
+      submitLabel: done ? sendPlan(true, lang).label : t(lang, 'view_msg_send'),
+      ...(typeof draft === 'string' ? { value: draft } : {}),
+      onInput: (value) => {
+        avState.paneDrafts.set(id, typeof value === 'string' ? value : '')
+        if (avState.paneNotes.delete(id)) avRedraw($)
+      },
+      onSubmit: (value) => avPaneSend($, id, value, done),
+    })
+    // Input is a leaf with no size of its own: the row around it spans the pane and lets it grow.
+    const box = [
+      heading(t(lang, 'view_msg_title', { name })),
+      Box({ key: 'pane-msg-row-' + id, flexDirection: 'row', width: '100%', children: [Box({ flexDirection: 'column', flexGrow: 1, flexShrink: 1, children: [field] })] }),
+      txt(t(lang, done ? 'view_msg_note_done' : 'view_msg_note_live', { name }), { ...(done ? toned('warn') : { dimColor: true }), size: 'footnote' }),
+    ]
+    if (note) box.push(txt(note.text, { ...toned('crit'), size: 'footnote' }))
+    children.push(col(box, { gap: 'xs', paddingTop: 1 }))
+  }
+  return col(children, { gap: 1, paddingX: 1 })
+}
+
+// ---- agents opened in the band -------------------------------------------------------------------
+
+const avBandName = (id) => String(avState.band.cache.get(id)?.name ?? rowAgentFacts(id)?.name ?? 'agent').replace(/^.*:/, '') || 'agent'
+
+// Reads each open agent that has something new (or was never read); a finished agent is read once and kept
+// until it runs again. The band draws what is left here.
+async function avBandRefresh($, now, lang) {
+  const b = avState.band
+  let rows = []
+  try {
+    rows = await rowTimeline($, 50)
+  } catch (err) {
+    rows = []
+  }
+  const byId = new Map(rows.map((r) => [r.id, r]))
+  for (const id of [...b.open]) {
+    const r = byId.get(id)
+    const ended = avState.ended.get(id)
+    const done = r !== undefined && r.status === 'done'
+    const error = r?.failed === true || (ended !== undefined && (ended.reason === 'error' || ended.reason === 'refusal'))
+    const prev = b.cache.get(id)
+    const name = r?.name ?? rowAgentFacts(id)?.name ?? prev?.name
+    const rowLine = r ? agentListLine({ ...r, status: error ? 'error' : r.status }, { now }) : prev?.rowLine
+    if (prev && !prev.stale && prev.done === done) {
+      b.cache.set(id, { ...prev, name, rowLine })
+      continue
+    }
+    let found
+    try {
+      found = await $.session.messages({ agentId: id })
+    } catch (err) {
+      found = { deny: String(err && err.message ? err.message : err) }
+    }
+    const section = bandSection(
+      {
+        name,
+        messages: Array.isArray(found) ? found : undefined,
+        deny: Array.isArray(found) ? undefined : String(found?.deny ?? 'unknown'),
+        answer: ended?.answer,
+        done,
+        error,
+        // The host's own figure for a finished run; else what the mod saw of it.
+        durationMs: typeof ended?.durationMs === 'number' ? ended.durationMs : r && typeof r.startMs === 'number' ? (typeof r.endMs === 'number' ? r.endMs : now) - r.startMs : undefined,
+        tokens: r?.tokens,
+        calls: progressStats(id)?.calls,
+      },
+      { lang },
+    )
+    b.cache.set(id, { section, done, name, rowLine, stale: false })
+  }
+}
+
+// What the band needs to draw the open agents; no reads.
+function avBandView() {
+  const b = avState.band
+  return { open: [...b.open], cache: b.cache, composing: b.composing, lang: avLang }
+}
+
+// A row of the band was pressed: open the agent under it, or close it (a person's act: read at once).
+function avBandToggle($, id) {
+  const b = avState.band
+  const wasOpen = b.open.includes(id)
+  b.open = toggleOpen(b.open, id)
+  for (const k of [...b.cache.keys()]) if (!b.open.includes(k)) b.cache.delete(k)
+  for (const k of [...b.composing]) if (!b.open.includes(k)) b.composing.delete(k)
+  for (const k of [...b.drafts.keys()]) if (!b.open.includes(k)) b.drafts.delete(k)
+  if (wasOpen) {
+    try {
+      $.ui.invalidate('ui.render')
+    } catch (err) {
+      // Nothing to redraw.
+    }
+    return
+  }
+  avRefresh($)
+}
+
+function avToast($, key, vars) {
+  try {
+    $.ui.toast(t(avLang, key, vars), { timeoutMs: 8000 })
+  } catch (err) {
+    // A toast is a courtesy.
+  }
+}
+
+// The agent's whole transcript in the main view. Called first thing in a press: the host only allows it
+// while it answers the person's own input.
+function avBandFullView($, agentId) {
+  let asked
+  try {
+    asked = $.ui.view(agentId === undefined ? {} : { agentId })
+  } catch (err) {
+    avToast($, 'band_view_deny', { reason: String(err && err.message ? err.message : err).slice(0, 120) })
+    return
+  }
+  Promise.resolve(asked)
+    .then((r) => {
+      if (r && typeof r.deny === 'string') avToast($, 'band_view_deny', { reason: r.deny.slice(0, 120) })
+    })
+    .catch((err) => avToast($, 'band_view_deny', { reason: String(err && err.message ? err.message : err).slice(0, 120) }))
+}
+
+// The message field of one open agent: shown or hidden (its draft goes with it).
+function avBandCompose($, id) {
+  const b = avState.band
+  if (b.composing.has(id)) {
+    b.composing.delete(id)
+    b.drafts.delete(id)
+  } else b.composing.add(id)
+  try {
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    // Nothing to redraw.
+  }
+}
+
+function avBandDraft(id, value) {
+  if (avState.band.composing.has(id)) avState.band.drafts.set(id, typeof value === 'string' ? value : '')
+}
+
+function avBandDraftOf(id) {
+  return avState.band.drafts.get(id)
+}
+
+// Sends what was typed to the agent ($.session.send). Never an empty message, never more than MESSAGE_MAX
+// characters; a finished agent is started again by it, so the person says yes first (the safe answer, first,
+// is not to send; no answer within AV_CONFIRM_MS is a no). The text is neither logged nor kept once sent.
+async function avBandSend($, id, value, doneNow) {
+  const name = avBandName(id)
+  const check = checkMessage(value)
+  if (!check.ok) {
+    avToast($, check.error === 'empty' ? 'band_empty' : 'band_long', { max: MESSAGE_MAX })
+    return
+  }
+  // The pane says whether its agent still runs; the band's own cache otherwise.
+  const done = typeof doneNow === 'boolean' ? doneNow : avState.band.cache.get(id)?.done === true
+  const plan = sendPlan(done, avLang)
+  if (plan.confirm) {
+    const no = t(avLang, 'band_confirm_no')
+    const question = t(avLang, 'band_confirm_q', { name })
+    if (uiAsking()) {
+      avToast($, 'band_confirm_busy')
+      return
+    }
+    // As askWithDeadline does: the surfaces read again when the start-up read gave none, and the dialog when the
+    // band cannot ask (a surface it does not cover); a dismissed dialog is a no.
+    await rowRefreshSurfaces($)
+    const ask = uiAskStart($, question, [no, plan.label])
+    let asked
+    try {
+      asked = ask !== undefined ? ask.promise : $.ui.ask(question, [no, plan.label])
+    } catch (err) {
+      asked = Promise.resolve(no)
+    }
+    Promise.resolve(asked).catch(() => {})
+    let timer
+    let answer
+    try {
+      answer = await Promise.race([
+        Promise.resolve(asked).catch(() => no),
+        new Promise((resolve) => {
+          timer = $.clock.after(AV_CONFIRM_MS, () => resolve(no))
+        }),
+      ])
+    } finally {
+      try {
+        if (timer) timer.cancel()
+      } catch (err) {
+        // Already fired.
+      }
+      if (ask !== undefined) ask.close()
+    }
+    if (answer !== plan.label) return
+  }
+  let sent
+  try {
+    sent = await $.session.send({ to: { agentId: id }, text: check.text })
+  } catch (err) {
+    sent = { isDelivered: false, reason: String(err && err.message ? err.message : err) }
+  }
+  if (sent && sent.isDelivered === true) {
+    avState.band.drafts.delete(id)
+    avState.band.composing.delete(id)
+    avToast($, done ? 'band_sent_done' : 'band_sent', { name })
+    avNote($, id)
+  } else {
+    avToast($, 'band_not_sent', { name, reason: String(sent?.reason ?? 'unknown').slice(0, 120) })
+  }
+  try {
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    // Nothing to redraw.
+  }
+}
+
+// The pane's send: the press on the field's own submit is the person's yes, also for a finished agent (its label
+// says it restarts it), so no question is raised in the band. The message becomes a bubble at once (sending),
+// then delivered or failed as the send answers; the refreshes move it on (avPaneTrack). The text lives in that
+// bubble, in memory for the session alone: never logged, stored or sent anywhere else.
+async function avPaneSend($, id, value, done) {
+  const notes = avState.paneNotes
+  avState.paneDrafts.set(id, typeof value === 'string' ? value : '') // a redraw keeps what was typed until it goes
+  const check = checkMessage(value)
+  if (!check.ok) {
+    notes.set(id, { kind: 'error', text: t(avLang, check.error === 'empty' ? 'view_msg_empty' : 'view_msg_long', { max: MESSAGE_MAX }) })
+    avRedraw($)
+    return
+  }
+  notes.delete(id)
+  let at
+  try {
+    at = await $.clock.now()
+  } catch (err) {
+    at = avState.lastRefreshAt
+  }
+  const key = 'm' + String(at) + '-' + String((avState.paneSent.get(id) ?? []).length)
+  const bubble = { id: key, text: check.text, at, state: 'sending', restarted: done === true, callsAt: progressStats(id)?.calls ?? 0 }
+  const set = (patch) => {
+    const list = avState.paneSent.get(id) ?? []
+    avState.paneSent.set(id, list.map((b) => (b.id === key ? { ...b, ...patch } : b)))
+  }
+  avState.paneSent.set(id, [...(avState.paneSent.get(id) ?? []), bubble].slice(-MSG_KEPT))
+  avState.paneDrafts.set(id, '') // the field empties at once; a failure puts the text back
+  avRedraw($)
+  let sent
+  try {
+    sent = await $.session.send({ to: { agentId: id }, text: check.text })
+  } catch (err) {
+    sent = { isDelivered: false, reason: String(err && err.message ? err.message : err) }
+  }
+  if (sent && sent.isDelivered === true) {
+    set({ state: 'delivered' })
+    if (avState.selected === id) avState.detailStale = true
+    avNote($, id)
+  } else {
+    set({ state: 'failed', reason: String(sent?.reason ?? 'unknown').slice(0, 120) })
+    if (!avState.paneDrafts.get(id)) avState.paneDrafts.set(id, check.text)
+  }
+  avRedraw($)
+}
+
+async function avPaneOpen($) {
+  try {
+    const list = await $.ui.panes()
+    return (Array.isArray(list) ? list : []).some((p) => p && p.id === AV_PANE_ID)
+  } catch (err) {
+    return false
+  }
+}
+
+function registerAgentView(on) {
+  on('command.run', { command: 'crew-agents' }, async ($, e) => {
+    const word = String(e.args || '').trim().toLowerCase()
+    // The same command again (or `close`) closes it: no second command to remember.
+    if (word === 'close' || (await avPaneOpen($))) {
+      try {
+        await $.ui.close({ id: AV_PANE_ID })
+      } catch (err) {
+        // Not open.
+      }
+      avClosed()
+      return { text: 'crew-agents: closed.' }
+    }
+    const opened = await avOpenPane($)
+    if (!opened.ok) return { text: opened.deny === 'room' ? 'crew-agents: no room for the pane (' + opened.reason + ').' : 'crew-agents: the pane could not be opened (' + opened.reason + ').' }
+    return { text: 'crew-agents: open. Click an agent to look inside; it refreshes while agents work. Esc, ctrl+x x or /crew-agents again closes it. Nothing it shows is stored.' }
+  })
+}
+
+// Opens the agents pane (the command, or a press on a band row): { ok } or { ok: false, deny: 'room'|'error', reason }.
+async function avOpenPane($) {
+  avState.open = true
+  avState.detailStale = true
+  await avRefresh($) // the first drawing has its data
+  let opened
+  try {
+    opened = await $.ui.open({ id: AV_PANE_ID, title: 'Agents', focus: true, closeOnEscape: true })
+  } catch (err) {
+    avClosed()
+    return { ok: false, deny: 'error', reason: String(err && err.message ? err.message : err).slice(0, 120) }
+  }
+  if (opened && opened.isPlaced === false) {
+    avClosed()
+    return { ok: false, deny: 'room', reason: String(opened.reason ?? 'unknown') }
+  }
+  avStopTick()
+  try {
+    // The list's times move; a running agent's transcript is read again, a finished one's is not.
+    avState.tick = $.clock.every(AV_TICK_MS, () => {
+      // A running agent, or a message of the picked one not yet seen answered: its transcript is read again.
+      if (avState.selectedLive || msgPending(avState.paneSent.get(avState.selected))) avState.detailStale = true
+      avNote($, undefined)
+    })
+  } catch (err) {
+    // The agents' own events still refresh it.
+  }
+  return { ok: true }
+}
+
+// A band row was pressed (the user's pick, 2026-11-15): that agent's steps and report open in the side pane,
+// not under the row. An open pane just switches to it.
+async function avBandOpenPane($, id) {
+  avState.selected = id
+  avState.detailStale = true
+  if (avState.open && (await avPaneOpen($))) {
+    avRefresh($)
+    return
+  }
+  const opened = await avOpenPane($)
+  if (!opened.ok) avToast($, 'band_pane_deny', { reason: opened.reason.slice(0, 120) })
+}
+
+// Called from the mod's session.start: the command exists from the first moment.
+async function avSessionStart($) {
+  avReset()
+  try {
+    avLang = await resolveLang($) // the band draws its buttons in it before any refresh
+  } catch (err) {
+    avLang = 'en'
+  }
+  try {
+    // immediate: the command also runs while a subagent works, which is when it is wanted.
+    await $.command.register({ name: 'crew-agents', description: 'Look inside this session\'s subagents: what each did, its tool calls, its report', argumentHint: '[close]', immediate: true })
+  } catch (err) {
+    // The name is taken: the notices still work.
+  }
 }
 
 // ===== crew-panes ============================================================
@@ -3284,8 +4815,11 @@ function registerUi(on, saverOn) {
 //
 //   /crew-panel tasks|agents|guard   a pane with the project's tasks.json, a timeline of this session's subagents,
 //                                    or what the command guard stopped; /crew-panel close shuts them
+//   /crew-guard log                  the guard pane too (the same toggle as /crew-panel guard)
 //
 // The panes are text lines laid out in hooks/panes-logic.mjs and refreshed every two seconds while one is open.
+// On the Desktop app the guard pane is drawn as cards instead (guardView): a header with the guard's state and
+// counts, one card per entry newest first, and a pressed card opens to its detail and what to check.
 // A pane is closed with its mark, ctrl+x x, or the command; its timer stops with it. Any failure leaves the
 // engine's own drawing.
 const PANEL_IDS = { tasks: 'crew-tasks', agents: 'crew-agents', guard: 'crew-guard' }
@@ -3294,6 +4828,11 @@ const PANEL_REFRESH_MS = 2000
 
 let panelTimer
 const openPanels = new Set()
+// What the guard pane draws from besides the guard's own log: the time of the last refresh, the language
+// resolved when the pane was opened, the pressed entry. Kept here so drawing reads nothing.
+let paneNow = 0
+let paneLang = 'en'
+let guardSelected
 
 function stopTimer(timer) {
   try {
@@ -3307,6 +4846,7 @@ function panelsStop() {
   stopTimer(panelTimer)
   panelTimer = undefined
   openPanels.clear()
+  guardSelected = undefined
 }
 
 // Called when a session ends or a new one starts: timers do not outlive it.
@@ -3316,7 +4856,12 @@ function panesReset() {
 
 function panelsStart($) {
   if (panelTimer) return
-  panelTimer = $.clock.every(PANEL_REFRESH_MS, () => {
+  panelTimer = $.clock.every(PANEL_REFRESH_MS, async () => {
+    try {
+      paneNow = await $.clock.now()
+    } catch (err) {
+      // The last time stands; the panes still redraw.
+    }
     try {
       $.ui.invalidate('ui.render')
     } catch (err) {
@@ -3369,10 +4914,101 @@ async function panelTree($, e) {
   return uiLinesTree($, e, lines)
 }
 
+// Theme keys for the tones guardView hands out: the cards take the person's theme, no fixed palette.
+const GUARD_COLOR = { crit: 'error', warn: 'warning', info: 'suggestion', ok: 'success', dim: 'inactive' }
+
+// A card was pressed: open it, or close it when it was open already (a person's act: redrawn at once).
+function guardPick($, key) {
+  guardSelected = guardSelected === key ? undefined : key
+  try {
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    // Drawn at the next refresh.
+  }
+}
+
+// The guard pane on the Desktop app, from state only: the guard's log and summary, paneNow, paneLang.
+function guardTree($, e) {
+  const { Box, Button, Text } = $.ui.resolve(e)
+  // Ink and mute are theme keys (they follow a light or dark theme); the card fill and frame are see-through greys.
+  const L = { bg: CARD_LOOK.bg, border: CARD_LOOK.border, ink: 'text', mute: 'inactive' }
+  const lang = paneLang
+  const v = guardView(guardLogList(), { summary: guardSummary(), now: paneNow, selected: guardSelected, lang })
+  const txt = (s, props = {}) => Text({ wrap: 'truncate-end', ...props, children: [s] })
+  const para = (s, props = {}) => Text({ wrap: 'wrap', ...props, children: [s] })
+  const small = (s, color, extra = {}) => txt(s, { color, size: 'footnote', ...extra })
+  const chip = (children, borderColor) => Box({ flexDirection: 'row', alignItems: 'center', gap: 1, borderStyle: 'round', borderColor, paddingX: 1, flexShrink: 0, children })
+  const spacer = () => Box({ flexGrow: 1, flexShrink: 1, minWidth: 0 })
+  const stateColor = v.state === 'on' ? GUARD_COLOR.ok : v.state === 'off' ? GUARD_COLOR.dim : GUARD_COLOR.warn
+
+  const header = Box({
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 1,
+    children: [
+      txt(v.title, { color: L.ink, weight: 'bold', size: 'heading' }),
+      chip([txt('●', { color: stateColor }), small(v.stateLabel, L.ink, { weight: 'medium' })], L.border),
+      spacer(),
+      ...v.chips.map((c) => {
+        const live = c.count > 0
+        return chip([txt(c.glyph, { color: live ? GUARD_COLOR[c.tone] : L.mute }), txt(String(c.count), { color: live ? L.ink : L.mute, weight: 'bold', tabular: true }), small(c.label, L.mute)], live ? GUARD_COLOR[c.tone] : L.border)
+      }),
+    ],
+  })
+
+  const card = (r) => {
+    const tone = GUARD_COLOR[r.tone]
+    const top = Box({
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 1,
+      minWidth: 0,
+      children: [
+        Button({ key: r.key, plain: true, label: r.label, onPress: () => guardPick($, r.key), children: [Text({ color: tone, weight: 'bold', children: [r.glyph + ' '] }), Text({ color: L.ink, weight: 'semibold', wrap: 'truncate-end', children: [r.label] })] }),
+        spacer(),
+        small(r.ago, L.mute, { tabular: true }),
+      ],
+    })
+    const meta = [small(r.level, tone, { weight: 'medium' })]
+    if (r.rule) meta.push(small(t(lang, 'gp_rule'), L.mute), small(r.rule, L.ink, { mono: true }))
+    if (r.hosts) meta.push(small(t(lang, 'gp_host'), L.mute), small(r.hosts.join(', '), L.ink, { mono: true }))
+    if (r.readOnly) meta.push(small(t(lang, 'gp_readonly'), L.mute))
+    const children = [top, Box({ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 1, minWidth: 0, children: meta })]
+    if (r.detail) {
+      children.push(
+        Box({
+          flexDirection: 'column',
+          marginTop: 1,
+          gap: 1,
+          children: [
+            para(r.detail.text, { color: L.ink, mono: true, size: 'footnote' }),
+            txt(t(lang, 'gp_check_title'), { color: L.mute, size: 'caption', weight: 'semibold' }),
+            ...r.detail.checks.map((c) => para('› ' + c, { color: L.ink, size: 'footnote' })),
+          ],
+        }),
+      )
+    }
+    return Box({ key: 'card-' + r.key, flexDirection: 'column', borderStyle: 'round', borderColor: r.selected ? tone : L.border, backgroundColor: L.bg, paddingX: 1, hover: { borderColor: tone }, children })
+  }
+
+  const children = [header]
+  if (v.hint) children.push(txt(v.hint, { color: L.mute, size: 'caption' }))
+  if (v.empty) children.push(Box({ flexDirection: 'row', alignItems: 'center', gap: 1, borderStyle: 'round', borderColor: L.border, backgroundColor: L.bg, paddingX: 1, paddingY: 1, children: [txt('●', { color: stateColor }), para(v.empty, { color: L.ink })] }))
+  for (const r of v.rows) children.push(card(r))
+  if (v.moreLabel) children.push(small(v.moreLabel, L.mute))
+  const f = v.footer
+  children.push(Box({ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 1, marginTop: 1, children: [small(f.command, L.ink, { mono: true }), small(f.label, L.mute), small('·', L.mute), small(t(lang, 'gp_config'), L.mute), small(f.path, L.mute, { mono: true })] }))
+  return Box({ flexDirection: 'column', gap: 1, children })
+}
+
 function registerPanes(on) {
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     try {
+      // The agent view of /crew-agents (hooks/src/agent-view.js) draws in this same hook.
+      if (e.requestId === AV_PANE_ID) return avTree($, e)
       if (!Object.values(PANEL_IDS).includes(e.requestId)) return next(e)
+      if (e.requestId === PANEL_IDS.guard && e.surface === 'desktop') return guardTree($, e)
       return await panelTree($, e)
     } catch (err) {
       return next(e)
@@ -3382,6 +5018,7 @@ function registerPanes(on) {
   // Closed by the person (the mark, ctrl+x x) or by a command: the refresh timer goes when none is left.
   on('ui.close', async ($, e, next) => {
     try {
+      if (e.id === AV_PANE_ID) avClosed()
       if (Object.values(PANEL_IDS).includes(e.id)) {
         openPanels.delete(e.id)
         if (openPanels.size === 0) {
@@ -3408,32 +5045,51 @@ function registerPanes(on) {
         }
       }
       panelsStop()
+      avClosed()
       return { text: 'crew-panel: closed.' }
     }
-    const id = PANEL_IDS[word]
-    // The same command again closes its pane: no second command to remember.
-    if (id !== undefined && (await openPaneIds($)).includes(id)) {
-      try {
-        await $.ui.close({ id })
-      } catch (err) {
-        // Gone already.
-      }
-      openPanels.delete(id)
-      if (openPanels.size === 0) panelsStop()
-      return { text: `crew-panel: ${word} pane closed.` }
-    }
-    if (id === undefined) return { text: 'crew-panel: tasks (tasks.json of this project) | agents (a timeline of this session\'s subagents) | guard (what the command guard stopped) | close.' }
-    let opened
-    try {
-      opened = await $.ui.open({ id, title: word[0].toUpperCase() + word.slice(1), focus: true, closeOnEscape: true, rows: PANEL_ROWS })
-    } catch (err) {
-      return { text: 'crew-panel: the pane could not be opened (' + String(err && err.message ? err.message : err).slice(0, 120) + ').' }
-    }
-    if (opened && opened.isPlaced === false) return { text: 'crew-panel: no room for the pane (' + String(opened.reason ?? 'unknown') + ').' }
-    openPanels.add(id)
-    panelsStart($)
-    return { text: `crew-panel: ${word} pane open (refreshes every 2 s; Esc or ctrl+x x closes it).` }
+    return panelToggle($, word)
   })
+
+  // /crew-guard log opens the guard pane; every other /crew-guard word goes on to the guard (hooks/src/guard.js).
+  on('command.run', { command: 'crew-guard' }, async ($, e, next) => {
+    if (String(e.args || '').trim().toLowerCase() !== 'log') return next(e)
+    return panelToggle($, 'guard')
+  })
+}
+
+// /crew-panel <word> and /crew-guard log: open the pane, or close it when it is open already.
+async function panelToggle($, word) {
+  const id = PANEL_IDS[word]
+  // The same command again closes its pane: no second command to remember.
+  if (id !== undefined && (await openPaneIds($)).includes(id)) {
+    try {
+      await $.ui.close({ id })
+    } catch (err) {
+      // Gone already.
+    }
+    openPanels.delete(id)
+    if (openPanels.size === 0) panelsStop()
+    return { text: `crew-panel: ${word} pane closed.` }
+  }
+  if (id === undefined) return { text: 'crew-panel: tasks (tasks.json of this project) | agents (a timeline of this session\'s subagents) | guard (what the command guard stopped) | close.' }
+  // Read now, not while drawing: the guard pane's clock and language.
+  try {
+    paneNow = await $.clock.now()
+    paneLang = await resolveLang($)
+  } catch (err) {
+    // The last ones stand.
+  }
+  let opened
+  try {
+    opened = await $.ui.open({ id, title: word[0].toUpperCase() + word.slice(1), focus: true, closeOnEscape: true, rows: PANEL_ROWS })
+  } catch (err) {
+    return { text: 'crew-panel: the pane could not be opened (' + String(err && err.message ? err.message : err).slice(0, 120) + ').' }
+  }
+  if (opened && opened.isPlaced === false) return { text: 'crew-panel: no room for the pane (' + String(opened.reason ?? 'unknown') + ').' }
+  openPanels.add(id)
+  panelsStart($)
+  return { text: `crew-panel: ${word} pane open (refreshes every 2 s; Esc or ctrl+x x closes it).` }
 }
 
 // Called from the mod's session.start: the commands exist from the first moment.
@@ -3602,13 +5258,24 @@ async function askUser($, hit) {
     const answers = [t(lang, 'answer_on'), t(lang, 'answer_ultra'), t(lang, 'answer_not_now'), t(lang, 'answer_never')]
     const now = await $.clock.now()
     const left = hit.resetsAt ? Date.parse(hit.resetsAt) - now : 0
-    const reset = left > 0 ? t(lang, 'reset_in', { duration: formatDuration(left, unitsFor(lang)) }) : ''
-    const answer = await askWithDeadline(
-      $,
-      t(lang, 'ask', { window: windowName(lang, hit.kind), percent: hit.percent, reset }),
-      answers,
-      answers[2],
-    )
+    const duration = left > 0 ? formatDuration(left, unitsFor(lang)) : ''
+    const reset = duration !== '' ? t(lang, 'reset_in', { duration }) : ''
+    // On Desktop the question is the quiet card (as the compact one): a topic, one short line, the window and its
+    // reset as chips, what each mode does in one line, short labels on the same answers.
+    const card = {
+      kind: 'card',
+      topic: t(lang, 'saver_topic'),
+      question: t(lang, 'saver_question'),
+      facts: [
+        t(lang, hit.kind === 'five_hour' ? 'saver_fact_five' : hit.kind === 'seven_day' ? 'saver_fact_week' : 'percent', { percent: hit.percent, n: hit.percent }),
+        duration !== '' ? t(lang, 'saver_fact_reset', { duration }) : '',
+      ].filter((f) => f !== ''),
+      note: t(lang, 'saver_note'),
+      labels: [t(lang, 'saver_label_on'), t(lang, 'saver_label_ultra'), t(lang, 'saver_label_not_now'), t(lang, 'saver_label_never')],
+      accent: 1, // the ultra answer's text in the saver's ultra colour
+      quiet: 3, // "don't ask again": a quiet text button at the end
+    }
+    const answer = await askWithDeadline($, t(lang, 'ask', { window: windowName(lang, hit.kind), percent: hit.percent, reset }), answers, answers[2], card)
     if (answer === answers[0]) {
       saver = true
       $.ui.toast(t(lang, 'toast_saver_on'), { timeoutMs: 8000 })
@@ -3825,6 +5492,7 @@ export function register(on) {
     await guardSessionStart($)
     await uiSessionStart($)
     await panesSessionStart($)
+    await avSessionStart($)
     return result
   })
 
@@ -3833,7 +5501,8 @@ export function register(on) {
     resetCompact()
     rowSessionEnd($)
     panesReset()
-    guardSessionEnd()
+    avReset()
+    await guardSessionEnd($)
     return next(e)
   })
 
@@ -3868,6 +5537,8 @@ export function register(on) {
   // to ask, and a second chance to notice the limits.
   on('turn.complete', async ($, e, next) => {
     await rowTurnComplete($, e)
+    // A subagent's end: the notice and the agent view (hooks/src/agent-view.js); the main loop's end is noted.
+    await avTurnComplete($, e)
     if (e.agentId === undefined) {
       lastCompleteAt = await $.clock.now()
       uiTouch($)
@@ -3919,6 +5590,7 @@ export function register(on) {
     const result = yield* next(request)
     await statsStepEnd($, e, result)
     await rowStepEnd($, e, result)
+    if (e.agentId !== undefined) avNote($, e.agentId)
     return result
   })
 
@@ -3968,6 +5640,7 @@ export function register(on) {
     const reminder = await progressObserve($, e)
     const overlap = await overlapObserve($, e)
     const result = await next(request)
+    if (typeof e.agentId === 'string') avNote($, e.agentId)
     const handoff = await handoffAfter($, e, result)
     if (guard === undefined && reminder === undefined && overlap === undefined && handoff === undefined) return result
     return progressAfter(progressAfter(progressAfter(guard === undefined ? result : await guardAfter($, e, guard, result), reminder), overlap), handoff)
@@ -4017,6 +5690,7 @@ export function register(on) {
   registerCompact(on)
   registerUi(on, () => (ultra ? 'ultra' : saver))
   registerPanes(on)
+  registerAgentView(on)
   registerReset(on)
   registerTidy(on)
   registerStats(on)

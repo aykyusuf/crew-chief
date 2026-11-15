@@ -41,6 +41,7 @@ import { rowSessionEnd, rowSessionStart, rowStepEnd, rowStepStart, rowTurnComple
 import { addLanguageVote, resetLang, resolveLang } from './lang.mjs'
 import { progressAfter, progressObserve, progressReset } from './progress.mjs'
 import { panesReset, panesSessionStart, registerPanes } from './crew-panes.mjs'
+import { avNote, avReset, avSessionStart, avTurnComplete, registerAgentView } from './agent-view.mjs'
 import { registerUi, uiNoteContext, uiNoteMainStep, uiSessionStart, uiTouch } from './crew-ui.mjs'
 import { guardAfter, guardCheck, guardNudge, guardSessionEnd, guardSessionStart, guardWants, registerGuard } from './guard.mjs'
 import {
@@ -152,13 +153,24 @@ async function askUser($, hit) {
     const answers = [t(lang, 'answer_on'), t(lang, 'answer_ultra'), t(lang, 'answer_not_now'), t(lang, 'answer_never')]
     const now = await $.clock.now()
     const left = hit.resetsAt ? Date.parse(hit.resetsAt) - now : 0
-    const reset = left > 0 ? t(lang, 'reset_in', { duration: formatDuration(left, unitsFor(lang)) }) : ''
-    const answer = await askWithDeadline(
-      $,
-      t(lang, 'ask', { window: windowName(lang, hit.kind), percent: hit.percent, reset }),
-      answers,
-      answers[2],
-    )
+    const duration = left > 0 ? formatDuration(left, unitsFor(lang)) : ''
+    const reset = duration !== '' ? t(lang, 'reset_in', { duration }) : ''
+    // On Desktop the question is the quiet card (as the compact one): a topic, one short line, the window and its
+    // reset as chips, what each mode does in one line, short labels on the same answers.
+    const card = {
+      kind: 'card',
+      topic: t(lang, 'saver_topic'),
+      question: t(lang, 'saver_question'),
+      facts: [
+        t(lang, hit.kind === 'five_hour' ? 'saver_fact_five' : hit.kind === 'seven_day' ? 'saver_fact_week' : 'percent', { percent: hit.percent, n: hit.percent }),
+        duration !== '' ? t(lang, 'saver_fact_reset', { duration }) : '',
+      ].filter((f) => f !== ''),
+      note: t(lang, 'saver_note'),
+      labels: [t(lang, 'saver_label_on'), t(lang, 'saver_label_ultra'), t(lang, 'saver_label_not_now'), t(lang, 'saver_label_never')],
+      accent: 1, // the ultra answer's text in the saver's ultra colour
+      quiet: 3, // "don't ask again": a quiet text button at the end
+    }
+    const answer = await askWithDeadline($, t(lang, 'ask', { window: windowName(lang, hit.kind), percent: hit.percent, reset }), answers, answers[2], card)
     if (answer === answers[0]) {
       saver = true
       $.ui.toast(t(lang, 'toast_saver_on'), { timeoutMs: 8000 })
@@ -375,6 +387,7 @@ export function register(on) {
     await guardSessionStart($)
     await uiSessionStart($)
     await panesSessionStart($)
+    await avSessionStart($)
     return result
   })
 
@@ -383,7 +396,8 @@ export function register(on) {
     resetCompact()
     rowSessionEnd($)
     panesReset()
-    guardSessionEnd()
+    avReset()
+    await guardSessionEnd($)
     return next(e)
   })
 
@@ -418,6 +432,8 @@ export function register(on) {
   // to ask, and a second chance to notice the limits.
   on('turn.complete', async ($, e, next) => {
     await rowTurnComplete($, e)
+    // A subagent's end: the notice and the agent view (hooks/src/agent-view.js); the main loop's end is noted.
+    await avTurnComplete($, e)
     if (e.agentId === undefined) {
       lastCompleteAt = await $.clock.now()
       uiTouch($)
@@ -469,6 +485,7 @@ export function register(on) {
     const result = yield* next(request)
     await statsStepEnd($, e, result)
     await rowStepEnd($, e, result)
+    if (e.agentId !== undefined) avNote($, e.agentId)
     return result
   })
 
@@ -518,6 +535,7 @@ export function register(on) {
     const reminder = await progressObserve($, e)
     const overlap = await overlapObserve($, e)
     const result = await next(request)
+    if (typeof e.agentId === 'string') avNote($, e.agentId)
     const handoff = await handoffAfter($, e, result)
     if (guard === undefined && reminder === undefined && overlap === undefined && handoff === undefined) return result
     return progressAfter(progressAfter(progressAfter(guard === undefined ? result : await guardAfter($, e, guard, result), reminder), overlap), handoff)
@@ -567,6 +585,7 @@ export function register(on) {
   registerCompact(on)
   registerUi(on, () => (ultra ? 'ultra' : saver))
   registerPanes(on)
+  registerAgentView(on)
   registerReset(on)
   registerTidy(on)
   registerStats(on)

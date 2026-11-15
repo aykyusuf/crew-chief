@@ -53,6 +53,13 @@ function harness(on: any, opts: Opts = {}) {
     state.store[e.key] = e.value
     return { value: undefined }
   })
+  on('store.keys', () => ({ value: Object.keys(state.store) }))
+  on('store.delete', ($: any, e: any) => {
+    delete state.store[e.key]
+    return { value: undefined }
+  })
+  state.sid = 'sess-1'
+  on('session.id', () => ({ value: state.sid }))
   on('fs.read', ($: any, e: any) => {
     state.reads.push(e.path)
     if (e.path in state.files) return { value: state.files[e.path] }
@@ -278,6 +285,25 @@ test('confirm: the first attempt is held with the checklist, the identical retry
   await s.clock.advance(361 * MIN)
   expect((await bash($, 'git reset --hard HEAD~1')).deny).toContain('first attempt')
   expect(s.ran).toEqual(['git reset --hard HEAD~1'])
+})
+
+test('a plugin reload between the first attempt and the identical retry does not hold it again', async ($, on) => {
+  const s = harness(on, { file: CONFIG })
+  await start($)
+  const cmd = "cd /work && python3 - <<'EOF'\nimport sqlite3\nsqlite3.connect('a.db').execute('DROP TABLE t')\nEOF"
+  const call = () => $.tool.call({ tool: 'Bash', command: cmd, description: 'Drop the scratch table' })
+  expect((await call()).deny).toContain('first attempt')
+  expect((await bash($, 'ssh prod.example.com "systemctl restart nginx"')).deny).toContain('first contact')
+  // A reload (an edited module, a worker respawn) runs session.start again in the same session.
+  await start($)
+  expect((await call()).deny).toBeUndefined()
+  expect((await bash($, 'ssh prod.example.com "systemctl restart nginx"')).deny).toBeUndefined()
+  // A new session starts clean.
+  await $.session.end({ sessionId: s.sid, reason: 'clear' })
+  s.sid = 'sess-2'
+  await start($)
+  expect((await call()).deny).toContain('first attempt')
+  expect(Object.keys(s.store).filter((k) => k.startsWith('guard_gate'))).toEqual(['guard_gate_sess-2'])
 })
 
 test('confirm in a subagent asks it to report when unsure; a read-only agent gets a plain deny', async ($, on) => {

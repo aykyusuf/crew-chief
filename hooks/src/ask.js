@@ -25,7 +25,8 @@ const EXPIRED = Symbol('expired')
 //     hook that asks is still running (a $ call made after its hook returned skips this mod's own hooks);
 //   - the race below, so the flow moves on with the default in every case, even when the dialog could
 //     not be closed (then a late click on it changes nothing).
-export async function askWithDeadline($, question, answers, fallback) {
+// `look` (optional) only changes how the band draws the question outside the terminal (see uiAskStart).
+export async function askWithDeadline($, question, answers, fallback, look) {
   let entry
   try {
     const ms = (await cfgGet($, 'ask.timeout')) * 60_000
@@ -42,7 +43,7 @@ export async function askWithDeadline($, question, answers, fallback) {
   }
   await rowRefreshSurfaces($)
   if (entry === undefined) {
-    const band = uiAskStart($, question, answers)
+    const band = uiAskStart($, question, answers, look)
     if (band === undefined) return $.ui.ask(question, answers)
     try {
       return await band.promise
@@ -53,7 +54,7 @@ export async function askWithDeadline($, question, answers, fallback) {
   const owner = !deadlines.has(question)
   if (owner) deadlines.set(question, entry)
   let timer
-  const band = uiAskStart($, question, answers)
+  const band = uiAskStart($, question, answers, look)
   try {
     const asked = band !== undefined ? band.promise : $.ui.ask(question, answers)
     asked.catch(() => {}) // dismissed after the deadline: nobody is listening any more

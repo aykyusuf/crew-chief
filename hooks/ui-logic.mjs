@@ -5,7 +5,8 @@
 // and the drawing part maps it to a colour. That keeps the layout testable without a terminal.
 //
 //   ctx 52% 520k/1M   5h 4% ~4h20m   7d 96% ~6d13h   guard on · 1 held   [1] compact
-//   deep-reader  sonnet-5.5 ●●○○○ medium ▓▓▓░░░ 40%  12k  reading auth
+//   deep-reader  Sonnet 5.5 ● ● ○ ○ ○ Medium ▓▓▓░░░ 40%  12k  reading auth
+import { BAR_WIDTH, effortWord, FACE_SIZE, modelLabel } from './panel-art-logic.mjs'
 
 const EFFORT_STEP = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }
 const EFFORT_TONE = ['dim', 'ok', 'warn', 'hot', 'crit', 'max']
@@ -145,7 +146,9 @@ export function quietFacts(facts) {
 
 // The status line of the band: context, windows, guard, saver, and the compact key when it applies.
 // facts: { ctx, five, week, guard: { on, held } | undefined, saver: boolean, compactKey: boolean }
-export function statusSegments(facts) {
+// keyHint: whether the compact key names its shortcut ('[1] compact'); the shortcut only works while the band has
+// focus, so outside the terminal (Desktop, VS Code, mobile) the caller leaves it out.
+export function statusSegments(facts, keyHint = true) {
   const out = []
   const gap = () => out.length > 0 && out.push(seg('   ', 'dim'))
   if (facts.ctx) {
@@ -167,7 +170,8 @@ export function statusSegments(facts) {
   }
   if (facts.saver) {
     gap()
-    out.push(seg(facts.saver === 'ultra' ? 'ultra-saver on' : 'saver on', 'info'))
+    // `badge`: outside the terminal the band draws it as a small picture (a leaf, or the shield of ultra).
+    out.push({ ...seg(facts.saver === 'ultra' ? 'ultra-saver on' : 'saver on', 'info'), badge: facts.saver === 'ultra' ? 'ultra' : 'save' })
   }
   if (typeof facts.busy === 'number') {
     gap()
@@ -175,7 +179,7 @@ export function statusSegments(facts) {
   }
   if (facts.compactKey) {
     gap()
-    out.push({ ...seg('[1] compact', 'info', true), key: 'compact' })
+    out.push({ ...seg(keyHint ? '[1] compact' : 'compact', 'info', true), key: 'compact' })
   }
   return out
 }
@@ -202,11 +206,11 @@ export function agentSegments(agent, width = 100) {
   // `unknown`: the agent has run a while and its model never reached us (it started before the mod loaded), so
   // no model or effort is drawn rather than a "starting" that stays.
   if (!agent.unknown) {
-    const model = String(agent.model ?? '').replace(/^claude-/, '').replace(/\[[^\]]*\]$/, '').replace(/-([0-9]+)-([0-9]+)(-[0-9]{8})?$/, '-$1.$2') || 'starting'
-    out.push(seg(clip(model, 14), familyOf(agent.model)))
+    // 'Sonnet 5.5 ● ● ○ ○ ○ Medium': the full model name, the five effort dots apart, the effort word.
+    out.push(seg(modelLabel(agent.model), familyOf(agent.model)))
     const meter = effortMeter(agent.effort)
-    if (meter && meter.rainbow) out.push(seg(' ', 'dim'), ...RAINBOW.map((tone) => seg('●', tone)), seg(' ', 'dim'), seg(meter.label, 'max', true))
-    else if (meter) out.push(seg(' ' + meter.glyph + ' ', meter.tone), seg(meter.label, 'dim'))
+    if (meter && meter.rainbow) out.push(seg(' ', 'dim'), ...RAINBOW.flatMap((tone, i) => (i === 0 ? [seg('●', tone)] : [seg(' ', 'dim'), seg('●', tone)])), seg(' ', 'dim'), seg(effortWord(agent.effort), 'max', true))
+    else if (meter) out.push(seg(' ' + meter.glyph.split('').join(' ') + ' ', meter.tone), seg(effortWord(agent.effort), 'dim'))
   }
   if (typeof agent.pct === 'number') {
     const b = bar(agent.pct)
@@ -215,13 +219,9 @@ export function agentSegments(agent, width = 100) {
   }
   const tok = tokenLabel(agent.tokens)
   if (tok) out.push(seg('  ' + tok, 'dim'))
-  // Most agents never report a percentage. What is known for sure is how long one has run and how many tool calls
-  // it made (the calls only while no percentage stands in their place).
-  const tempo = []
-  if (typeof agent.pct !== 'number' && typeof agent.calls === 'number' && agent.calls > 0) tempo.push(`${agent.calls} calls`)
+  // What is known for sure is how long an agent has run (its tool call count is not shown).
   const elapsed = elapsedLabel(agent.elapsedMs)
-  if (elapsed) tempo.push(elapsed)
-  if (tempo.length > 0) out.push(seg('  ' + tempo.join(' · '), 'dim'))
+  if (elapsed) out.push(seg('  ' + elapsed, 'dim'))
   const used = out.reduce((n, s) => n + s.t.length, 0)
   const room = width - used - 2
   if (agent.step && room >= 8) out.push(seg('  ' + clip(agent.step, room), 'dim'))
@@ -231,14 +231,20 @@ export function agentSegments(agent, width = 100) {
 // All lines of the band, at most `maxLines`: the status line first, then one line per agent; agents that do
 // not fit become "+N more". No facts and no agents -> [] (the band draws nothing).
 export function bandLines({ status, agents, maxLines = 4, width = 100 }) {
-  const lines = []
-  if (status.length > 0) lines.push(status)
-  const room = Math.max(0, maxLines - lines.length)
+  return bandRows({ status, agents, maxLines, width }).map((r) => r.line)
+}
+
+// The same lines, each with what it is: { kind: 'status' | 'agent' | 'more', line, agent? }. The band draws an
+// agent's line as a picture where it can (hooks/panel-art-logic.mjs) and as the line of segments elsewhere.
+export function bandRows({ status, agents, maxLines = 4, width = 100 }) {
+  const rows = []
+  if (status.length > 0) rows.push({ kind: 'status', line: status })
+  const room = Math.max(0, maxLines - rows.length)
   const list = Array.isArray(agents) ? agents : []
   const shown = list.length > room ? Math.max(0, room - 1) : list.length
-  for (const a of list.slice(0, shown)) lines.push(agentSegments(a, width))
-  if (list.length > shown && room > 0) lines.push([seg(`+${list.length - shown} more agents`, 'dim')])
-  return lines
+  for (const a of list.slice(0, shown)) rows.push({ kind: 'agent', agent: a, line: agentSegments(a, width) })
+  if (list.length > shown && room > 0) rows.push({ kind: 'more', line: [seg(`+${list.length - shown} more agents`, 'dim')] })
+  return rows
 }
 
 // Sample content for `/crew-ui demo on`: every part of the band at once, so a style can be judged without
@@ -258,11 +264,158 @@ export function demoContent(now) {
       compactKey: true,
     },
     agents: [
-      { name: 'deep-reader', model: 'claude-sonnet-5-5', effort: 'medium', tokens: 48_100, pct: 40, elapsedMs: 130_000, step: 'reading auth module' },
-      { name: 'implementer-hard', model: 'claude-opus-5-5', effort: 'high', tokens: 212_000, calls: 34, elapsedMs: 252_000, step: 'running the test suite' },
-      { name: 'scanner', model: 'claude-haiku-5-5', effort: 'low', tokens: 9_300, pct: 90, step: 'grep routes' },
+      // Every look of a row at once: a fresh estimate, a stale one (`artPct` with `artStale`), none, an agent type
+      // and a model the art does not know.
+      { id: 'demo-1', name: 'deep-reader', model: 'claude-sonnet-5-5', effort: 'medium', tokens: 48_100, pct: 40, artPct: 40, elapsedMs: 130_000, step: 'reading auth module' },
+      { id: 'demo-2', name: 'implementer-hard', model: 'claude-opus-5-5', effort: 'high', tokens: 212_000, artPct: 62, artStale: true, elapsedMs: 252_000, step: 'running the test suite' },
+      { id: 'demo-3', name: 'scanner', model: 'claude-haiku-5-5', effort: 'low', tokens: 9_300, pct: 90, artPct: 90, step: 'grep routes' },
+      { id: 'demo-4', name: 'Explore', model: 'claude-fable-5-2', effort: 'max', tokens: 31_000, elapsedMs: 41_000 },
     ],
   }
 }
 
 export const lineText = (line) => line.map((s) => s.t).join('')
+
+// ---- the status line at the foot of the band (Desktop app, ui.statusline) ---------------------------------
+//   work   |   main   |   5h: %4 ~4h 20m   |   7d: %47 ~3d 16h   |   ctx:12%   |   116k   |   Haiku 5.5 ●●○○○ Medium
+// Segments carry a hex `color` of their own (the colours of the line people already know); the separators are dim.
+
+export const STATUS_LINE_SEP = '   |   '
+const STATUS_LINE_HEX = { folder: '#ff3030', branch: '#2ecc40', five: '#ffd75f', week: '#5fffff', ctx: '#ff8700', model: '#ff5fff' }
+// The Desktop app warms a session up in ~/.claude/spares/spare-XXXX before it moves into the project: that
+// folder is never named.
+const SPARE_DIR = /\/\.claude\/spares\//
+
+// The folder to name for a working directory: its last part, '' for a spare one or none.
+export function placeFolder(cwd) {
+  const s = typeof cwd === 'string' ? cwd : ''
+  if (s === '' || SPARE_DIR.test(s)) return ''
+  return s.split('/').filter(Boolean).pop() ?? ''
+}
+
+// 116k, 1.2M, 950 (rounded down, as the line always showed it).
+function lineTokens(n) {
+  if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return ''
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  return n >= 1000 ? `${Math.floor(n / 1000)}k` : String(Math.floor(n))
+}
+
+// '~3d16h' -> '~3d 16h', '~4h20m' -> '~4h 20m', '~12m' stays.
+const spacedReset = (reset) => String(reset ?? '').replace(/^(~\d+[dh])(\d)/, '$1 $2')
+
+// info: { folder, branch, five, week (windowChip), ctx (ctxChip), tokens (number), model, effort }; what is
+// missing is left out. Nothing at all -> [].
+export function statusLineSegments(info) {
+  const i = info ?? {}
+  const parts = []
+  if (i.folder) parts.push({ t: String(i.folder), tone: 'other', color: STATUS_LINE_HEX.folder })
+  if (i.branch) parts.push({ t: String(i.branch), tone: 'other', color: STATUS_LINE_HEX.branch })
+  for (const [w, hex] of [
+    [i.five, STATUS_LINE_HEX.five],
+    [i.week, STATUS_LINE_HEX.week],
+  ]) {
+    if (!w || typeof w.percent !== 'number') continue
+    const reset = spacedReset(w.reset)
+    parts.push({ t: `${w.label}: %${w.percent}${reset ? ' ' + reset : ''}`, tone: 'other', color: hex })
+  }
+  if (i.ctx && typeof i.ctx.percent === 'number') parts.push({ t: `ctx:${i.ctx.percent}%`, tone: 'other', color: STATUS_LINE_HEX.ctx })
+  const tok = lineTokens(i.tokens)
+  if (tok) parts.push({ t: tok, tone: 'other' })
+  const meter = effortMeter(i.effort)
+  const tail = [i.model ? modelLabel(i.model) : '', meter ? meter.glyph : '', meter ? effortWord(i.effort) : ''].filter(Boolean).join(' ')
+  if (tail) parts.push({ t: tail, tone: 'other', color: STATUS_LINE_HEX.model })
+  const out = []
+  for (const p of parts) {
+    if (out.length > 0) out.push({ t: STATUS_LINE_SEP, tone: 'dim' })
+    out.push(p)
+  }
+  return out
+}
+
+// ---- agent cards on Desktop: the width one needs, and how many share a row ---------------------------------
+//
+// Measured in cells, generously: a Desktop cell is a little wider than an average letter of the proportional
+// font, so one cell per letter leaves room; the dots are wider than letters, and a picture of N px takes N/7
+// cells. A card is: frame (border and padding) | face | two lines of text | tokens/time column | the button,
+// one gap between each. Line 1: name, model, dots, effort word (and the 'first run' tag where it fits). Line 2:
+// the bar, the estimate (sized at 'no estimate' always) and a short piece of the step, the one thing that shrinks.
+// The row count depends only on what stays put while an agent runs (name, model, effort, the button's label),
+// never on tokens, time, the step or the tag, so cards do not jump between rows (a jump remounts the pictures).
+export const CARD_CELLS = { frame: 4, gap: 1, rowGap: 2, figs: 7, pct: 11, stepMin: 6, tag: 9, dot: 1.4, pxPerCell: 7, maxPerRow: 4, stretch: 1.5 }
+
+export function textCells(s) {
+  let n = 0
+  for (const ch of String(s ?? '')) n += ch === '●' || ch === '○' ? CARD_CELLS.dot : 1
+  return n
+}
+
+// Parts laid out in a row with one gap between those that are drawn.
+const inRow = (parts) => {
+  const drawn = parts.filter((p) => p > 0)
+  return drawn.reduce((a, b) => a + b, 0) + CARD_CELLS.gap * Math.max(0, drawn.length - 1)
+}
+const pxCells = (px) => Math.ceil(px / CARD_CELLS.pxPerCell)
+
+// c: agentCardText's answer. tag: with the 'first run' tag after the name.
+export function cardLine1Cells(c, tag = false) {
+  const dots = c && c.dots ? String(c.dots).replace(/ /g, '') : ''
+  return inRow([textCells(c?.name), textCells(c?.model), textCells(dots), textCells(c?.effort), tag ? CARD_CELLS.tag : 0])
+}
+
+export function cardLine2Cells() {
+  return inRow([pxCells(BAR_WIDTH), CARD_CELLS.pct, CARD_CELLS.stepMin])
+}
+
+// Everything in a card but its two lines of text.
+const cardChrome = (buttonLabel) => CARD_CELLS.frame + inRow([pxCells(FACE_SIZE), 1, CARD_CELLS.figs, textCells(buttonLabel)]) - 1
+
+// The cells one card needs for all of its text on one line each (the step at its shortest).
+export function cardNeedCells(c, buttonLabel = '') {
+  return cardChrome(buttonLabel) + Math.max(cardLine1Cells(c), cardLine2Cells())
+}
+
+// The room the two lines get in a cell `cell` wide (for the tag: drawn only where it fits).
+export function cardTextRoom(cell, buttonLabel = '') {
+  return cell - cardChrome(buttonLabel)
+}
+
+// How the cards share the band: `fit` is how many of the widest card fit side by side (one to maxPerRow); the
+// rows are balanced (5 in rows of 3 -> 3 and 2); a row of fewer cards than `per` is filled out with empty cells.
+// Empty cells are added beyond the balanced count only where a card would otherwise stretch past `stretch`
+// times its need (one agent alone in a wide band takes half of it, not all). per: cells in a row; cell: the
+// width of one; minWidth: the narrowest a card may be drawn (never wider than the band).
+export function cardGrid(columns, needs) {
+  const cols = typeof columns === 'number' && columns > 0 ? columns : 100
+  const list = Array.isArray(needs) ? needs.filter((n) => typeof n === 'number' && n > 0) : []
+  const need = list.length > 0 ? Math.max(...list) : 1
+  const gap = CARD_CELLS.rowGap
+  const fit = Math.max(1, Math.min(CARD_CELLS.maxPerRow, Math.floor((cols + gap) / (need + gap))))
+  const cellAt = (p) => (cols - gap * (p - 1)) / p
+  const n = list.length
+  let per = n === 0 ? fit : Math.ceil(n / Math.ceil(n / fit))
+  while (per < fit && cellAt(per) > need * CARD_CELLS.stretch) per++
+  const cell = cellAt(per)
+  return { per, cell, need, minWidth: Math.max(1, Math.floor(Math.min(need, cell))) }
+}
+
+// ---- performance mode in one action (/crew-perf, the toggle at the end of the Desktop status line) ----------
+//
+// What /crew-perf <args> (or a press, with no args) turns panel.perf into: '' toggles, on|off sets it.
+// undefined for anything else, so a typo never switches it.
+export function perfNext(args, current) {
+  const w = String(args ?? '').trim().toLowerCase()
+  if (w === '' || w === 'toggle') return current === 'on' ? 'off' : 'on'
+  if (w === 'on' || w === 'off') return w
+  return undefined
+}
+
+// The toggle draws the glyph alone (dim when off, lit when on).
+export const PERF_ICON = '⚡'
+// The Desktop app draws a plain Button's label as its text (seen live 2026-11-15), so the label is the glyph itself.
+export const PERF_LABEL = PERF_ICON
+
+// The compact key on the Desktop status line, beside the toggle and in its style: a glyph alone would not say
+// what it does, so a down arrow (shrink) and the word the line already uses for the context. The label is the
+// same text; the terminal keeps its own '[1] compact' key with the shortcut.
+export const COMPACT_ICON = '⇣ ctx'
+export const COMPACT_LABEL = COMPACT_ICON

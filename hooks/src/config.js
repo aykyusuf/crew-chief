@@ -2,6 +2,7 @@
 // the saver asks, how long a question waits). A value is kept in the plugin's store, so it survives the
 // session; the environment variable of the same name, when set, still wins (kept for scripts).
 // Nothing is written to settings.json or any project file.
+import { perfFileWrite } from './crew-ui.mjs'
 import { SETTINGS, SETTING_KEYS, checkSettings, envName, formatSetting, parseSetting, resolveSetting, storeText } from './config-logic.mjs'
 
 const storeKey = (key) => 'cfg_' + key.replace('.', '_')
@@ -26,6 +27,20 @@ async function envRaw($, key) {
         return await $.env.get('CREW_CHIEF_ASK_TIMEOUT_MIN')
       case 'handoff.mode':
         return await $.env.get('CREW_CHIEF_HANDOFF')
+      case 'notify.agent':
+        return await $.env.get('CREW_CHIEF_NOTIFY_AGENT')
+      case 'notify.native':
+        return await $.env.get('CREW_CHIEF_NOTIFY_NATIVE')
+      case 'notify.min':
+        return await $.env.get('CREW_CHIEF_NOTIFY_MIN')
+      case 'panel.style':
+        return await $.env.get('CREW_CHIEF_PANEL_STYLE')
+      case 'panel.click':
+        return await $.env.get('CREW_CHIEF_PANEL_CLICK')
+      case 'panel.perf':
+        return await $.env.get('CREW_CHIEF_PANEL_PERF')
+      case 'ui.statusline':
+        return await $.env.get('CREW_CHIEF_UI_STATUSLINE')
       default:
         return undefined
     }
@@ -49,6 +64,20 @@ export async function cfgState($, key) {
 
 export async function cfgGet($, key) {
   return (await cfgState($, key)).value
+}
+
+// Saves one value as /crew-config set does (for the short forms other commands offer, such as /crew-ui panel).
+// { ok: true, value, source } with the value in force afterwards, or { ok: false, error: 'invalid' | 'store' }.
+export async function cfgSet($, key, text) {
+  const parsed = parseSetting(key, text)
+  if (!parsed.ok) return { ok: false, error: 'invalid' }
+  try {
+    await $.store.set(storeKey(key), storeText(key, parsed.value))
+  } catch (err) {
+    return { ok: false, error: 'store' }
+  }
+  const st = await cfgState($, key)
+  return { ok: true, value: st.value, source: st.source }
 }
 
 async function allValues($) {
@@ -99,6 +128,7 @@ export function registerConfig(on) {
           return { text: 'crew-config: the plugin store is not available here, so nothing can be saved or reset (the environment variables still work).' }
         }
       }
+      if (keys.includes('panel.perf')) await perfFileWrite($)
       return { text: `crew-config: ${target === 'all' ? 'every value is' : target + ' is'} back to the default${target === 'all' ? '' : ' (' + formatSetting(target, SETTINGS[target].def) + ')'}.` }
     }
     const rest = verb === 'set' ? words.slice(1) : words
@@ -112,6 +142,7 @@ export function registerConfig(on) {
     } catch (err) {
       return { text: 'crew-config: the plugin store is not available here, so the value cannot be saved (use the environment variable instead).' }
     }
+    if (key === 'panel.perf') await perfFileWrite($)
     const st = await cfgState($, key)
     const envNote = st.source === 'env' ? ` ${envName(key)} is set in the environment and still wins (${formatSetting(key, st.value)}).` : ''
     const problems = checkSettings(await allValues($))

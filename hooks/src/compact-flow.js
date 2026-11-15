@@ -32,6 +32,7 @@ import {
   backgroundNote,
   backupName,
   backupsToPrune,
+  cardFacts,
   checkSummary,
   compactThresholds,
   openTasks,
@@ -233,7 +234,7 @@ async function agentCounts($) {
   }
 }
 
-async function runningAgents($) {
+export async function runningAgents($) {
   return (await agentCounts($)).running
 }
 
@@ -253,14 +254,27 @@ function processHandles() {
   return ck.bgTasks.map((task) => (task.id ? task.id + ': ' : '') + (task.command || task.description || '')).filter(Boolean)
 }
 
+// The state in one sentence (the question's plain text: the terminal, the dialog) and as short facts (the
+// Desktop card's chips), from one read of the agents, the background processes and git.
 async function stateLine($, lang, agents, waiting) {
   const parts = [t(lang, 'ck_state_agents', { n: agents })]
-  if (waiting > 0) parts.push(t(lang, 'ck_state_waiting', { n: waiting }))
+  const facts = []
+  if (waiting > 0) {
+    parts.push(t(lang, 'ck_state_waiting', { n: waiting }))
+    facts.push(t(lang, 'ck_fact_waiting', { n: waiting }))
+  }
   const names = processNames()
-  if (names.length > 0) parts.push(t(lang, 'ck_state_shells', { n: names.length, list: names.slice(0, 3).map((n) => n.slice(0, 40)).join(', ') }))
+  if (names.length > 0) {
+    parts.push(t(lang, 'ck_state_shells', { n: names.length, list: names.slice(0, 3).map((n) => n.slice(0, 40)).join(', ') }))
+    facts.push(t(lang, 'ck_fact_shells', { n: names.length }))
+  }
   const dirty = await dirtyFiles($)
-  if (dirty !== undefined) parts.push(t(lang, 'ck_state_dirty', { n: dirty }))
-  return t(lang, 'ck_state', { parts: parts.join(', ') })
+  if (dirty !== undefined) {
+    parts.push(t(lang, 'ck_state_dirty', { n: dirty }))
+    facts.push(t(lang, 'ck_fact_dirty', { n: dirty }))
+  }
+  facts.push(t(lang, 'ck_fact_agents', { n: agents }))
+  return { line: t(lang, 'ck_state', { parts: parts.join(', ') }), facts }
 }
 
 async function askAndPlan($, why) {
@@ -276,10 +290,19 @@ async function askAndPlan($, why) {
     const answers = [t(lang, 'ck_yes'), t(lang, 'ck_later'), t(lang, 'ck_never')]
     const phase = why.phase ? t(lang, 'ck_phase', { phase: why.phase }) : ''
     const state = await stateLine($, lang, agents, waiting)
+    // On Desktop the question is a card: a topic, one short line, the facts as chips, what happens in one line.
+    const card = {
+      kind: 'card',
+      topic: t(lang, 'ck_topic'),
+      question: t(lang, 'ck_question'),
+      facts: cardFacts([t(lang, 'ck_fact_ctx', { tokens: tokensLabel(tokens) }), why.phase ? t(lang, 'ck_fact_phase', { phase: why.phase }) : '', ...state.facts]),
+      note: t(lang, 'ck_note'),
+      quiet: 2, // "don't ask again": a quiet text button at the end
+    }
     let answer
     try {
       // Unanswered: "not now", the same as clicking it.
-      answer = await askWithDeadline($, t(lang, 'ck_ask', { tokens: tokensLabel(tokens), phase, state }), answers, answers[1])
+      answer = await askWithDeadline($, t(lang, 'ck_ask', { tokens: tokensLabel(tokens), phase, state: state.line }), answers, answers[1], card)
     } catch (err) {
       return 'unavailable'
     }

@@ -13,7 +13,8 @@
 //   - first run: in an interactive session with no config file and no SETUP_KEY in the plugin store, the
 //     default config is written once (CREW_CHIEF_GUARD_AUTOSETUP=off or CREW_CHIEF_GUARD=off prevent it);
 //     the marker keeps a deleted file from coming back. /crew-guard on|off is the only other write.
-// The config is read once per session. Gate state lives in memory and ends with the session.
+// The config is read once per session. Gate state lives in memory, with a copy in the plugin store (one key
+// per session) so a plugin reload or worker respawn mid-session keeps approved retries; it ends with the session.
 // A speed bump, not a security boundary. Any failure lets the call through (fail open).
 import { resolveLang } from './lang.mjs'
 import { t } from './saver-i18n.mjs'
@@ -34,9 +35,13 @@ import {
   offConfigText,
   SETUP_KEY,
   toggleConfigText,
+  GATE_STORE_PREFIX,
   gateDecide,
   gateReason,
   gateRecord,
+  gateRestore,
+  gateSnapshot,
+  gateSnapshotStale,
   guardOn,
   isFresh,
   markCommand,
@@ -67,6 +72,7 @@ function guardFresh() {
     why: 'not loaded yet',
     config: undefined,
     gate: newGateState(),
+    sid: undefined, // the session id the gate copy is stored under (undefined: memory only)
     agentTypes: new Map(), // agentId -> read-only (true/false), once the agent list named it
     suggestions: [],
     suggestToasted: false,
@@ -202,6 +208,36 @@ async function guardLoad($) {
   else if (loaded === undefined) st.why = 'no config file at ' + (path ?? '~/.claude/crew-chief-guard.json')
   else st.why = loaded.config.enabled ? 'the config file says enabled: true' : 'the config file says enabled: false'
   if (st.on) $.ui.log('crew-chief guard: on, ' + st.config.rules.length + ' personal rules, ssh ' + st.config.ssh.mode, { to: 'debug' })
+  if (st.on) await guardGateLoad($)
+}
+
+// Brings back this session's gate copy (after a reload) and drops other sessions' stale copies. Any failure
+// leaves the gate in memory only.
+async function guardGateLoad($) {
+  const st = guardState
+  try {
+    const sid = await $.session.id()
+    if (typeof sid !== 'string' || !sid) return
+    st.sid = sid
+    const now = await $.clock.now()
+    const ttl = Math.max(st.config.confirmTtlMs, st.config.ssh.ttlMs)
+    gateRestore(st.gate, await $.store.get(GATE_STORE_PREFIX + sid), now, ttl)
+    for (const k of await $.store.keys()) {
+      if (k.startsWith(GATE_STORE_PREFIX) && k !== GATE_STORE_PREFIX + sid && gateSnapshotStale(await $.store.get(k), now)) await $.store.delete(k)
+    }
+  } catch (err) {
+    // No session id or no store: the gate still works for this module's lifetime.
+  }
+}
+
+async function guardGateSave($, now) {
+  const st = guardState
+  if (st.sid === undefined) return
+  try {
+    await $.store.set(GATE_STORE_PREFIX + st.sid, gateSnapshot(st.gate, now))
+  } catch (err) {
+    // The deny or the warning stands; only a reload before the retry would forget it.
+  }
 }
 
 async function guardEnsure($) {
@@ -272,8 +308,15 @@ async function guardRegisterTool($) {
   }
 }
 
-export function guardSessionEnd() {
+export async function guardSessionEnd($) {
+  const sid = guardState.sid
   guardState = guardFresh()
+  if (sid === undefined) return
+  try {
+    await $.store.delete(GATE_STORE_PREFIX + sid)
+  } catch (err) {
+    // A stale copy is dropped by a later session's load.
+  }
 }
 
 // Synchronous, so a call the guard never looks at (and every call while it is off) passes untouched.
@@ -345,6 +388,7 @@ export async function guardCheck($, e) {
       gateRecord(st.gate, d, now)
     }
     markCommand(st.gate, key, now)
+    await guardGateSave($, now)
     st.held += 1
     $.ui.log('crew-chief guard: first attempt held' + (confirmDue ? ' (' + v.rule + ')' : '') + (d.action === 'deny' ? ' (ssh ' + d.kind + ')' : ''), { to: 'debug' })
     const what = d.action === 'deny' ? 'ssh ' + d.hosts.join(', ') : v.text
@@ -356,6 +400,7 @@ export async function guardCheck($, e) {
   if (confirm) return undefined
   if (d.action === 'warn') {
     gateRecord(st.gate, d, now)
+    await guardGateSave($, now)
     return { contexts: [sshWarnContext(d)], notes: ['ssh ' + d.hosts.join(', ') + (d.kind === 'first' ? ': first contact' : ': ' + d.why)] }
   }
   return v !== null ? { contexts: [ruleWarnContext(v)], notes: [v.text] } : undefined

@@ -75,6 +75,18 @@ export async function progressInfo($, agentId) {
 }
 
 // After the call ran: the reminder rides with the result, next to what the guard may have added.
+// The agent's own estimate for the drawings of the band, stale or not: { pct, stale } (stale: more than the
+// fresh window of calls or minutes has passed since it was sent), or undefined when it never sent one.
+export async function progressEstimate($, agentId) {
+  try {
+    const entry = progressAgents.get(agentId)
+    if (!entry || typeof entry.pct !== 'number') return undefined
+    return { pct: entry.pct, stale: freshPct(entry, await $.clock.now()) === undefined }
+  } catch (err) {
+    return undefined
+  }
+}
+
 export function progressAfter(r, text) {
   try {
     if (!r || r.deny !== undefined || text === undefined) return r

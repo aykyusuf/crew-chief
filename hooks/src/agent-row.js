@@ -16,7 +16,7 @@
 import { resolveLang } from './lang.mjs'
 import { t } from './saver-i18n.mjs'
 import { uiCovers, uiTouch } from './crew-ui.mjs'
-import { progressInfo, progressPct, progressStats } from './progress.mjs'
+import { progressEstimate, progressInfo, progressPct, progressStats } from './progress.mjs'
 import { formatRow, jqMatters, platformFromOs, rowWanted, usageTokens } from './row-logic.mjs'
 
 const ROW_LIVE = ['pending', 'running', 'waiting']
@@ -122,6 +122,17 @@ function rowClear($) {
   }
 }
 
+// An agent whose turn has ended (turn.complete with its agentId) while the list still says `waiting` is waiting
+// on background work it owns (a Bash run_in_background, a Monitor, ...): AgentStatus in the host types says
+// `waiting` is "on background work it owns", and it resumes under the same id when that work is done. It is not
+// finished, so the band keeps its card (calm) and the pane keeps it under running. A turn ended while the list
+// says `running` is the list lagging behind the end (hidden as before); `completed`/`failed`/`killed` ended.
+// Assumption: in a background subagent `waiting` may also mean an Agent call it waits on; that is work it owns
+// too, so it is shown the same way.
+function rowBgWaiting(a) {
+  return a.status === 'waiting' && rowState.done.has(a.id)
+}
+
 function rowAgentName(a) {
   if (typeof a.teammateId === 'string' && a.teammateId !== '') return a.teammateId.replace(/@.*$/, '')
   return a.type || a.description || 'agent'
@@ -192,8 +203,11 @@ export async function rowBandRows($) {
   }
   const rows = []
   const now = await $.clock.now()
+  let lang // read once, only when an agent waits on its background work
   for (const a of Array.isArray(list) ? list : []) {
-    if (!a || !ROW_LIVE.includes(a.status) || rowState.done.has(a.id)) continue
+    if (!a || !ROW_LIVE.includes(a.status)) continue
+    const bgWait = rowBgWaiting(a)
+    if (rowState.done.has(a.id) && !bgWait) continue
     const info = rowState.agents.get(a.id) ?? {}
     const prog = await progressInfo($, a.id)
     if (!rowState.seen.has(a.id)) {
@@ -203,13 +217,20 @@ export async function rowBandRows($) {
       if (typeof a.type === 'string') rowState.types.add(a.type)
     }
     const since = info.startMs ?? rowState.seen.get(a.id)
+    const est = await progressEstimate($, a.id)
     rows.push({
+      id: a.id,
       name: rowAgentName(a),
       model: info.model,
       effort: info.effort,
       tokens: info.tokens,
       pct: prog?.pct,
-      step: prog?.step,
+      // The drawings outside the terminal also show a stale estimate, faded and marked old.
+      artPct: est?.pct,
+      artStale: est?.stale === true,
+      step: bgWait ? t(lang ?? (lang = await resolveLang($)), 'row_bg_waiting') : prog?.step,
+      bgWait: bgWait || undefined,
+      bgTag: bgWait ? t(lang ?? (lang = await resolveLang($)), 'row_bg_tag') : undefined,
       calls: progressStats(a.id)?.calls,
       fresh: rowState.fresh.has(a.id),
       elapsedMs: now - since,
@@ -235,14 +256,17 @@ export async function rowTimeline($, max = 10) {
     if (typeof info.startMs !== 'number') continue
     const a = live.get(id)
     if (a) info.name = rowAgentName(a)
-    const done = info.endMs !== undefined || rowState.done.has(id)
+    const bgWait = a !== undefined && rowBgWaiting(a)
+    const done = !bgWait && (info.endMs !== undefined || rowState.done.has(id))
     const prog = done ? undefined : await progressInfo($, id)
     rows.push({
+      id,
       name: info.name ?? 'agent',
       model: info.model,
       effort: info.effort,
       tokens: info.tokens,
-      status: done ? 'done' : a && a.status === 'waiting' ? 'waiting' : 'running',
+      status: done ? 'done' : bgWait ? 'background' : a && a.status === 'waiting' ? 'waiting' : 'running',
+      failed: (a && (a.status === 'failed' || a.status === 'killed')) || undefined,
       startMs: info.startMs,
       endMs: done ? info.endMs ?? info.startMs : undefined,
       pct: prog?.pct,
@@ -251,6 +275,15 @@ export async function rowTimeline($, max = 10) {
   }
   rows.sort((x, y) => x.startMs - y.startMs)
   return rows.slice(-max)
+}
+
+// What the mod knows of one subagent, for the notice when it ends (hooks/src/agent-view.js): its name as
+// $.agent.list gave it (undefined for an id no list named, such as the engine's own forks), whether it is a
+// teammate, its latest request's tokens and when its first request went out.
+export function rowAgentFacts(agentId) {
+  const info = rowState.agents.get(agentId)
+  if (!info) return undefined
+  return { name: info.name, teammate: info.teammate === true, tokens: info.tokens, startMs: info.startMs }
 }
 
 // At most one redraw waits at a time; several requests in a burst draw once.
@@ -284,16 +317,21 @@ export async function rowStepStart($, request) {
     // The name is learned while the agent is in the list (once, at its first request), so the timeline can still
     // name it after it has ended and left the list.
     let name = prev.name
+    let teammate = prev.teammate
     if (name === undefined && prev.startMs === undefined) {
       try {
         const list = await $.agent.list()
         const found = (Array.isArray(list) ? list : []).find((a) => a && a.id === request.agentId)
-        if (found) name = rowAgentName(found)
+        if (found) {
+          name = rowAgentName(found)
+          teammate = typeof found.teammateId === 'string' && found.teammateId !== ''
+        }
       } catch (err) {
         // The name stays unknown; the timeline says "agent".
       }
     }
-    rowState.agents.set(request.agentId, { ...prev, name, model: request.model, effort: request.effort, startMs: prev.startMs ?? (await $.clock.now()) })
+    // endMs cleared: an agent that resumes (after its background work, or a message) runs again.
+    rowState.agents.set(request.agentId, { ...prev, name, teammate, model: request.model, effort: request.effort, startMs: prev.startMs ?? (await $.clock.now()), endMs: undefined })
     rowState.done.delete(request.agentId)
     uiTouch($)
     await rowMaybeSchedule($)

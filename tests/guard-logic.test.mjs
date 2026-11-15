@@ -9,6 +9,7 @@ import {
   clipText,
   compileConfig,
   configPath,
+  defaultConfigText,
   gateDecide,
   gateRecord,
   guardOn,
@@ -588,4 +589,103 @@ test('the lanes example is valid, has unique ids, and sorts commands into deny /
   }
   assert.equal(level(classify('Write', { file_path: '/app/.env.production' }, LANES.config)), 'confirm')
   assert.equal(level(classify('Write', { file_path: '/app/.env.example' }, LANES.config)), null)
+})
+
+// ---- false alarms seen live -------------------------------------------------------------------------
+
+const sqlRule = (command) => {
+  const v = classify('Bash', { command })
+  return v && v.rule === 'sql-destructive' ? v.level : null
+}
+
+test('sql-destructive needs a real DROP/TRUNCATE statement, not the word', () => {
+  const py = "cd /repo && python3 - <<'EOF'\nimport re\np = 'hooks/src/crew-ui.js'\ns = open(p).read()\ns = s.replace(\"wrap: 'clip'\", \"wrap: 'truncate-end'\")\nopen(p, 'w').write(s)\nEOF"
+  const prose = "cd /repo && python3 - <<'EOF'\nnote = '''Long names truncate at the edge.\nTruncate long lines before drawing them.\nWe drop table rows that are empty.'''\nprint(note)\nEOF"
+  for (const command of [py, prose, 'grep -n "TRUNCATE\\|DROP" tests/x.mjs', 'echo "Truncate the logs"', 'my_truncate users', 'git commit -m "fix: truncate long labels"', "python3 - <<'EOF'\nimport sqlite3\nprint('we truncate names')\nEOF", 'psql -c "select 1" > drop-table-report.txt']) {
+    assert.equal(sqlRule(command), null, command)
+  }
+  for (const command of [
+    'psql -c "TRUNCATE users"',
+    "mysql -e 'DROP TABLE x'",
+    'mysql -e "truncate table x"',
+    'DROP DATABASE prod',
+    'psql -c "DROP TABLE IF EXISTS public.orders CASCADE"',
+    'psql -c "TRUNCATE ${table}"',
+    'sqlite3 app.db "drop index idx_a;"',
+    "psql app <<'SQL'\nBEGIN;\nTRUNCATE TABLE sessions;\nCOMMIT;\nSQL",
+    "python3 - <<'EOF'\ncur.execute(f\"DROP TABLE {t}\")\nEOF",
+    'echo "TRUNCATE users;" | psql',
+    'echo DROP TABLE users | psql app',
+    'echo TRUNCATE users | mysql app',
+  ]) {
+    assert.equal(sqlRule(command), 'confirm', command)
+  }
+})
+
+const rmRule = (command) => {
+  const v = classify('Bash', { command })
+  return v && v.rule === 'rm-rf' ? v.level : null
+}
+
+test('rm-rf needs rm as a command, not the words inside data', () => {
+  for (const command of [
+    `node -e "console.log('rm -rf /tmp/x is dangerous')"`,
+    `python3 -c "print('rm -rf /')"`,
+    `ruby -e 'puts "rm -rf ~"'`,
+    `perl -e 'print "rm -rf /\\n"'`,
+    'git commit -m "docs: never run rm -rf / on a server"',
+    'echo "rm -rf ~ wipes your home"',
+    "printf 'rm -rf /\\n'",
+    "cat > notes.md <<'EOF'\nNever run rm -rf / here.\nrm -rf ~\nEOF",
+    "cat > notes.md <<'EOF'\nrm -rf /\nEOF\nls",
+    "python3 - <<'EOF'\nprint('rm -rf /')\nEOF",
+  ]) {
+    assert.equal(rmRule(command), null, command)
+  }
+  for (const [command, want] of [
+    ['rm -rf /', 'deny'],
+    ['cd x && rm -rf ~', 'deny'],
+    ['ls; rm -rf /', 'deny'],
+    ['ls | rm -rf ~', 'deny'],
+    ['sudo rm -rf /', 'deny'],
+    ['ls | xargs rm -rf', 'warn'],
+    ['ls | xargs -0 rm -rf ~', 'deny'],
+    ['bash -c "rm -rf /"', 'deny'],
+    ["sh -c 'rm -rf ~'", 'deny'],
+    ['zsh -c "rm -rf /"', 'deny'],
+    ['eval "rm -rf /"', 'deny'],
+    ["ssh host 'rm -rf /'", 'deny'],
+    ['find . -name x -exec rm -rf {} \\;', 'confirm'],
+    ['find / -exec rm -rf / +', 'deny'],
+    ['echo "$(rm -rf /)"', 'deny'],
+    ['echo `rm -rf /`', 'deny'],
+    ["bash <<'EOF'\nrm -rf /\nEOF", 'deny'],
+    ['cat <<EOF | sh\nrm -rf ~\nEOF', 'deny'],
+    ['if rm -rf ~; then :; fi', 'deny'],
+    ['git commit -m "x" && rm -rf src/old', 'warn'],
+  ]) {
+    assert.equal(rmRule(command), want, command)
+  }
+})
+
+test('local rsync and scp with variable operands are not remote; host:path still is', () => {
+  const def = compileConfig(defaultConfigText()).config.ssh // prodHosts ['*'], warn: the config of the live alarm
+  assert.deepEqual(sshAssess('rsync -a --files-from=$SP/files.txt ./ "$C/"', def), [])
+  assert.deepEqual(sshAssess('rsync -an --exclude .git ./ $C/ --itemize-changes', def), [])
+  assert.deepEqual(sshAssess('rsync -a "${SRC:-./dist}/" "$C/"', def), [])
+  assert.deepEqual(sshAssess('scp "$A" $B/', def), [])
+  assert.deepEqual(parseRemoteCalls('rsync -a ./ "$C/"'), [])
+  const one = (command) => {
+    const t = sshAssess(command, def)
+    assert.equal(t.length, 1, command)
+    return t[0]
+  }
+  assert.equal(one('rsync x host:/y').host, 'host')
+  assert.equal(one('rsync ./ user@host:/srv/').host, 'host')
+  assert.equal(one('rsync x $HOST:/y').verdict.kind, 'unknown')
+  assert.equal(one('rsync x "${HOST}:/y"').verdict.kind, 'unknown')
+  assert.equal(one('rsync x $(remote_target)').verdict.kind, 'unknown')
+  assert.equal(one('scp a $HOST:/tmp/').verdict.kind, 'unknown')
+  assert.equal(one('sftp $HOST').verdict.kind, 'unknown')
+  assert.equal(one('ssh prod rm -rf /srv/x').host, 'prod')
 })

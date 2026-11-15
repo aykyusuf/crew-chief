@@ -10,6 +10,7 @@ import {
   anchorsOf,
   backupName,
   backupsToPrune,
+  cardFacts,
   checkSummary,
   compactThresholds,
   lineSurvives,
@@ -233,4 +234,16 @@ test('withFocus: an extra line follows the brief; backgroundNote names the proce
   assert.ok(note.includes('npm run dev; uvicorn app:app'))
   assert.ok(!note.includes('; d'))
   assert.ok(note.includes('with their ids and commands, so nobody starts them a second time'))
+})
+
+test('cardFacts: empty ones dropped, one line each, long ones cut with an ellipsis, four at most', () => {
+  const long = 'Phase: Round 9 done: perf toggle (⚡, /crew-perf), compact icon, waiting agents visible'
+  const out = cardFacts(['Context 423k', '', long, '  38\n uncommitted  files ', 'Agents running 0', 'Waiting 2'])
+  assert.equal(out.length, 4)
+  assert.deepEqual(out.slice(0, 1), ['Context 423k'])
+  assert.ok(out[1].endsWith('…') && [...out[1]].length <= 32 && out[1].startsWith('Phase: Round 9 done'))
+  assert.equal(out[2], '38 uncommitted files')
+  assert.equal(out[3], 'Agents running 0')
+  assert.deepEqual(cardFacts(undefined), [])
+  assert.deepEqual(cardFacts(['a', 7, null, 'b']), ['a', 'b'])
 })
