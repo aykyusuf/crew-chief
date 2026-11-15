@@ -26,6 +26,15 @@ function onOff(text) {
   return undefined
 }
 
+// Performance mode's scope: what stands still. on|true|yes is everything (as panel.perf on always was).
+function perfScope(text) {
+  const w = String(text).trim().toLowerCase()
+  if (w === 'all' || w === 'agents' || w === 'theme' || w === 'off') return w
+  if (w === 'on' || w === 'true' || w === 'yes') return 'all'
+  if (w === 'false' || w === 'no') return 'off'
+  return undefined
+}
+
 function whole(min, max) {
   return (text) => {
     const w = String(text).trim()
@@ -82,7 +91,7 @@ export const SETTINGS = {
   'agents.warn': { group: 'band', parse: whole(2, 50), def: 5, what: 'the band notes the cost of watching when more than this many subagents run at once' },
   'panel.style': { group: 'band', parse: choice(['capsule', 'cat', 'text']), def: 'capsule', env: 'CREW_CHIEF_PANEL_STYLE', what: 'how the band draws a running subagent outside the terminal: capsule (a yellow capsule buddy), cat (a blue point kitten) or text (the plain line, no pictures); the terminal always gets the line' },
   'panel.click': { group: 'band', parse: onOff, def: 'on', env: 'CREW_CHIEF_PANEL_CLICK', what: 'outside the terminal, a click on a subagent row of the band opens what it is doing under it, with Full view and a message field (on|off; /crew-agents works either way)' },
-  'panel.perf': { group: 'band', parse: onOff, def: 'off', env: 'CREW_CHIEF_PANEL_PERF', what: 'performance mode for the agent pictures outside the terminal: on keeps each character still but for a short blink now and then, off lets it move fully (on|off; the progress bar is still either way)' },
+  'panel.perf': { group: 'band', parse: perfScope, def: 'off', env: 'CREW_CHIEF_PANEL_PERF', what: 'performance mode, what stands still: agents (the agent pictures outside the terminal), theme (the desktop theme, through ~/.claude/perf-mode.json), all (both) or off (off|agents|theme|all; on means all; the progress bar is still either way)' },
   'ui.statusline': { group: 'band', parse: onOff, def: 'on', env: 'CREW_CHIEF_UI_STATUSLINE', what: 'on the Desktop app, the band ends with one status line right above the prompt: folder, git branch, limit windows, context, tokens, model and effort (on|off)' },
   'notify.agent': { group: 'notify', parse: onOff, def: 'on', env: 'CREW_CHIEF_NOTIFY_AGENT', what: 'a toast when a subagent finishes: name, time, tokens, tool calls (on|off)' },
   'notify.native': { group: 'notify', parse: onOff, def: 'on', env: 'CREW_CHIEF_NOTIFY_NATIVE', what: 'the same as a system notification, through your own notification channel (on|off; skipped quietly where none can be raised)' },

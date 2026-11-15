@@ -23,7 +23,7 @@
 // which take no colour: the model and effort after the spinner word and before the turn line, a note in the
 // footer's mode labels, a limit note after the prompt hint. Nothing is replaced, only added.
 // CREW_CHIEF_UI=on|off beats the saved choice. Any failure draws nothing (the engine's own band).
-import { rowBandRows, rowSurfaces } from './agent-row.mjs'
+import { rowBandRows, rowRefreshSurfaces, rowSurfaces } from './agent-row.mjs'
 import { resolveLang } from './lang.mjs'
 import { cfgGet, cfgSet, cfgState } from './config.mjs'
 import { t } from './saver-i18n.mjs'
@@ -32,7 +32,7 @@ import { guardSummary } from './guard.mjs'
 import { agentBar, agentCardText, agentFace, artElapsed, artTokens, CARD_LOOK, saverBadge, SAVER_LOOK } from './panel-art-logic.mjs'
 import { avBandCompose, avBandDraft, avBandDraftOf, avBandFullView, avBandName, avBandOpenPane, avBandSend, avBandView } from './agent-view.mjs'
 import { BAND_EXTRA_MAX, bandExtraRows, fitSections, sendPlan } from './agent-view-logic.mjs'
-import { bandRows, cardBudget, cardGrid, cardRowsFit, cardLine1Cells, cardNeedCells, cardTextRoom, CARD_CELLS, ctxAlert, ctxChip, demoContent, modeLabels, modelChip, COMPACT_ICON, COMPACT_LABEL, PERF_ICON, PERF_LABEL, perfNext, placeFolder, questionRows, quietFacts, spinnerWord, statusLineSegments, statusSegments, tailText, windowChip } from './ui-logic.mjs'
+import { bandRows, cardBudget, cardGrid, cardRowsFit, cardLine1Cells, cardNeedCells, cardTextRoom, CARD_CELLS, ctxAlert, ctxChip, demoContent, modeLabels, modelChip, COMPACT_ICON, COMPACT_LABEL, PERF_ASK, perfArg, perfChoices, perfIcon, perfParts, placeFolder, questionRows, quietFacts, spinnerWord, statusLineSegments, statusSegments, tailText, windowChip } from './ui-logic.mjs'
 
 const UI_STORE_KEY = 'crew_ui'
 const UI_MODE_KEY = 'crew_ui_mode' // 'quiet' (default) or 'full'
@@ -342,68 +342,128 @@ export async function uiSessionStart($) {
     // The name is taken, or an older Claude Code: the band can still be switched with CREW_CHIEF_UI.
   }
   try {
-    await $.command.register({ name: 'crew-perf', description: 'Switch performance mode for the agent pictures (fully still, or moving)', immediate: true, argumentHint: '[on|off]' })
+    await $.command.register({ name: 'crew-perf', description: 'Choose what performance mode stills: the agent pictures, the theme, both, or nothing', immediate: true, argumentHint: '[all|agents|theme|off]' })
   } catch (err) {
     // The name is taken, or an older Claude Code: /crew-config set panel.perf and the status line toggle still work.
   }
 }
 
-// /crew-perf and the toggle on the status line: panel.perf as /crew-config saves it, the band redrawn at once.
-// args '' toggles. { text, changed }: one short line in the person's language; the environment variable, when
-// set, wins and nothing is changed.
-async function uiPerfSet($, args) {
+// /crew-perf and the question of the status line toggle: panel.perf as /crew-config saves it, the band redrawn at
+// once, one toast saying what is now still. { text, changed }: one short line in the person's language; the
+// environment variable, when set, wins and nothing is changed.
+async function uiPerfSet($, scope) {
   const lang = await resolveLang($)
   const st = await cfgState($, 'panel.perf')
   if (st.source === 'env') return { text: t(lang, 'perf_env', { value: st.value }), changed: false }
-  const next = perfNext(args, st.value)
-  if (next === undefined) return { text: t(lang, 'perf_bad'), changed: false }
-  const r = await cfgSet($, 'panel.perf', next)
+  const r = await cfgSet($, 'panel.perf', scope)
   if (!r.ok) return { text: t(lang, 'perf_store'), changed: false }
   await perfFileWrite($)
+  uiTouchNow($)
   try {
-    $.ui.invalidate('ui.render')
-  } catch (err) {
-    // Nothing to redraw.
-  }
-  try {
-    $.ui.toast(t(lang, r.value === 'on' ? 'perf_toast_on' : 'perf_toast_off'), { timeoutMs: 4000 })
+    $.ui.toast(t(lang, 'perf_toast_' + r.value), { timeoutMs: 4000 })
   } catch (err) {
     // The toast is a courtesy; the drawing and the command's answer say it too.
   }
-  return { text: t(lang, r.value === 'on' ? 'perf_on' : 'perf_off'), changed: true }
+  return { text: t(lang, 'perf_set_' + r.value), changed: true }
+}
+
+// The performance question open now ({ close }), so a second press on the toggle closes it.
+let uiPerfAsking
+
+// Asks in the band what performance mode stills: all, agents only, theme only, and off while something is on;
+// the choice in force carries a ✓. Never a dialog: when the band cannot ask, { opened: false, text } says how
+// to set it by hand. The answer is handled after this returns (a press or a command does not wait on it); no
+// answer before the deadline (ask.timeout, as the plugin's other questions) changes nothing.
+async function uiPerfAsk($) {
+  const lang = await resolveLang($)
+  const st = await cfgState($, 'panel.perf')
+  if (st.source === 'env') return { opened: false, text: t(lang, 'perf_env', { value: st.value }) }
+  const { scopes, current } = perfChoices(st.value)
+  const answers = scopes.map((sc, i) => t(lang, 'perf_answer_' + sc) + (i === current ? ' ✓' : ''))
+  const state = t(lang, 'perf_state_' + st.value)
+  const look = { kind: 'card', topic: t(lang, 'perf_topic'), question: t(lang, 'perf_question'), facts: [t(lang, 'perf_fact_now', { state })], note: t(lang, 'perf_note') }
+  await rowRefreshSurfaces($)
+  const band = uiAskStart($, t(lang, 'perf_ask', { state }), answers, look)
+  if (band === undefined) return { opened: false, text: t(lang, 'perf_busy') }
+  let ms = 0
+  try {
+    ms = (await cfgGet($, 'ask.timeout')) * 60_000
+  } catch (err) {
+    ms = 0 // no deadline then
+  }
+  let timer
+  let ended = false
+  const end = (toastKey) => {
+    if (ended) return
+    ended = true
+    try {
+      if (timer) timer.cancel()
+    } catch (err) {
+      // Already fired.
+    }
+    band.close()
+    if (uiPerfAsking === asking) uiPerfAsking = undefined
+    if (toastKey) {
+      try {
+        $.ui.toast(t(lang, toastKey), { timeoutMs: 6000 })
+      } catch (err) {
+        // Nothing changed either way.
+      }
+    }
+  }
+  const asking = { close: () => end('perf_ask_closed') }
+  uiPerfAsking = asking
+  if (ms > 0) timer = $.clock.after(ms, () => end('perf_ask_expired'))
+  band.promise
+    .then(async (answer) => {
+      if (ended) return
+      end()
+      const at = answers.indexOf(answer)
+      if (at < 0) return
+      const r = await uiPerfSet($, scopes[at])
+      if (!r.changed) $.ui.toast(r.text, { timeoutMs: 8000 })
+    })
+    .catch(() => {})
+  return { opened: true, text: t(lang, 'perf_asking') }
 }
 
 // The shared performance-mode file other mods read (desktop-themes draws its light scenes while it is on):
-// ~/.claude/perf-mode.json = {"on": true|false, "at": <iso>}, the value in force (the environment wins).
+// ~/.claude/perf-mode.json = {"on": <theme>, "agents": bool, "theme": bool, "at": <iso>}, the scope in force (the
+// environment wins); "on" mirrors the theme part, so a reader that knows only "on" stills the theme as asked.
 // Written whenever panel.perf changes; at session start (`onlyIfStale`) only when the file says otherwise, a
 // missing file counting as off. A failed write never fails the toggle.
 export async function perfFileWrite($, onlyIfStale = false) {
   try {
     const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE'))
     if (!home) return false
-    const on = (await cfgGet($, 'panel.perf')) === 'on'
+    const { agents, theme } = perfParts(await cfgGet($, 'panel.perf'))
     const path = `${home}/.claude/perf-mode.json`
     if (onlyIfStale) {
       const exists = await $.fs.exists(path).catch(() => false)
-      if (!exists && !on) return false
+      if (!exists && !agents && !theme) return false
       if (exists) {
-        const was = await $.fs.read(path).then((text) => JSON.parse(text).on === true, () => undefined)
-        if (was === on) return false
+        const was = await $.fs.read(path).then((text) => JSON.parse(text), () => undefined)
+        if (was && was.on === theme && was.agents === agents && was.theme === theme) return false
       }
     }
     const at = new Date(await $.clock.now()).toISOString()
-    await $.fs.write(path, JSON.stringify({ on, at }) + '\n')
+    await $.fs.write(path, JSON.stringify({ on: theme, agents, theme, at }) + '\n')
     return true
   } catch (err) {
     return false
   }
 }
 
-// A press on the toggle: uiPerfSet toasts the change; here a toast only when nothing could change.
+// A press on the toggle asks what to still (uiPerfAsk); a press while that question is open closes it, nothing
+// changed. A toast only when the question could not open (the environment wins, or the band is busy).
 async function uiPerfPress($) {
   try {
-    const r = await uiPerfSet($, '')
-    if (!r.changed) $.ui.toast(r.text, { timeoutMs: 8000 })
+    if (uiPerfAsking !== undefined) {
+      uiPerfAsking.close()
+      return
+    }
+    const r = await uiPerfAsk($)
+    if (!r.opened) $.ui.toast(r.text, { timeoutMs: 8000 })
   } catch (err) {
     // The toggle is a convenience; /crew-perf still works.
   }
@@ -487,7 +547,7 @@ function uiCardText(a) {
 // band: { view, fits, lang, viewing, canInput } where an agent row opens on a click (panel.click, not the
 // terminal), else undefined. An Svg takes no press, so a picture row gets a small ▸/▾ button at its end; a row
 // of text is itself the button.
-// perf: { on } on the Desktop status line, where its end holds the performance mode toggle; else undefined.
+// perf: { scope } on the Desktop status line, where its end holds the performance mode toggle; else undefined.
 function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
   const { Box, Text, Button, Input } = $.ui.resolve(e)
   const hex = style !== 'plain'
@@ -782,8 +842,8 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
   // The status line is the band's last row, under the frame, right above the prompt; with nothing else to say
   // the band is that line alone (no empty frame). The wrapper and both parts keep their keys from one drawing
   // to the next, so the pictures in the frame stay where they were.
-  // Its right end holds the performance mode toggle (Desktop only): the ⚡ alone, dim when off, lit when on; the
-  // label names it. Before it, while compaction is advised and no agent is on the band, the compact key in the
+  // Its right end holds the performance mode toggle (Desktop only): the ⚡ dim when off, with a small a or t when
+  // only the agents or only the theme stand still, lit and bold for both (perfIcon); the label is the same text. Before it, while compaction is advised and no agent is on the band, the compact key in the
   // same small style (no hotkey: the Desktop band is not focused; the terminal keeps its '1 compact').
   const compactKey = perf && perf.compact
     ? [
@@ -797,17 +857,18 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
         }),
       ]
     : []
+  const mark = perf ? perfIcon(perf.scope) : undefined
   const toggle = perf
     ? [
         ...compactKey,
         Button({
           key: 'band-perf',
           plain: true,
-          label: PERF_LABEL,
-          ...(perf.on ? {} : { dimColor: true }),
+          label: mark.text,
+          ...(mark.lit ? {} : { dimColor: true }),
           hover: { color: '#ffffff' },
           onPress: () => uiPerfPress($),
-          children: [Text({ color: perf.on ? UI_HEX.warn : UI_HEX.dim, ...(perf.on ? { weight: 'bold' } : {}), children: [PERF_ICON] })],
+          children: [Text({ color: mark.lit ? UI_HEX.warn : UI_HEX.dim, ...(mark.bold ? { weight: 'bold' } : {}), children: [mark.text] })],
         }),
       ]
     : []
@@ -902,7 +963,7 @@ export function registerUi(on, saverOn) {
       let line
       let perf
       if (e.surface === 'desktop' && (await cfgGet($, 'ui.statusline')) === 'on') {
-        perf = { on: (await cfgGet($, 'panel.perf')) === 'on' }
+        perf = { scope: await cfgGet($, 'panel.perf') }
         line = statusLineSegments({ folder: uiPlace.folder, branch: uiPlace.branch, five: facts.five, week: facts.week, ctx: facts.ctx, tokens: facts.tokens, model: uiMain.model ?? uiPlace.model, effort: uiMain.effort })
         facts.ctx = undefined
         facts.five = undefined
@@ -986,8 +1047,8 @@ export function registerUi(on, saverOn) {
       let art
       if (cardsDrawn) {
         const now = await $.clock.now()
-        // panel.perf on: the characters stand fully still.
-        const perf = (await cfgGet($, 'panel.perf')) === 'on'
+        // panel.perf agents or all: the characters stand fully still.
+        const perf = perfParts(await cfgGet($, 'panel.perf')).agents
         art = { Svg, style: panel, perf, now, prev: uiArtPrev(Array.isArray(agents) ? agents : [], now), columns, grid: cardLayout?.grid }
       }
       const tree = uiTree($, e, bandList, () => compactBandPress($), uiStyle, question, art, band, line, perf)
@@ -1054,7 +1115,10 @@ export function registerUi(on, saverOn) {
   })
 
   on('command.run', { command: 'crew-perf' }, async ($, e) => {
-    return { text: (await uiPerfSet($, e.args)).text }
+    const scope = perfArg(e.args)
+    if (scope === undefined) return { text: t(await resolveLang($), 'perf_bad') }
+    if (scope === PERF_ASK) return { text: (await uiPerfAsk($)).text }
+    return { text: (await uiPerfSet($, scope)).text }
   })
 
   on('command.run', { command: 'crew-ui' }, async ($, e) => {

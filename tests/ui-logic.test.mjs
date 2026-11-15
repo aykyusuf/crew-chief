@@ -442,3 +442,35 @@ test('statusSegments: the agents past the cards come first in the row, as a smal
   assert.equal(lineText(statusSegments({ more: '+1 more', busy: 5 })), '+1 more   5 agents running · more than you can follow')
   assert.equal(quietFacts({ more: '+2 more' }).more, '+2 more')
 })
+
+import { PERF_ASK, perfArg, perfChoices, perfIcon, perfParts } from '../hooks/ui-logic.mjs'
+
+test('perfArg: no argument asks, a scope or on sets it, anything else is refused', () => {
+  assert.equal(perfArg(''), PERF_ASK)
+  assert.equal(perfArg(undefined), PERF_ASK)
+  for (const v of ['all', 'agents', 'theme', 'off']) assert.equal(perfArg(' ' + v.toUpperCase() + ' '), v)
+  assert.equal(perfArg('on'), 'all')
+  assert.equal(perfArg('toggle'), undefined)
+  assert.equal(perfArg('maybe'), undefined)
+})
+
+test('perfParts: agents and theme stilled by their scope and by all', () => {
+  assert.deepEqual(perfParts('off'), { agents: false, theme: false })
+  assert.deepEqual(perfParts('agents'), { agents: true, theme: false })
+  assert.deepEqual(perfParts('theme'), { agents: false, theme: true })
+  assert.deepEqual(perfParts('all'), { agents: true, theme: true })
+})
+
+test('perfChoices: all, agents, theme, and off only while something is on; the current one marked by index', () => {
+  assert.deepEqual(perfChoices('off'), { scopes: ['all', 'agents', 'theme'], current: -1 })
+  assert.deepEqual(perfChoices('agents'), { scopes: ['all', 'agents', 'theme', 'off'], current: 1 })
+  assert.deepEqual(perfChoices('theme'), { scopes: ['all', 'agents', 'theme', 'off'], current: 2 })
+  assert.deepEqual(perfChoices('all'), { scopes: ['all', 'agents', 'theme', 'off'], current: 0 })
+})
+
+test('perfIcon: dim ⚡ off, ⚡a agents only, ⚡t theme only, bold ⚡ for all', () => {
+  assert.deepEqual(perfIcon('off'), { text: '⚡', lit: false, bold: false })
+  assert.deepEqual(perfIcon('agents'), { text: '⚡a', lit: true, bold: false })
+  assert.deepEqual(perfIcon('theme'), { text: '⚡t', lit: true, bold: false })
+  assert.deepEqual(perfIcon('all'), { text: '⚡', lit: true, bold: true })
+})

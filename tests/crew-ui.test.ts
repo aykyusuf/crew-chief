@@ -760,7 +760,7 @@ test('the face moves fully by default; panel.perf on keeps it fully still, the s
   expect(frames(moving)).toContain('ham') // the hammer swings
   expect(frames(moving)).toContain('bob')
   const r = await $.command.run({ command: 'crew-config', args: 'set panel.perf on' })
-  expect(JSON.stringify(r)).toContain('panel.perf = on')
+  expect(JSON.stringify(r)).toContain('panel.perf = all')
   const still = await faceOf()
   expect(still).not.toMatch(/@keyframes|animation/) // fully still, not even a blink
   await s.clock.advance(7000)
@@ -1306,29 +1306,59 @@ const perfButton = async (ui: any) => {
   return kidsOfLine(foot).find((k: any) => keyOf(k) === 'band-perf')
 }
 
-test('/crew-perf toggles panel.perf, on|off sets it, it is saved as /crew-config saves it, and it answers in the person\'s language', async ($, on) => {
+const perfToasts = (s: any) => s.toasts.filter((x: string) => /^Performan/.test(x))
+const askButtons = async (ui: any) => (await ui.findAll({ type: 'Button' })).filter((b: any) => /^ask-\d$/.test(keyOf(b) ?? ''))
+
+test('/crew-perf all|agents|theme|off sets panel.perf directly, on is all, it is saved as /crew-config saves it, and it answers in the person\'s language', async ($, on) => {
   const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'tr' }, surfaces: ['desktop'] })
   await start($)
-  const first = await $.command.run({ command: 'crew-perf', args: '' })
-  expect(JSON.stringify(first)).toContain('Performans modu açık: ajanlar duruyor, sadece göz kırpıyor.')
-  expect(s.stored.cfg_panel_perf).toBe('on')
-  expect(JSON.stringify(await $.command.run({ command: 'crew-config', args: '' }))).toContain('panel.perf = on [saved]')
-  const second = await $.command.run({ command: 'crew-perf', args: '' })
-  expect(JSON.stringify(second)).toContain('Performans modu kapalı: ajanlar hareketli.')
-  expect(s.stored.cfg_panel_perf).toBe('off')
+  const said: Record<string, string> = {
+    all: 'Performans modu hepsi için açık: ajanlar ve tema duruyor.',
+    agents: 'Performans modu sadece ajanlar için açık: ajanlar duruyor, tema hareketli.',
+    theme: 'Performans modu sadece tema için açık: tema duruyor, ajanlar hareketli.',
+    off: 'Performans modu kapalı: ajanlar ve tema hareketli.',
+  }
+  for (const scope of ['agents', 'theme', 'all', 'off']) {
+    const r = await $.command.run({ command: 'crew-perf', args: scope })
+    expect(JSON.stringify(r)).toContain(said[scope])
+    expect(s.stored.cfg_panel_perf).toBe(scope)
+  }
   await $.command.run({ command: 'crew-perf', args: 'on' })
-  await $.command.run({ command: 'crew-perf', args: 'on' })
-  expect(s.stored.cfg_panel_perf).toBe('on') // explicit, not a toggle
+  expect(s.stored.cfg_panel_perf).toBe('all')
+  expect(JSON.stringify(await $.command.run({ command: 'crew-config', args: '' }))).toContain('panel.perf = all [saved]')
   const bad = await $.command.run({ command: 'crew-perf', args: 'maybe' })
-  expect(JSON.stringify(bad)).toContain('/crew-perf on | off')
-  expect(s.stored.cfg_panel_perf).toBe('on')
+  expect(JSON.stringify(bad)).toContain('/crew-perf all | agents | theme | off')
+  expect(s.stored.cfg_panel_perf).toBe('all')
+  expect(perfToasts(s)).toEqual([
+    'Performans modu — ajanlar duruyor, tema hareketli',
+    'Performans modu — tema duruyor, ajanlar hareketli',
+    'Performans modu — ajanlar ve tema duruyor',
+    'Performans modu kapalı — ajanlar ve tema hareketli',
+    'Performans modu — ajanlar ve tema duruyor',
+  ]) // one toast a change, saying what is now still; a refused change only answers
 })
 
 test('/crew-perf answers in English by default', async ($, on) => {
   harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'en' } })
   await start($)
-  expect(JSON.stringify(await $.command.run({ command: 'crew-perf', args: 'on' }))).toContain('Performance mode on')
+  expect(JSON.stringify(await $.command.run({ command: 'crew-perf', args: 'agents' }))).toContain('Performance mode on for the agents only')
   expect(JSON.stringify(await $.command.run({ command: 'crew-perf', args: 'off' }))).toContain('Performance mode off')
+})
+
+test('/crew-perf with no argument asks the same question in the band; its answer sets the scope', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'tr' }, surfaces: ['desktop'], branch: 'main' })
+  await start($)
+  const r = await $.command.run({ command: 'crew-perf', args: '' })
+  expect(JSON.stringify(r)).toContain("neyin duracağını prompt'un üstünden seç")
+  expect(s.stored.cfg_panel_perf).toBeUndefined() // nothing changes until it is answered
+  const desk = await mountDesktop($)
+  expect(await desk.find({ type: 'Box', key: 'ask-card' })).toBeDefined()
+  expect((await askButtons(desk)).map((b: any) => b.text)).toEqual(['Hepsi (ajanlar + tema)', 'Sadece ajanlar', 'Sadece tema']) // no Kapat while off
+  await desk.press({ key: 'ask-3' })
+  await settle()
+  await desk.unmount()
+  expect(s.stored.cfg_panel_perf).toBe('theme')
+  expect(perfToasts(s)).toEqual(['Performans modu — tema duruyor, ajanlar hareketli'])
 })
 
 test('/crew-perf, /crew-config and session start write ~/.claude/perf-mode.json for other mods, and a failed write never fails the toggle', async ($, on) => {
@@ -1354,18 +1384,22 @@ test('/crew-perf, /crew-config and session start write ~/.claude/perf-mode.json 
   await settle()
   expect(writes).toEqual([]) // no file and the mode off: a missing file already reads as off
   await $.command.run({ command: 'crew-perf', args: 'on' })
-  expect(last().on).toBe(true)
+  expect(last()).toMatchObject({ on: true, agents: true, theme: true })
   expect(last().at).toMatch(/^\d{4}-\d\d-\d\dT/)
+  await $.command.run({ command: 'crew-perf', args: 'agents' })
+  expect(last()).toMatchObject({ on: false, agents: true, theme: false }) // "on" mirrors the theme part
+  await $.command.run({ command: 'crew-perf', args: 'theme' })
+  expect(last()).toMatchObject({ on: true, agents: false, theme: true })
   await $.command.run({ command: 'crew-config', args: 'set panel.perf off' })
-  expect(last().on).toBe(false)
+  expect(last()).toMatchObject({ on: false, agents: false, theme: false })
   await $.command.run({ command: 'crew-config', args: 'set panel.perf on' })
-  expect(last().on).toBe(true)
+  expect(last()).toMatchObject({ on: true, agents: true, theme: true })
   await $.command.run({ command: 'crew-config', args: 'reset panel.perf' })
-  expect(last().on).toBe(false)
+  expect(last()).toMatchObject({ on: false, agents: false, theme: false })
   fail = true
-  const r = await $.command.run({ command: 'crew-perf', args: 'on' })
-  expect(JSON.stringify(r)).toContain('Performance mode on')
-  expect(s.stored.cfg_panel_perf).toBe('on')
+  const r = await $.command.run({ command: 'crew-perf', args: 'all' })
+  expect(JSON.stringify(r)).toContain('Performance mode on for everything')
+  expect(s.stored.cfg_panel_perf).toBe('all')
 })
 
 test('session start writes ~/.claude/perf-mode.json only when it says otherwise than panel.perf', async ($, on) => {
@@ -1383,11 +1417,19 @@ test('session start writes ~/.claude/perf-mode.json only when it says otherwise 
   await start($)
   await settle()
   expect(writes).toEqual([file])
-  expect(JSON.parse(files[file]).on).toBe(true)
+  expect(JSON.parse(files[file])).toMatchObject({ on: true, agents: true, theme: true })
 })
 
-test('Desktop: a press on the status line toggle switches panel.perf, and the next drawing\'s face goes from full motion to fully still and back', async ($, on) => {
-  const s = harness(on, { env: { CREW_CHIEF_UI: 'on' }, surfaces: ['desktop'], branch: 'main' })
+test('Desktop: a press on the ⚡ asks what to still (no change until answered); each answer sets the scope, and the face and perf-mode.json follow', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'en', HOME: '/home/t' }, surfaces: ['desktop'], branch: 'main' })
+  const files: Record<string, string> = {}
+  on('fs.exists', ($: any, e: any) => ({ value: e.path in files }))
+  on('fs.read', ($: any, e: any) => (e.path in files ? { value: files[e.path] } : { deny: 'ENOENT: no such file' }))
+  on('fs.write', ($: any, e: any) => {
+    files[e.path] = e.text
+    return { value: undefined }
+  })
+  const file = () => JSON.parse(files['/home/t/.claude/perf-mode.json'])
   await start($)
   s.agents.push({ id: 'a1', type: 'crew-chief:implementer', status: 'running', description: 'a task' })
   await step($, s, 'a1', 'claude-sonnet-5-5', 'medium')
@@ -1400,18 +1442,82 @@ test('Desktop: a press on the status line toggle switches panel.perf, and the ne
   await desk.press({ key: 'band-perf' })
   await settle()
   await desk.unmount()
-  expect(s.stored.cfg_panel_perf).toBe('on')
-  expect(await implementerFace($)).not.toMatch(/@keyframes|animation/)
-  const lit = await mountDesktop($)
-  const onBtn = await perfButton(lit)
-  expect(onBtn?.props?.dimColor).toBeUndefined()
-  expect(kidsOfLine(onBtn)[0]?.props?.weight).toBe('bold') // highlighted when on
-  await lit.press({ key: 'band-perf' })
+  expect(s.stored.cfg_panel_perf).toBeUndefined() // a question, not a toggle
+  // [answer index, the buttons shown, the scope, the face still, the file]
+  const steps: Array<[number, string[], string, boolean, object, string]> = [
+    [2, ['All (agents + theme)', 'Agents only', 'Theme only'], 'agents', true, { on: false, agents: true, theme: false }, '⚡a'],
+    [3, ['All (agents + theme)', 'Agents only ✓', 'Theme only', 'Turn off'], 'theme', false, { on: true, agents: false, theme: true }, '⚡t'],
+    [1, ['All (agents + theme)', 'Agents only', 'Theme only ✓', 'Turn off'], 'all', true, { on: true, agents: true, theme: true }, '⚡'],
+    [4, ['All (agents + theme) ✓', 'Agents only', 'Theme only', 'Turn off'], 'off', false, { on: false, agents: false, theme: false }, '⚡'],
+  ]
+  for (const [i, [answer, shown, scope, still, written, icon]] of steps.entries()) {
+    if (i > 0) {
+      const ui = await mountDesktop($)
+      await ui.press({ key: 'band-perf' })
+      await settle()
+      await ui.unmount()
+    }
+    const asking = await mountDesktop($)
+    expect(await asking.find({ type: 'Box', key: 'ask-card' })).toBeDefined()
+    expect((await askButtons(asking)).map((b: any) => b.text)).toEqual(shown)
+    await asking.press({ key: 'ask-' + answer })
+    await settle()
+    await asking.unmount()
+    expect(s.stored.cfg_panel_perf).toBe(scope)
+    const face = await implementerFace($)
+    if (still) expect(face).not.toMatch(/@keyframes|animation/)
+    else expect(keyframes(face)).toContain('ham')
+    expect(file()).toMatchObject(written)
+    const lit = await mountDesktop($)
+    const btn = await perfButton(lit)
+    expect(btn?.props?.label).toBe(icon)
+    expect(btn?.props?.dimColor).toBe(scope === 'off' ? true : undefined)
+    expect(kidsOfLine(btn)[0]?.props?.weight).toBe(scope === 'all' ? 'bold' : undefined)
+    expect(await lit.find({ type: 'Box', key: 'ask-card' })).toBeUndefined()
+    await lit.unmount()
+  }
+  expect(perfToasts(s)).toEqual([
+    'Performance mode — agents still, theme moves',
+    'Performance mode — theme still, agents move',
+    'Performance mode — agents and theme still',
+    'Performance mode off — agents and theme move',
+  ]) // one toast an answer
+})
+
+test('the perf question: no answer by the deadline, or a second ⚡ press, closes it and changes nothing', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'en' }, surfaces: ['desktop'], branch: 'main', store: { cfg_panel_perf: 'agents' } })
+  await start($)
+  let desk = await mountDesktop($)
+  await desk.press({ key: 'band-perf' })
   await settle()
-  await lit.unmount()
-  expect(s.stored.cfg_panel_perf).toBe('off')
-  expect(keyframes(await implementerFace($))).toContain('ham')
-  expect(s.toasts).toEqual(['Performance mode on — agents still', 'Performance mode off — agents move']) // one toast a press
+  await desk.unmount()
+  desk = await mountDesktop($)
+  expect(await desk.find({ type: 'Box', key: 'ask-card' })).toBeDefined()
+  await desk.unmount()
+  await s.clock.advance(20 * 60_000 + 1000)
+  await settle()
+  desk = await mountDesktop($)
+  expect(await desk.find({ type: 'Box', key: 'ask-card' })).toBeUndefined()
+  await desk.unmount()
+  expect(s.stored.cfg_panel_perf).toBe('agents')
+  expect(s.toasts).toContain('Performance mode question unanswered: nothing was changed.')
+  expect(s.toasts.some((x: string) => /treated as/.test(x))).toBe(false) // no answer was picked for it
+  // A second press while it is open: closed, nothing changed.
+  desk = await mountDesktop($)
+  await desk.press({ key: 'band-perf' })
+  await settle()
+  await desk.unmount()
+  desk = await mountDesktop($)
+  expect(await desk.find({ type: 'Box', key: 'ask-card' })).toBeDefined()
+  await desk.press({ key: 'band-perf' })
+  await settle()
+  await desk.unmount()
+  desk = await mountDesktop($)
+  expect(await desk.find({ type: 'Box', key: 'ask-card' })).toBeUndefined()
+  await desk.unmount()
+  expect(s.stored.cfg_panel_perf).toBe('agents')
+  expect(s.toasts).toContain('Performance mode question closed: nothing was changed.')
+  expect(perfToasts(s).filter((x: string) => x.startsWith('Performance mode —') || x.startsWith('Performance mode off'))).toEqual([])
 })
 
 test('the toggle draws the ⚡ alone: its label names it, no "perf" word is drawn', async ($, on) => {
@@ -1423,17 +1529,6 @@ test('the toggle draws the ⚡ alone: its label names it, no "perf" word is draw
   expect(btn?.props?.label).toBe('⚡')
   expect(await desk.find({ type: 'Text', text: /perf/ })).toBeUndefined()
   await desk.unmount()
-})
-
-test('/crew-perf toasts the change once, in the person\'s language; a refused change only answers', async ($, on) => {
-  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_LANG: 'tr' }, surfaces: ['desktop'] })
-  await start($)
-  await $.command.run({ command: 'crew-perf', args: '' })
-  expect(s.toasts).toEqual(['Performans modu açık — ajanlar duruyor'])
-  await $.command.run({ command: 'crew-perf', args: 'off' })
-  expect(s.toasts).toEqual(['Performans modu açık — ajanlar duruyor', 'Performans modu kapalı — ajanlar hareketli'])
-  await $.command.run({ command: 'crew-perf', args: 'maybe' })
-  expect(s.toasts.length).toBe(2)
 })
 
 test('Desktop: the compact key sits at the status line\'s end beside the ⚡, small, not in the frame; gone while an agent is on the band', async ($, on) => {
@@ -1476,20 +1571,38 @@ test('a card shows no model until the agent\'s first request names it, then the 
   await desk.unmount()
 })
 
-test('CREW_CHIEF_PANEL_PERF set: /crew-perf and the toggle say the environment wins and change nothing', async ($, on) => {
-  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_PANEL_PERF: 'on', CREW_CHIEF_LANG: 'en' }, surfaces: ['desktop'], branch: 'main' })
+test('CREW_CHIEF_PANEL_PERF set: /crew-perf and the toggle say the environment wins, ask nothing and change nothing', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_PANEL_PERF: 'theme', CREW_CHIEF_LANG: 'en' }, surfaces: ['desktop'], branch: 'main' })
   await start($)
-  const r = await $.command.run({ command: 'crew-perf', args: 'off' })
-  expect(JSON.stringify(r)).toContain('CREW_CHIEF_PANEL_PERF=on is set in the environment and wins')
+  for (const args of ['off', '']) {
+    const r = await $.command.run({ command: 'crew-perf', args })
+    expect(JSON.stringify(r)).toContain('CREW_CHIEF_PANEL_PERF=theme is set in the environment and wins')
+  }
   expect(s.stored.cfg_panel_perf).toBeUndefined()
   const desk = await mountDesktop($)
-  expect((await perfButton(desk))?.props?.dimColor).toBeUndefined() // the environment's on is shown
+  expect((await perfButton(desk))?.props?.label).toBe('⚡t') // the environment's scope is shown
+  expect(await desk.find({ type: 'Box', key: 'ask-card' })).toBeUndefined()
   await desk.press({ key: 'band-perf' })
   await settle()
   await desk.unmount()
+  const after = await mountDesktop($)
+  expect(await after.find({ type: 'Box', key: 'ask-card' })).toBeUndefined()
+  await after.unmount()
   expect(s.stored.cfg_panel_perf).toBeUndefined()
-  expect(s.toasts.some((x: string) => x.includes('CREW_CHIEF_PANEL_PERF=on is set in the environment and wins'))).toBe(true)
+  expect(s.toasts.some((x: string) => x.includes('CREW_CHIEF_PANEL_PERF=theme is set in the environment and wins'))).toBe(true)
 })
+
+for (const [value, still] of [['agents', true], ['theme', false], ['on', true]] as const) {
+  test(`CREW_CHIEF_PANEL_PERF=${value} ${still ? 'stills' : 'leaves moving'} the faces`, async ($, on) => {
+    const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_PANEL_PERF: value }, surfaces: ['desktop'], branch: 'main' })
+    await start($)
+    s.agents.push({ id: 'a1', type: 'crew-chief:implementer', status: 'running', description: 'a task' })
+    await step($, s, 'a1', 'claude-sonnet-5-5', 'medium')
+    const face = await implementerFace($)
+    if (still) expect(face).not.toMatch(/@keyframes|animation/)
+    else expect(keyframes(face)).toContain('ham')
+  })
+}
 
 test('the terminal has no performance mode toggle', async ($, on) => {
   const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_UI_STATUSLINE: 'on' }, surfaces: ['terminal', 'desktop'], branch: 'main' })

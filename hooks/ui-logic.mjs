@@ -464,21 +464,42 @@ export function cardBudget(columns, needs, cardRows, max = 6) {
   return { grid, cells, shown: cells, more: n - cells, rows: cells }
 }
 
-// ---- performance mode in one action (/crew-perf, the toggle at the end of the Desktop status line) ----------
+// ---- performance mode (/crew-perf, the toggle at the end of the Desktop status line) -------------------------
 //
-// What /crew-perf <args> (or a press, with no args) turns panel.perf into: '' toggles, on|off sets it.
-// undefined for anything else, so a typo never switches it.
-export function perfNext(args, current) {
+// panel.perf is a scope: off, agents (the agent pictures stand still), theme (the desktop theme stands still,
+// through ~/.claude/perf-mode.json) or all (both). /crew-perf <args>: '' asks which one (PERF_ASK); a scope, or
+// on (all), sets it; undefined for anything else, so a typo never switches it.
+export const PERF_SCOPES = ['all', 'agents', 'theme', 'off']
+export const PERF_ASK = 'ask'
+export function perfArg(args) {
   const w = String(args ?? '').trim().toLowerCase()
-  if (w === '' || w === 'toggle') return current === 'on' ? 'off' : 'on'
-  if (w === 'on' || w === 'off') return w
-  return undefined
+  if (w === '') return PERF_ASK
+  if (w === 'on') return 'all'
+  return PERF_SCOPES.includes(w) ? w : undefined
 }
 
-// The toggle draws the glyph alone (dim when off, lit when on).
+// What a scope stills: { agents, theme }.
+export function perfParts(scope) {
+  return { agents: scope === 'agents' || scope === 'all', theme: scope === 'theme' || scope === 'all' }
+}
+
+// The question's choices, in order: all, agents, theme, and off only while something is on. `current` is the
+// index of the scope in force (-1 when off).
+export function perfChoices(scope) {
+  const scopes = scope === 'agents' || scope === 'theme' || scope === 'all' ? [...PERF_SCOPES] : PERF_SCOPES.slice(0, 3)
+  return { scopes, current: scopes.indexOf(scope) }
+}
+
+// The toggle draws the glyph alone: dim when off, a small a / t after it for agents or theme alone, lit for all.
 export const PERF_ICON = '⚡'
 // The Desktop app draws a plain Button's label as its text (seen live 2026-11-15), so the label is the glyph itself.
 export const PERF_LABEL = PERF_ICON
+export function perfIcon(scope) {
+  if (scope === 'agents') return { text: PERF_ICON + 'a', lit: true, bold: false }
+  if (scope === 'theme') return { text: PERF_ICON + 't', lit: true, bold: false }
+  if (scope === 'all') return { text: PERF_ICON, lit: true, bold: true }
+  return { text: PERF_ICON, lit: false, bold: false }
+}
 
 // The compact key on the Desktop status line, beside the toggle and in its style: a glyph alone would not say
 // what it does, so a down arrow (shrink) and the word the line already uses for the context. The label is the

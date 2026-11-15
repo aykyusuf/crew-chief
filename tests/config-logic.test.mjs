@@ -61,16 +61,21 @@ test('percent settings scale the sizes on a small window, and the defaults are u
   assert.deepEqual(compactThresholds(200_000, { arm: 150_000, ask: 190_000 }), { arm: 150_000, ask: 190_000 })
 })
 
-test('panel.perf: off by default, on|off round-trips, the environment wins', () => {
+test('panel.perf: a scope, off by default; off|agents|theme|all round-trip, on is all, the environment wins with the same values', () => {
   assert.equal(SETTINGS['panel.perf'].def, 'off')
   assert.equal(SETTINGS['panel.perf'].env, 'CREW_CHIEF_PANEL_PERF')
-  for (const v of ['on', 'off']) {
+  for (const v of ['off', 'agents', 'theme', 'all']) {
     const parsed = parseSetting('panel.perf', v)
     assert.equal(parsed.ok, true)
     assert.equal(formatSetting('panel.perf', parsed.value), v)
     assert.equal(resolveSetting('panel.perf', undefined, storeText('panel.perf', parsed.value)).value, v)
   }
+  assert.equal(parseSetting('panel.perf', 'on').value, 'all') // the old on|off still read
+  assert.equal(parseSetting('panel.perf', 'OFF').value, 'off')
+  assert.equal(resolveSetting('panel.perf', undefined, 'on').value, 'all') // a value saved before the scope
   assert.equal(parseSetting('panel.perf', 'fast').ok, false)
   assert.deepEqual(resolveSetting('panel.perf', undefined, undefined), { value: 'off', source: 'default' })
-  assert.equal(resolveSetting('panel.perf', 'on', 'off').value, 'on')
+  assert.deepEqual(resolveSetting('panel.perf', 'on', 'off'), { value: 'all', source: 'env' })
+  assert.deepEqual(resolveSetting('panel.perf', 'theme', 'agents'), { value: 'theme', source: 'env' })
+  assert.deepEqual(resolveSetting('panel.perf', 'bogus', 'agents'), { value: 'agents', source: 'saved' })
 })
