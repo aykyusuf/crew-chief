@@ -490,8 +490,11 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
     else if (c.fresh && tagFits) line1.push(fixed('fresh', Text({ color: CARD_LOOK.warn, weight: 'bold', children: ['first run'] })))
     // Each picture sits in a Box keyed by the agent (an Svg takes no key): a redraw finds the same element at the
     // same place and the Desktop app keeps the image, so its animation runs on instead of starting over.
-    const svg = (p) => art.Svg({ source: p.source, alt: p.alt, width: p.width, height: p.height })
-    const pic = (name, p) => Box({ key: name + '-' + k, flexShrink: 0, children: [svg(p)] })
+    // A moving face is drawn in a frame (isInteractive), not as an image: measured live on 2026-11-15, the app
+    // loaded the image again about every 2 s from the band's last drawing (ours came every ~10 s), so the motion
+    // jumped back to that drawing's phase. A frame whose markup has not changed is expected to stay as it is.
+    const svg = (p, frame = false) => art.Svg({ source: p.source, alt: p.alt, width: p.width, height: p.height, ...(frame ? { isInteractive: true } : {}) })
+    const pic = (name, p, frame = false) => Box({ key: name + '-' + k, flexShrink: 0, children: [svg(p, frame)] })
     // The bar is still (nothing in it moves), so a new 5% step may load it again without a visible jump.
     const line2 = [pic('agentbar', bar)]
     line2.push(fixed('pct', Text({ color: c.hasPct ? CARD_LOOK.ink : CARD_LOOK.mute, ...(c.hasPct ? { weight: 'bold' } : {}), children: [c.pct] })))
@@ -502,7 +505,7 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
     // minWidth 0: a long step is cut short instead of pushing the figures and the button out.
     const lineBox = (children) => Box({ flexDirection: 'row', alignItems: 'center', gap: 1, minWidth: 0, children })
     const children = [
-      pic('agentface', face),
+      pic('agentface', face, !(art.perf || a.bgWait === true)),
       Box({ flexDirection: 'column', flexGrow: 1, flexShrink: 1, minWidth: 0, children: [lineBox(line1), lineBox(line2)] }),
       figures,
     ]
