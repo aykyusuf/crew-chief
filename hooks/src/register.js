@@ -60,7 +60,11 @@ import {
   advisorPlan,
   agentCallEffort,
   capEffort,
-  crossing,
+  ASK_STORE_PREFIX,
+  askHit,
+  askStateNew,
+  askStateRestore,
+  askStateStale,
   formatDuration,
   isEnvFlag,
   tokensLabel,
@@ -75,7 +79,6 @@ let saver = false
 let ultra = false // a mode of the saver: subagents stay off Opus (hooks/saver-logic.mjs ultraAgentCall)
 let ultraOpus = false // the person's standing yes to Opus for the session (/saver ultra opus on)
 let ultraToasted = false
-let snoozed = false
 let pending = null
 let lastPromptAt = 0
 let lastCompleteAt = 0
@@ -85,7 +88,11 @@ let quiet = false
 let ageToasted = false
 let capToasted = false
 let advisorChecked = false
-const seen = new Set()
+// The saver question's memory ("don't ask again", thresholds already asked), mirrored in the plugin store
+// per session id so a module reload, with or without a new session.start, keeps it (askLoad / askSave).
+let asks = askStateNew()
+let askSid // the session id `asks` is stored under; undefined: not looked up (or no store)
+let askLoading = null
 
 function resetState() {
   overlapReset()
@@ -94,7 +101,6 @@ function resetState() {
   ultra = false
   ultraOpus = false
   ultraToasted = false
-  snoozed = false
   open.saver = false
   pending = null
   lastPromptAt = 0
@@ -109,7 +115,9 @@ function resetState() {
   resetResetFlow()
   statsReset()
   progressReset()
-  seen.clear()
+  asks = askStateNew()
+  askSid = undefined
+  askLoading = null
 }
 
 async function readConfig($) {
@@ -120,19 +128,50 @@ async function readConfig($) {
   return { off, five, week }
 }
 
-// The window that most needs a question, or undefined. Every threshold at or below the current
-// percent is marked as seen, so crossing 70 and 80 together asks once, and never again for 70.
-function findHit(rateLimits, cfg) {
-  let hit
-  for (const w of rateLimits) {
-    const list = w.kind === 'five_hour' ? cfg.five : w.kind === 'seven_day' ? cfg.week : undefined
-    if (list === undefined) continue
-    const c = crossing(w.percentUsed, list, seen, w.kind + '|' + w.resetsAt + '|')
-    c.crossed.forEach((key) => seen.add(key))
-    if (c.top !== undefined && (hit === undefined || w.percentUsed > hit.percent)) {
-      hit = { kind: w.kind, percent: w.percentUsed, resetsAt: w.resetsAt }
+// Brings back this session's saver-question memory after a module reload, and drops other sessions' stale
+// copies. Once per module life (and again after resetState); any failure keeps the memory in this module only.
+function askLoad($) {
+  askLoading ??= (async () => {
+    try {
+      const sid = await $.session.id()
+      if (typeof sid !== 'string' || sid === '') return
+      const stored = await $.store.get(ASK_STORE_PREFIX + sid)
+      const back = askStateRestore(stored)
+      // Kept from both: an answer given while the load was under way is not lost.
+      asks = { never: asks.never || back.never, windows: { ...back.windows, ...asks.windows } }
+      askSid = sid
+      const now = await $.clock.now()
+      for (const k of await $.store.keys()) {
+        if (k.startsWith(ASK_STORE_PREFIX) && k !== ASK_STORE_PREFIX + sid && askStateStale(await $.store.get(k), now)) await $.store.delete(k)
+      }
+    } catch (err) {
+      // No session id or no store: remembered for this module's lifetime only.
     }
+  })()
+  return askLoading
+}
+
+async function askSave($) {
+  await askLoad($)
+  if (askSid === undefined) return
+  try {
+    await $.store.set(ASK_STORE_PREFIX + askSid, { ...asks, savedAt: await $.clock.now() })
+  } catch (err) {
+    // Remembered for this module's lifetime only.
   }
+}
+
+async function askNever($, value) {
+  await askLoad($)
+  asks.never = value
+  await askSave($)
+}
+
+// The window that most needs a question, or undefined (hooks/saver-logic.mjs askHit).
+async function findHit($, rateLimits, cfg) {
+  await askLoad($)
+  const { hit, changed } = askHit(asks, rateLimits, { five_hour: cfg.five, seven_day: cfg.week })
+  if (changed) await askSave($)
   return hit
 }
 
@@ -179,7 +218,7 @@ async function askUser($, hit) {
       ultra = true
       $.ui.toast(t(lang, 'toast_ultra_on'), { timeoutMs: 8000 })
     } else if (answer === answers[3]) {
-      snoozed = true
+      await askNever($, true)
     }
   } catch (err) {
     // Dismissed, or a run with nobody to ask: treat it as "not now".
@@ -222,8 +261,9 @@ async function evaluate($) {
   if (cfg.off) return
   const usage = await $.session.usage()
   await ageNotice($, usage)
-  if (saver || snoozed || open.saver) return
-  const hit = findHit(usage.rateLimits, cfg)
+  await askLoad($)
+  if (saver || asks.never || open.saver) return
+  const hit = await findHit($, usage.rateLimits, cfg)
   if (hit !== undefined) pending = hit
 }
 
@@ -332,11 +372,12 @@ async function turnInFlight($) {
 }
 
 async function statusText($) {
+  await askLoad($)
   const lang = await resolveLang($)
   const units = unitsFor(lang)
   const usage = await $.session.usage()
   const now = await $.clock.now()
-  const parts = [t(lang, saver ? 'status_on' : 'status_off') + (ultra ? t(lang, 'status_ultra') : '') + (snoozed ? t(lang, 'status_snoozed') : '')]
+  const parts = [t(lang, saver ? 'status_on' : 'status_off') + (ultra ? t(lang, 'status_ultra') : '') + (asks.never ? t(lang, 'status_snoozed') : '')]
   for (const w of usage.rateLimits) {
     const left = w.resetsAt ? Date.parse(w.resetsAt) - now : 0
     parts.push(windowName(lang, w.kind) + ' ' + t(lang, 'percent', { n: w.percentUsed }) + (left > 0 ? t(lang, 'status_resets', { duration: formatDuration(left, units) }) : ''))
@@ -550,21 +591,21 @@ export function register(on) {
     const lang = await resolveLang($)
     if (word === 'on') {
       saver = true
-      snoozed = false
+      await askNever($, false)
       return { text: t(lang, 'cmd_on') }
     }
     if (word === 'off') {
       saver = false
       ultra = false
       ultraOpus = false
-      snoozed = true
+      await askNever($, true)
       return { text: t(lang, 'cmd_off') }
     }
     if (word === 'ultra' || word === 'ultra on') {
       const wasOn = saver
       saver = true
       ultra = true
-      snoozed = false
+      await askNever($, false)
       return { text: t(lang, 'cmd_ultra_on') + (wasOn ? '' : ' ' + t(lang, 'cmd_ultra_needs_saver')) }
     }
     if (word === 'ultra off') {

@@ -5,7 +5,9 @@ import {
   bandRows,
   bandLines,
   bar,
+  cardBudget,
   cardGrid,
+  cardRowsFit,
   cardLine1Cells,
   cardNeedCells,
   cardTextRoom,
@@ -389,4 +391,30 @@ test('the first-run tag is drawn only where line 1 has room for it', () => {
   assert.ok(cardLine1Cells(c, true) > cardLine1Cells(c))
   assert.ok(cardLine1Cells(c, true) > cardTextRoom(71.5, 'details ›'))
   assert.ok(cardLine1Cells(crewCard('scanner', 'claude-haiku-5-5', 'low'), true) <= cardTextRoom(71.5, 'details ›'))
+})
+
+test('cardRowsFit: whole rows of cards (3 rows and a gap each) in what the frame, lines and a question leave', () => {
+  assert.equal(cardRowsFit({ maxRows: 14, frame: 2, line: 1, status: 1 }), 2) // 10 left: 3 + 1 + 3, not a third
+  assert.equal(cardRowsFit({ maxRows: 15, frame: 2, line: 1, status: 1 }), 3) // 11 left: 3 + 1 + 3 + 1 + 3
+  assert.equal(cardRowsFit({ maxRows: 6, frame: 2, line: 1, status: 1, question: 4 }), 1) // never none
+  assert.equal(cardRowsFit({}), 1)
+})
+
+test('cardBudget: everything that fits; past the room the last cell is the "+N more" chip, never a cut row', () => {
+  const needs = (n) => Array.from({ length: n }, () => 60)
+  const all = cardBudget(145, needs(4), 2)
+  assert.deepEqual([all.cells, all.shown, all.more, all.rows], [4, 4, 0, 4])
+  for (const [n, rows] of [[7, 2], [7, 1], [9, 3], [12, 2]]) {
+    const b = cardBudget(145, needs(n), rows, 6)
+    const drawnRows = Math.ceil((b.shown + (b.more > 0 ? 1 : 0)) / b.grid.per)
+    assert.ok(drawnRows <= rows, `${n} agents in ${rows} rows: ${drawnRows} drawn`)
+    assert.ok(b.cells <= 6)
+    assert.equal(b.shown + b.more, n)
+    assert.ok(b.more > 0 && b.shown === b.cells - 1, 'the chip takes the last cell')
+    assert.deepEqual(cardBudget(145, needs(n), rows, 6), b, 'the same agents and room, the same layout')
+  }
+  // One card to a row (a narrow band): every cell is a card, the rest a line of text under them.
+  const narrow = cardBudget(60, needs(5), 2, 6)
+  assert.equal(narrow.grid.per, 1)
+  assert.deepEqual([narrow.shown, narrow.more, narrow.rows], [2, 3, 3])
 })

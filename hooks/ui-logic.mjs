@@ -384,18 +384,49 @@ export function cardTextRoom(cell, buttonLabel = '') {
 // Empty cells are added beyond the balanced count only where a card would otherwise stretch past `stretch`
 // times its need (one agent alone in a wide band takes half of it, not all). per: cells in a row; cell: the
 // width of one; minWidth: the narrowest a card may be drawn (never wider than the band).
-export function cardGrid(columns, needs) {
+// count (optional): the cells to lay out when not one per need (a '+N more' cell, or fewer cards than needs).
+// fit: how many of the widest card fit side by side.
+export function cardGrid(columns, needs, count) {
   const cols = typeof columns === 'number' && columns > 0 ? columns : 100
   const list = Array.isArray(needs) ? needs.filter((n) => typeof n === 'number' && n > 0) : []
   const need = list.length > 0 ? Math.max(...list) : 1
   const gap = CARD_CELLS.rowGap
   const fit = Math.max(1, Math.min(CARD_CELLS.maxPerRow, Math.floor((cols + gap) / (need + gap))))
   const cellAt = (p) => (cols - gap * (p - 1)) / p
-  const n = list.length
+  const n = Number.isInteger(count) && count >= 0 ? count : list.length
   let per = n === 0 ? fit : Math.ceil(n / Math.ceil(n / fit))
   while (per < fit && cellAt(per) > need * CARD_CELLS.stretch) per++
   const cell = cellAt(per)
-  return { per, cell, need, minWidth: Math.max(1, Math.floor(Math.min(need, cell))) }
+  return { per, fit, cell, need, minWidth: Math.max(1, Math.floor(Math.min(need, cell))) }
+}
+
+// The rows of agent cards the band has room for (Desktop): what maxRows leaves after the frame, the status
+// line, the status row and a question, one card row taking `rowRows` rows and one more for the gap between two.
+// At least one row. room: { maxRows, frame, line, status, question } in rows.
+export function cardRowsFit({ maxRows, frame = 0, line = 0, status = 0, question = 0 } = {}, rowRows = 3) {
+  const rows = typeof maxRows === 'number' && Number.isFinite(maxRows) ? maxRows : 0
+  const left = rows - frame - line - status - question
+  return Math.max(1, Math.floor((left + 1) / (rowRows + 1)))
+}
+
+// Which of `needs` (one per agent, in order) the band draws as cards in `cardRows` rows of the grid, `max`
+// cells at most: { grid, cells, shown, more, rows }. Everything that fits is shown; otherwise the last cell is
+// the '+N more' chip, so no row of cards is ever cut in half. The grid is laid out for `cells` cells: drawn with
+// it, the cards and the chip take at most `cardRows` rows. One card to a row (a narrow band): every cell is a
+// card and the chip is a line of text under them, not a card-sized row of its own. rows: the band rows the
+// cards and a '+N more' take after the status row (for bandRows). Pure: the same agents and room give the
+// same layout.
+export function cardBudget(columns, needs, cardRows, max = 6) {
+  const list = Array.isArray(needs) ? needs : []
+  const n = list.length
+  const rows = Math.max(1, Math.floor(Number(cardRows) || 1))
+  const top = Math.max(1, Math.floor(Number(max) || 1))
+  const all = cardGrid(columns, list)
+  if (n <= top && Math.ceil(n / all.per) <= rows) return { grid: all, cells: n, shown: n, more: 0, rows: n }
+  const cells = Math.min(top, all.fit * rows, n)
+  const grid = cardGrid(columns, list, cells)
+  const shown = n <= cells ? cells : grid.per === 1 ? cells : cells - 1
+  return { grid, cells, shown, more: n - shown, rows: shown + (n > shown ? 1 : 0) }
 }
 
 // ---- performance mode in one action (/crew-perf, the toggle at the end of the Desktop status line) ----------

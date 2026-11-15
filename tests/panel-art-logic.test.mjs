@@ -263,6 +263,10 @@ test('the face by default moves fully: its tool and body motions, a phase from t
       assert.match(src, /prefers-reduced-motion:reduce/)
       assert.equal(face('a1', name, style), src, 'the same agent draws the same face')
       assert.notEqual(face('a2', name, style), src, 'another agent moves in a phase of its own')
+      // Two drawings 5 s apart: byte-identical, so the frame the band draws it in is never loaded again.
+      const at = (now) => agentFace({ id: 'a1', name: 'crew-chief:' + name, model: 'claude-sonnet-5-5', effort: 'medium' }, { style, now }).source
+      assert.equal(at(1_000_000), at(1_005_000), 'no clock in the source')
+      assert.equal(at(1_000_000), src, 'the same with or without now')
     }
   }
   // The perf face holds no motion at all.

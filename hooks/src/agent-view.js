@@ -876,8 +876,12 @@ async function avOpenPane($) {
     // The list's times move; a running agent's transcript is read again, a finished one's is not.
     avState.tick = $.clock.every(AV_TICK_MS, () => {
       // A running agent, or a message of the picked one not yet seen answered: its transcript is read again.
-      if (avState.selectedLive || msgPending(avState.paneSent.get(avState.selected))) avState.detailStale = true
-      avNote($, undefined)
+      const pending = msgPending(avState.paneSent.get(avState.selected))
+      if (avState.selectedLive || pending) avState.detailStale = true
+      // Nothing live in the list and nothing awaited: no time moves and nothing is read again, so the tick does
+      // not redraw (an invalidate redraws the band above the prompt too). The agents' own events still refresh.
+      const live = avState.snapshot === undefined || avState.selectedLive || pending || avState.snapshot.rows.some((r) => r.live)
+      if (live) avNote($, undefined)
     })
   } catch (err) {
     // The agents' own events still refresh it.

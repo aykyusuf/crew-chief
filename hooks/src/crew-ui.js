@@ -32,7 +32,7 @@ import { guardSummary } from './guard.mjs'
 import { agentBar, agentCardText, agentFace, artElapsed, artTokens, CARD_LOOK, saverBadge, SAVER_LOOK } from './panel-art-logic.mjs'
 import { avBandCompose, avBandDraft, avBandDraftOf, avBandFullView, avBandName, avBandOpenPane, avBandSend, avBandView } from './agent-view.mjs'
 import { BAND_EXTRA_MAX, bandExtraRows, fitSections, sendPlan } from './agent-view-logic.mjs'
-import { bandRows, cardGrid, cardLine1Cells, cardNeedCells, cardTextRoom, CARD_CELLS, ctxAlert, ctxChip, demoContent, modeLabels, modelChip, COMPACT_ICON, COMPACT_LABEL, PERF_ICON, PERF_LABEL, perfNext, placeFolder, quietFacts, spinnerWord, statusLineSegments, statusSegments, tailText, windowChip } from './ui-logic.mjs'
+import { bandRows, cardBudget, cardGrid, cardRowsFit, cardLine1Cells, cardNeedCells, cardTextRoom, CARD_CELLS, ctxAlert, ctxChip, demoContent, modeLabels, modelChip, COMPACT_ICON, COMPACT_LABEL, PERF_ICON, PERF_LABEL, perfNext, placeFolder, quietFacts, spinnerWord, statusLineSegments, statusSegments, tailText, windowChip } from './ui-logic.mjs'
 
 const UI_STORE_KEY = 'crew_ui'
 const UI_MODE_KEY = 'crew_ui_mode' // 'quiet' (default) or 'full'
@@ -80,7 +80,7 @@ let uiQuestion // { text, answers, resolve }: the one question the band is askin
 const UI_ASK_MAX = 4 // answers that fit digit hotkeys
 const UI_CARD_FACTS = 4 // facts a question card shows at most (compact-logic.mjs cardFacts cuts them to this too)
 let uiMain = { model: undefined, effort: undefined } // the main loop's last request
-const UI_CARDS_MAX = 6 // agent cards shown at most (two or three rows of them); the rest is '+N more'
+const UI_CARDS_MAX = 6 // cells of agent cards at most, the '+N more' chip included (cardBudget)
 const UI_CARD_ROW_ROWS = 3 // rows one row of agent cards takes (two lines and its frame), for the band's budget
 let uiArtMemo = new Map() // agent id -> what its drawing showed last and when it changed (for the rolling digits)
 // The status line at the foot of the band on the Desktop app (ui.statusline): the folder, the git branch and the
@@ -411,6 +411,16 @@ function uiArtPrev(agents, now) {
   return out
 }
 
+// What a card shows (the drawn text and the width measured for the grid both come from here, so they agree):
+// until the agent's first request names its model the card shows none (no 'starting', no hollow dots).
+function uiCardAgent(agent) {
+  return { ...agent, pct: typeof agent.artPct === 'number' ? agent.artPct : agent.pct, stale: agent.artStale === true }
+}
+function uiCardText(a) {
+  const c = agentCardText(a)
+  return typeof a.model === 'string' && a.model !== '' ? c : { ...c, model: '', dots: '', effort: '' }
+}
+
 // rows: bandRows (hooks/ui-logic.mjs). art: { Svg, style, now, prev } where pictures may be drawn (not the
 // terminal, panel.style not text, the surface has Svg), else undefined: then everything is the line of text.
 // band: { view, fits, lang, viewing, canInput } where an agent row opens on a click (panel.click, not the
@@ -460,13 +470,8 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
   // a row are one width (cardGrid in hooks/ui-logic.mjs), so the figures and the button sit at one x in every
   // card. Only the two small pictures are Svg, and neither holds a clock, so the face's motion runs on (see
   // agentFace in hooks/panel-art-logic.mjs; panel.perf keeps it fully still).
-  // Until the agent's first request names its model the card shows none (no 'starting', no hollow dots): the
-  // drawn text and the width measured for the grid both come from here, so they agree.
-  const cardText = (a) => {
-    const c = agentCardText(a)
-    return typeof a.model === 'string' && a.model !== '' ? c : { ...c, model: '', dots: '', effort: '' }
-  }
-  const cardAgent = (agent) => ({ ...agent, pct: typeof agent.artPct === 'number' ? agent.artPct : agent.pct, stale: agent.artStale === true })
+  const cardText = uiCardText
+  const cardAgent = uiCardAgent
   const openLabel = band !== undefined ? t(band.lang, 'band_open_hint') : ''
   const fixed = (key, text) => Box({ key, flexShrink: 0, children: [text] })
   const card = (agent, id, grid) => {
@@ -474,7 +479,9 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
     const c = cardText(a)
     // An agent waiting on its own background work (rowBandRows: bgWait) stands fully still, as in
     // performance mode, for its card alone: it is not finished, only resting.
-    const face = agentFace(a, { style: art.style, perf: art.perf || a.bgWait === true, now: art.now })
+    // No clock: the face's source is the same on every drawing, so its frame is never loaded again (blank while
+    // it loads); the phase is the agent's own (agentFace).
+    const face = agentFace(a, { style: art.style, perf: art.perf || a.bgWait === true })
     const bar = agentBar(a)
     const k = id ?? agent.id
     const dim = (t) => Text({ color: CARD_LOOK.mute, children: [t] })
@@ -491,8 +498,9 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
     // Each picture sits in a Box keyed by the agent (an Svg takes no key): a redraw finds the same element at the
     // same place and the Desktop app keeps the image, so its animation runs on instead of starting over.
     // A moving face is drawn in a frame (isInteractive), not as an image: measured live on 2026-11-15, the app
-    // loaded the image again about every 2 s from the band's last drawing (ours came every ~10 s), so the motion
-    // jumped back to that drawing's phase. A frame whose markup has not changed is expected to stay as it is.
+    // loaded the image again about every 2 s from the band's last drawing, so the motion jumped back. A frame is
+    // loaded again only when its markup changes (blank while it loads), so the face's source never changes
+    // between drawings of the same agent; a still face stays a plain image.
     const svg = (p, frame = false) => art.Svg({ source: p.source, alt: p.alt, width: p.width, height: p.height, ...(frame ? { isInteractive: true } : {}) })
     const pic = (name, p, frame = false) => Box({ key: name + '-' + k, flexShrink: 0, children: [svg(p, frame)] })
     // The bar is still (nothing in it moves), so a new 5% step may load it again without a visible jump.
@@ -669,7 +677,9 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
   const needOf = (r) => cardNeedCells(cardText(cardAgent(r.agent)), band !== undefined && rowId(r) !== undefined ? openLabel : '')
   const gridFor = (list) => cardGrid(art?.columns, list.map(needOf))
   const shown = art ? rows.filter((r) => r.kind === 'agent' && !(band !== undefined && rowId(r) !== undefined && isOpen(rowId(r)))) : []
-  const grid = gridFor(shown)
+  // The render lays the cards out once for the band's room (cardBudget) and hands the grid over: the same one
+  // that decided how many cards fit, so the rows drawn are the rows budgeted.
+  const grid = art?.grid ?? gridFor(shown)
   const per = grid.per
   let cards = []
   let groups = 0
@@ -690,6 +700,12 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
     const id = band !== undefined ? rowId(r) : undefined
     if (r.kind === 'agent' && art && !(id !== undefined && isOpen(id))) {
       cards.push(card(r.agent, id, grid))
+      continue
+    }
+    // The agents past the room: a '+N more' chip in the last cell of the grid, not a row of its own under it.
+    // With one card to a row (or no empty cell left) it stays a line of text under the cards.
+    if (r.kind === 'more' && art && cards.length > 0 && per > 1 && cards.length % per !== 0) {
+      cards.push(Box({ key: 'agentmore', ...cardFrame(CARD_LOOK.border, grid), justifyContent: 'center', children: [Text({ color: CARD_LOOK.mute, wrap: 'truncate-end', children: [r.line.map((x) => x.t).join('')] })] }))
       continue
     }
     flush()
@@ -852,15 +868,21 @@ export function registerUi(on, saverOn) {
       const cardsDrawn = e.surface !== 'terminal' && panel !== 'text' && typeof $.ui.resolve(e).Svg === 'function'
       const lines = line && line.length > 0 ? Math.max(1, maxLines - 1) : maxLines
       const status = statusSegments(uiFull || demo ? facts : quietFacts(facts), e.surface === 'terminal')
-      let cap = cardsDrawn ? Math.max(lines, 1 + UI_CARDS_MAX) : lines
-      // A question and cards together must fit the engine's room, or the band scrolls and the status line at its
-      // foot goes out of view: the cards give way (whole rows of them, the rest '+N more'), never the question or
-      // the status line.
-      if (cardsDrawn && question && Array.isArray(agents) && agents.length > 0) {
-        const per = cardGrid(columns, agents.map((a) => cardNeedCells(agentCardText(a)))).per
-        const room = maxLines - (line && line.length > 0 ? 1 : 0) - (status.length > 0 ? 1 : 0)
-        const fit = per * Math.max(1, Math.floor(Math.max(0, room - 1) / UI_CARD_ROW_ROWS))
-        cap = Math.min(cap, (status.length > 0 ? 1 : 0) + (agents.length > fit ? fit + 1 : fit))
+      // Outside the terminal the cards are laid out once per drawing for the room the engine gives (maxRows): the
+      // frame, the status line, the status row and a question first, then whole rows of cards (UI_CARD_ROW_ROWS
+      // each), the agents past them a '+N more' chip in the last cell. It depends on nothing but the agents, that
+      // room and what is drawn around the cards, so the same agents get the same layout on every drawing, and the
+      // status line at the band's foot is never pushed out of view by a half-cut row of cards.
+      let cap = lines
+      let cardLayout
+      if (cardsDrawn && Array.isArray(agents) && agents.length > 0) {
+        const clickOn = !demo && (await cfgGet($, 'panel.click')) === 'on'
+        const openLabel = clickOn ? t(avBandView().lang, 'band_open_hint') : ''
+        const needs = agents.map((a) => cardNeedCells(uiCardText(uiCardAgent(a)), clickOn && typeof a?.id === 'string' ? openLabel : ''))
+        const statusRows = status.length > 0 ? 1 : 0
+        const cardRows = cardRowsFit({ maxRows: rows, frame: uiStyle === 'boxed' ? 2 : 0, line: line && line.length > 0 ? 1 : 0, status: statusRows, question: question ? 4 : 0 }, UI_CARD_ROW_ROWS)
+        cardLayout = cardBudget(columns, needs, cardRows, UI_CARDS_MAX)
+        cap = statusRows + cardLayout.rows
       }
       const bandList = bandRows({ status, agents, maxLines: cap, width: columns })
       // A click on an agent row opens what it does under it (not the terminal; panel.click). What is drawn was
@@ -899,7 +921,7 @@ export function registerUi(on, saverOn) {
         const now = await $.clock.now()
         // panel.perf on: the characters stand fully still.
         const perf = (await cfgGet($, 'panel.perf')) === 'on'
-        art = { Svg, style: panel, perf, now, prev: uiArtPrev(Array.isArray(agents) ? agents : [], now), columns }
+        art = { Svg, style: panel, perf, now, prev: uiArtPrev(Array.isArray(agents) ? agents : [], now), columns, grid: cardLayout?.grid }
       }
       return uiTree($, e, bandList, () => compactBandPress($), uiStyle, question, art, band, line, perf)
     } catch (err) {

@@ -39,6 +39,8 @@ function harness(on: any, opts: Opts = {}) {
     agentCalls: [] as any[],
     clock: undefined as any,
     storedWrites: [] as unknown[],
+    asks: {} as Record<string, unknown>, // the saver question's per-session memory in the plugin store
+    sid: 'sess-1',
     advisorWrites: [] as unknown[],
     commandRuns: [] as string[][],
     settings: { ...(opts.advisorOff ? {} : { advisorModel: 'opus' }), ...(opts.settings ?? {}) } as Record<string, unknown>,
@@ -53,9 +55,16 @@ function harness(on: any, opts: Opts = {}) {
   })
   on('ui.log', () => ({ value: undefined }))
   on('settings.read', () => ({ value: state.settings }))
-  on('store.get', ($: any, e: any) => ({ value: e.key === 'advisor' ? opts.advisorStored : opts.stored }))
+  on('session.id', () => ({ value: state.sid }))
+  on('store.keys', () => ({ value: Object.keys(state.asks) }))
+  on('store.delete', ($: any, e: any) => {
+    delete state.asks[e.key]
+    return { value: undefined }
+  })
+  on('store.get', ($: any, e: any) => ({ value: e.key.startsWith('saver-ask:') ? state.asks[e.key] : e.key === 'advisor' ? opts.advisorStored : opts.stored }))
   on('store.set', ($: any, e: any) => {
-    if (e.key === 'advisor') state.advisorWrites.push(e.value)
+    if (e.key.startsWith('saver-ask:')) state.asks[e.key] = e.value
+    else if (e.key === 'advisor') state.advisorWrites.push(e.value)
     else state.storedWrites.push(e.value)
     return { value: undefined }
   })
@@ -164,6 +173,110 @@ test('"don\'t ask again" silences the session; a new window is not special', asy
   expect(s.questions.length).toBe(1)
 })
 
+// A module reload (/reload-plugins) runs session.start again for the same session id: what the person
+// answered must survive it. Answered by the dialog here; the band (digit or button) answers the same values.
+test('"don\'t ask again" survives a reload of the module in the same session', async ($, on) => {
+  const s = harness(on, { answer: NEVER })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, s, FIVE(72))
+  expect(s.questions.length).toBe(1)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, s, FIVE(73))
+  await measure($, s, FIVE(85))
+  await $.turn.complete({ turnId: 't1', answer: 'done', durationMs: 1, isAborted: false, reason: 'answer', usage: null })
+  await settle()
+  expect(s.questions.length).toBe(1)
+})
+
+test('"not now" survives a reload: the same threshold does not ask again, the next one does', async ($, on) => {
+  const s = harness(on, { answer: NOT_NOW })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, s, FIVE(72))
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, s, FIVE(74))
+  expect(s.questions.length).toBe(1)
+  await measure($, s, FIVE(81))
+  expect(s.questions.length).toBe(2)
+})
+
+// The band's question (Desktop card or terminal strip): its short labels answer with the full answer values.
+function bandHost(on: any) {
+  on('session.surfaces', () => ({ value: ['desktop', 'terminal'] }))
+  on('agent.list', () => ({ value: [] }))
+  on('session.cwd', () => ({ value: '/work' }))
+  on('session.root', () => ({ value: '/work' }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.render', ($: any, e: any) => {
+    const { Text } = $.ui.resolve(e)
+    return Text({ children: ['engine'] })
+  })
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }))
+}
+const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {} }
+const mountOn = ($: any, surface: string) => $.ui.mount({ plugin: 'crew-chief', surface, component: 'AbovePrompt', props: BAND, viewport: { columns: 105, rows: 40 } })
+const bandAsks = async ($: any, surface: string) => {
+  const ui = await mountOn($, surface)
+  const found = await ui.find({ type: 'Button', key: 'ask-4' })
+  await ui.unmount()
+  return found !== undefined
+}
+
+for (const [surface, how] of [['desktop', 'the card\'s short "Don\'t ask again"'], ['terminal', 'the strip\'s key 4']]) {
+  test(`${how} silences the session, also after a reload`, async ($, on) => {
+    const s = harness(on, { env: { CREW_CHIEF_UI: 'on' } })
+    bandHost(on)
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+    await measure($, s, FIVE(72))
+    expect(await bandAsks($, surface)).toBe(true)
+    const ui = await mountOn($, surface)
+    await ui.press({ key: 'ask-4' })
+    await settle()
+    await ui.unmount()
+    expect(await bandAsks($, surface)).toBe(false)
+    expect(Object.values(s.asks).some((v: any) => v.never === true)).toBe(true)
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+    await measure($, s, FIVE(74))
+    await measure($, s, FIVE(92))
+    expect(await bandAsks($, surface)).toBe(false)
+    expect(s.questions.length).toBe(0)
+  })
+}
+
+test('the card\'s "Not now" waits for the next threshold, also after a reload', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on' } })
+  bandHost(on)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, s, FIVE(72))
+  const ui = await mountOn($, 'desktop')
+  await ui.press({ key: 'ask-3' })
+  await settle()
+  await ui.unmount()
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, s, FIVE(76))
+  expect(await bandAsks($, 'desktop')).toBe(false)
+  await measure($, s, FIVE(81))
+  expect(await bandAsks($, 'desktop')).toBe(true)
+})
+
+test('a window whose reset time drifts by seconds is the same window', async ($, on) => {
+  const s = harness(on, { answer: NOT_NOW })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, s, [{ kind: 'five_hour', percentUsed: 72, resetsAt: '1970-01-01T05:00:00.000Z' }])
+  await measure($, s, [{ kind: 'five_hour', percentUsed: 72, resetsAt: '1970-01-01T05:00:01.381Z' }])
+  await measure($, s, [{ kind: 'five_hour', percentUsed: 73, resetsAt: '1970-01-01T04:59:59.002Z' }])
+  expect(s.questions.length).toBe(1)
+})
+
+test('another session id starts with a clean slate', async ($, on) => {
+  const s = harness(on, { answer: NEVER })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, s, FIVE(72))
+  s.sid = 'sess-2'
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await measure($, s, FIVE(72))
+  expect(s.questions.length).toBe(2)
+})
+
 test('the weekly window has its own thresholds', async ($, on) => {
   const s = harness(on, { answer: NOT_NOW })
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
@@ -216,6 +329,7 @@ test('/clear or a new session turns the saver off again', async ($, on) => {
   await settle()
   await step($, 'claude-opus-5-5', 'xhigh', 'a1')
   await $.session.end({ reason: 'clear', sessionId: 's1', resume: { sessionId: 's1' } })
+  s.sid = 'sess-after-clear' // /clear starts a new session id
   await step($, 'claude-opus-5-5', 'xhigh', 'a1')
   expect(s.efforts).toEqual(['medium', 'xhigh'])
   await measure($, s, FIVE(72))

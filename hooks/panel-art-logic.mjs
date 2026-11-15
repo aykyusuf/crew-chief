@@ -13,8 +13,8 @@
 //   - every class and keyframes name starts with a prefix of its own drawing;
 //   - only `transform` and `opacity` are animated, and under prefers-reduced-motion nothing moves and the
 //     still frame is the right one (the new digits shown, the bar at its value);
-//   - a new image is drawn on every band redraw, so each looping animation is given a negative delay from
-//     `now`: a redraw picks the motion up where it was instead of starting it again;
+//   - the full card (agentArt) is drawn anew on every redraw, so its looping animations get a negative delay
+//     from `now`; the band's face (agentFace) never holds the clock: its source is the same on every drawing;
 //   - text from an agent (its name, its step) is escaped.
 const EFFORT_STEPS = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }
 
@@ -498,13 +498,14 @@ export function agentFace(a, opts = {}) {
   const style = opts.style === 'cat' ? 'cat' : 'capsule'
   const perf = opts.perf === true
   const P = artPrefix(String(a.name ?? 'agent') + String(a.model ?? '') + String(a.effort ?? '') + style + (perf ? 'perf' : '') + 'face')
-  // The motions' phase: an offset from the agent's id (cards do not move in step), plus the wall clock when the
-  // caller passes `now`. The Desktop app seems to load the image again on redraws (seen live 2026-11-15: the cat's
-  // tail snapped back to one pose); with the clock in the phase a reload picks the motion up where it was.
-  // Without `now` the source is the same on every call.
+  // The motions' phase: a fixed offset from the agent's id (cards do not move in step), never the wall clock
+  // (`opts.now` is ignored). The band draws a moving face in a frame (isInteractive), which the Desktop app loads
+  // again whenever the source changes, blank while it loads: with the clock in the delay every band drawing
+  // changed the source and the faces blinked out (seen live 2026-11-15, about every 2 s). The same agent always
+  // gets byte-identical markup, so an unchanged frame is left as it is.
   const id = String(a.id ?? a.name ?? 'agent')
   const offset = parseInt(artPrefix(id + 'phase').slice(1), 36) % 60000
-  const mo = motion(P, offset + (typeof opts.now === 'number' && Number.isFinite(opts.now) && !perf ? opts.now : 0))
+  const mo = motion(P, offset)
   const body = character(a, style, mo, perf)
   const source =
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 44" width="${FACE_SIZE}" height="${r2((FACE_SIZE * 44) / 48)}" overflow="visible">` +

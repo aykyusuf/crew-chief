@@ -34,6 +34,75 @@ export function crossing(percent, thresholds, seen, keyPrefix) {
   }
 }
 
+// The saver question's memory for one session: { never, windows: { [kind]: { at, seen } }, savedAt }. It is
+// kept in the plugin store under ASK_STORE_PREFIX + session id, so a module reload (/reload-plugins runs
+// session.start again for the same session) neither forgets "don't ask again" nor asks again for a
+// threshold already answered. `at` is the window's reset time in ms (null when unknown), `seen` the
+// thresholds already acted on in that window.
+export const ASK_STORE_PREFIX = 'saver-ask:'
+export const ASK_STATE_STALE_MS = 8 * 24 * 60 * 60 * 1000 // longer than the weekly window
+// A window counts as new only when its reset time moves later by this much: a reset moves it by five
+// hours or seven days, while the reported time may wobble by seconds between measures.
+export const WINDOW_MOVE_MS = 30 * 60 * 1000
+
+export function askStateNew() {
+  return { never: false, windows: {} }
+}
+
+// A stored value back into a state; anything malformed is a clean slate.
+export function askStateRestore(value) {
+  const state = askStateNew()
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return state
+  state.never = value.never === true
+  const windows = value.windows !== null && typeof value.windows === 'object' ? value.windows : {}
+  for (const [kind, w] of Object.entries(windows)) {
+    if (w === null || typeof w !== 'object') continue
+    const at = typeof w.at === 'number' && Number.isFinite(w.at) ? w.at : null
+    const seen = Array.isArray(w.seen) ? w.seen.filter((n) => typeof n === 'number' && Number.isFinite(n)) : []
+    state.windows[kind] = { at, seen }
+  }
+  return state
+}
+
+export function askStateStale(value, now) {
+  return value === null || typeof value !== 'object' || typeof value.savedAt !== 'number' || now - value.savedAt > ASK_STATE_STALE_MS
+}
+
+// The window that most needs a question, or undefined, and whether `state` changed (so the caller saves
+// it). Every threshold at or below the current percent is marked as seen, so crossing 70 and 80 together
+// asks once, and never again for 70 in that window. `lists` maps a window kind to its thresholds.
+export function askHit(state, rateLimits, lists) {
+  let hit
+  let changed = false
+  for (const w of Array.isArray(rateLimits) ? rateLimits : []) {
+    const list = lists[w.kind]
+    if (list === undefined) continue
+    if (typeof w.percentUsed !== 'number' || Number.isNaN(w.percentUsed)) continue
+    const parsed = typeof w.resetsAt === 'string' ? Date.parse(w.resetsAt) : NaN
+    const at = Number.isFinite(parsed) ? parsed : null
+    let entry = state.windows[w.kind]
+    if (entry === undefined) {
+      entry = { at, seen: [] }
+      state.windows[w.kind] = entry
+      changed = true
+    } else if (at !== null && entry.at === null) {
+      entry.at = at
+      changed = true
+    } else if (at !== null && at > entry.at + WINDOW_MOVE_MS) {
+      entry.at = at
+      entry.seen = []
+      changed = true
+    }
+    const reached = list.filter((n) => w.percentUsed >= n)
+    const fresh = reached.filter((n) => !entry.seen.includes(n))
+    if (fresh.length === 0) continue
+    entry.seen = [...new Set([...entry.seen, ...reached])].sort((a, b) => a - b)
+    changed = true
+    if (hit === undefined || w.percentUsed > hit.percent) hit = { kind: w.kind, percent: w.percentUsed, resetsAt: w.resetsAt }
+  }
+  return { hit, changed }
+}
+
 // 'claude-opus-5-5' / 'opus' -> 'heavy'; sonnet -> 'sonnet'; everything else -> 'other'.
 export function modelTier(model) {
   const name = typeof model === 'string' ? model.toLowerCase() : ''

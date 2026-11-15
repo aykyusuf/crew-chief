@@ -706,7 +706,7 @@ test('full mode on the Desktop app draws the context as figures, without the blo
 
 // ---- pictures outside the terminal (panel.style) ------------------------------------------------------------
 
-const mountDesktop = ($: any) => $.ui.mount({ plugin: 'crew-chief', surface: 'desktop', component: 'AbovePrompt', props: PROPS, viewport: { columns: 105, rows: 40 } })
+const mountDesktop = ($: any, over: Record<string, unknown> = {}) => $.ui.mount({ plugin: 'crew-chief', surface: 'desktop', component: 'AbovePrompt', props: { ...PROPS, ...over }, viewport: { columns: 105, rows: 40 } })
 
 test('on Desktop a running subagent is a picture (capsule by default), in the terminal the line', async ($, on) => {
   const s = harness(on, { env: { CREW_CHIEF_UI: 'on' } })
@@ -726,14 +726,13 @@ test('on Desktop a running subagent is a picture (capsule by default), in the te
   expect(await desk.find({ type: 'Text', text: /^Sonnet 5\.5$/ })).toBeDefined()
   expect(await desk.find({ type: 'Text', text: /^●●●○○$/ })).toBeDefined()
   expect(await desk.find({ type: 'Text', text: /^High$/ })).toBeDefined()
-  // A later drawing differs only in the motions' phase (the clock is in the animation delay, so an image the
-  // app loads again picks the motion up where it was); the drawing itself is the same.
+  // A later drawing is byte for byte the same: no clock in the face, so the frame it is drawn in (isInteractive)
+  // is not loaded again (blank while it loads).
   await s.clock.advance(7000)
   const again = await mountDesktop($)
-  const noPhase = (src: string) => src.replace(/-?\d+ms infinite/g, 'PHASE infinite')
   const later = (await again.findAll({ type: 'Svg' })).map((x: any) => x.props.source)
-  expect(later.map(noPhase)).toEqual(svgs.map((x: any) => noPhase(x.props.source)))
-  expect(later[0]).not.toBe(svgs[0].props.source)
+  expect(later).toEqual(svgs.map((x: any) => x.props.source))
+  expect((await again.findAll({ type: 'Svg' })).find((x: any) => x.props.alt === 'deep-reader')?.props?.isInteractive).toBe(true)
   await again.unmount()
   await desk.unmount()
   const term = await mount($)
@@ -857,14 +856,15 @@ test('consecutive band drawings keep each picture at the same keyed place with t
   await start($)
   s.agents.push({ id: 'a1', type: 'crew-chief:deep-reader', status: 'running', description: 'a task' })
   await step($, s, 'a1', 'claude-sonnet-5-5', 'medium')
+  // Room for every card (six agents in three rows): this test is about places and sources, not the budget.
   const draw = async () => {
-    const ui = await mountDesktop($)
+    const ui = await mountDesktop($, { maxRows: 30 })
     const tree = await ui.drawn()
     await ui.unmount()
     return tree
   }
-  // Same place, same drawing: only the motions' phase (the animation delay) follows the clock.
-  const mine = (m: Map<string, string>) => new Map([...m].filter(([k]) => k.includes('-a1/')).map(([k, v]) => [k, v.replace(/-?\d+ms infinite/g, 'PHASE infinite')]))
+  // Same place, same drawing, byte for byte: nothing in a picture follows the clock.
+  const mine = (m: Map<string, string>) => new Map([...m].filter(([k]) => k.includes('-a1/')))
   const quiet = await draw()
   expect(placeOf(quiet, 'agentcards-0')).toBe(0) // no status line yet: the cards are the first row
   const first = mine(pictures(quiet))
@@ -931,7 +931,8 @@ test('agent cards sit in a grid sized by what a card needs: five agents at 145 c
     s.agents.push({ id: 'a' + (i + 1), type: 'crew-chief:' + type, status: 'running', description: 'a task' })
     await step($, s, 'a' + (i + 1), model, effort)
   }
-  const desk = await $.ui.mount({ plugin: 'crew-chief', surface: 'desktop', component: 'AbovePrompt', props: { ...PROPS, bodyColumns: 145 }, viewport: { columns: 150, rows: 40 } })
+  // Room for three rows of cards (the budget is tested on its own below).
+  const desk = await $.ui.mount({ plugin: 'crew-chief', surface: 'desktop', component: 'AbovePrompt', props: { ...PROPS, bodyColumns: 145, maxRows: 30 }, viewport: { columns: 150, rows: 40 } })
   const rows = (await Promise.all([0, 1, 2, 3].map((r) => desk.find({ type: 'Box', key: `agentline-0-${r}` })))) as any[]
   expect(rows[3]).toBeUndefined()
   expect(rows.slice(0, 3).map((r) => kidsOf(r).length)).toEqual([2, 2, 2])
@@ -1082,6 +1083,43 @@ test('Desktop: a question and five agents in a small band: the cards give way, t
   const kids = kidsOfLine(await desk.find({ type: 'Box', key: 'band-with-line' }))
   expect(keyOf(kids[kids.length - 1])).toBe('band-statusline') // still the band's last row
   await desk.unmount()
+})
+
+test('Desktop: seven agents in a small band keep one layout on every drawing: busy row, whole card rows, a "+N more" chip, the status line last', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on' }, surfaces: ['desktop'] })
+  await start($)
+  for (let i = 1; i <= 7; i++) {
+    s.agents.push({ id: 'a' + i, type: 'crew-chief:scanner', status: 'running', description: 'a task' })
+    await step($, s, 'a' + i, 'claude-haiku-5-5', 'low')
+  }
+  // maxRows 14: the frame (2), the status line (1) and the busy row (1) leave 10 rows: two rows of cards
+  // (3 rows each and a gap), never a third one cut in half.
+  const draw = async () => {
+    const ui = await $.ui.mount({ plugin: 'crew-chief', surface: 'desktop', component: 'AbovePrompt', props: { ...PROPS, maxRows: 14, bodyColumns: 145 }, viewport: { columns: 150, rows: 40 } })
+    const busy = await ui.find({ type: 'Text', text: /7 agents running/ })
+    const lines = (await Promise.all([0, 1, 2].map((r) => ui.find({ type: 'Box', key: `agentline-0-${r}` })))) as any[]
+    const kids = kidsOfLine(await ui.find({ type: 'Box', key: 'band-with-line' }))
+    const cells = lines.filter(Boolean).flatMap(kidsOf).map((c: any) => keyOf(c))
+    const more = await ui.find({ type: 'Box', key: 'agentmore' })
+    const moreText = more ? kidsOf(more).map((t: any) => kidsOf(t).join('')).join('') : undefined
+    const faces = (await ui.findAll({ type: 'Svg' })).filter((x: any) => x.props.isInteractive === true).map((x: any) => x.props.source)
+    await ui.unmount()
+    return { busy: busy !== undefined, rows: lines.filter(Boolean).length, cells, last: keyOf(kids[kids.length - 1]), moreText, faces }
+  }
+  const first = await draw()
+  expect(first.busy).toBe(true)
+  expect(first.last).toBe('band-statusline')
+  expect(first.rows).toBe(2) // two whole rows, no third
+  const cards = first.cells.filter((k: string) => /^agentrow-/.test(k))
+  expect(first.cells[first.cells.length - 1]).toBe('agentmore') // the chip is the last cell
+  expect(first.moreText).toBe(`+${7 - cards.length} more agents`)
+  expect(first.cells.length).toBeLessThanOrEqual(6)
+  expect(first.faces.length).toBe(cards.length)
+  // Two more drawings, the clock moving on as the agents' events redraw the band: the same layout, the same faces.
+  for (const ms of [2500, 5000]) {
+    await s.clock.advance(ms)
+    expect(await draw()).toEqual(first)
+  }
 })
 
 // ---- the status line at the foot of the band on the Desktop app (ui.statusline) ------------------------------

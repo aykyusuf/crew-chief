@@ -31,6 +31,9 @@ const openPanels = new Set()
 let paneNow = 0
 let paneLang = 'en'
 let guardSelected
+// pane id -> { e, sig }: what each pane drew last (the drawing's props, the content as a string), so the refresh
+// timer redraws only when what a pane shows would change. Every redraw also redraws the band above the prompt.
+const paneSeen = new Map()
 
 function stopTimer(timer) {
   try {
@@ -44,6 +47,7 @@ function panelsStop() {
   stopTimer(panelTimer)
   panelTimer = undefined
   openPanels.clear()
+  paneSeen.clear()
   guardSelected = undefined
 }
 
@@ -61,11 +65,33 @@ function panelsStart($) {
       // The last time stands; the panes still redraw.
     }
     try {
-      $.ui.invalidate('ui.render')
+      if (await panesChanged($)) $.ui.invalidate('ui.render')
     } catch (err) {
       // Nothing to redraw.
     }
   })
+}
+
+// What a pane shows, as a string: the same string, the same drawing.
+async function paneSig($, e) {
+  if (e.requestId === PANEL_IDS.guard && e.surface === 'desktop') return JSON.stringify(guardData())
+  return JSON.stringify(await panelLines($, e))
+}
+
+// Whether an open pane would draw something else now (or has not been drawn yet).
+async function panesChanged($) {
+  for (const id of openPanels) {
+    const seen = paneSeen.get(id)
+    if (!seen) return true
+    if ((await paneSig($, seen.e)) !== seen.sig) return true
+  }
+  return false
+}
+
+// Keeps what a pane drew, with the few props its content depends on.
+function paneNote(e, content) {
+  const props = { bodyColumns: e.props?.bodyColumns }
+  paneSeen.set(e.requestId, { e: { requestId: e.requestId, surface: e.surface, props }, sig: JSON.stringify(content) })
 }
 
 // The ids of this plugin's panes the engine has open (its record, which survives a reload of the module).
@@ -95,6 +121,12 @@ async function readTasks($) {
 }
 
 async function panelTree($, e) {
+  const lines = await panelLines($, e)
+  paneNote(e, lines)
+  return uiLinesTree($, e, lines)
+}
+
+async function panelLines($, e) {
   const columns = typeof e.props?.bodyColumns === 'number' ? e.props.bodyColumns : 100
   const maxLines = PANEL_ROWS - 2
   let pane
@@ -109,7 +141,11 @@ async function panelTree($, e) {
   }
   const lines = [pane.header, ...pane.lines]
   if (pane.lines.length === 0) lines.push([{ t: e.requestId === PANEL_IDS.guard ? 'nothing stopped or warned yet this session' : 'nothing to show yet', tone: 'dim' }])
-  return uiLinesTree($, e, lines)
+  return lines
+}
+
+function guardData() {
+  return guardView(guardLogList(), { summary: guardSummary(), now: paneNow, selected: guardSelected, lang: paneLang })
 }
 
 // Theme keys for the tones guardView hands out: the cards take the person's theme, no fixed palette.
@@ -131,7 +167,8 @@ function guardTree($, e) {
   // Ink and mute are theme keys (they follow a light or dark theme); the card fill and frame are see-through greys.
   const L = { bg: CARD_LOOK.bg, border: CARD_LOOK.border, ink: 'text', mute: 'inactive' }
   const lang = paneLang
-  const v = guardView(guardLogList(), { summary: guardSummary(), now: paneNow, selected: guardSelected, lang })
+  const v = guardData()
+  paneNote(e, v)
   const txt = (s, props = {}) => Text({ wrap: 'truncate-end', ...props, children: [s] })
   const para = (s, props = {}) => Text({ wrap: 'wrap', ...props, children: [s] })
   const small = (s, color, extra = {}) => txt(s, { color, size: 'footnote', ...extra })
@@ -219,6 +256,7 @@ export function registerPanes(on) {
       if (e.id === AV_PANE_ID) avClosed()
       if (Object.values(PANEL_IDS).includes(e.id)) {
         openPanels.delete(e.id)
+        paneSeen.delete(e.id)
         if (openPanels.size === 0) {
           stopTimer(panelTimer)
           panelTimer = undefined
@@ -267,6 +305,7 @@ async function panelToggle($, word) {
       // Gone already.
     }
     openPanels.delete(id)
+    paneSeen.delete(id)
     if (openPanels.size === 0) panelsStop()
     return { text: `crew-panel: ${word} pane closed.` }
   }
