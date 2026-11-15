@@ -46,6 +46,7 @@ import {
   cardFacts,
   checkSummary,
   compactThresholds,
+  directCompactRefused,
   openTasks,
   parseStatus,
   pluginDataDir,
@@ -995,6 +996,9 @@ const MAX_UPDATE_RETRIES = 2
 const FRESH_BEFORE_MS = 10 * 60_000
 const AGENT_WAIT_MS = 5000
 const MAX_AGENT_WAITS = 36
+// A /compact handed to the engine that never reached the session.compact hook: after this long the
+// "already being arranged" guard is let go so the flow is not stuck for the rest of the session.
+const PROMPT_WAIT_MS = 10 * 60_000
 // `waiting` is a subagent held on background work it owns (a server it started), on a plan's approval or
 // on another agent: none of these is work that a compaction would cut in half, and a subagent that left a
 // dev server running stays `waiting` for as long as the server lives, so it must never hold a compaction back.
@@ -1021,7 +1025,7 @@ const RESULTS = {
   busy: 'A compaction is already being arranged. Nothing more to do about it.',
 }
 
-function freshCompact(toolReady = false) {
+function freshCompact(toolReady = false, directRefused = false) {
   return {
     armed: false,
     nudged: false,
@@ -1036,6 +1040,8 @@ function freshCompact(toolReady = false) {
     wantAsk: null, // { phase } once the question is due at a quiet turn end
     askTimer: null, // the one pending grace timer
     activity: 0, // counts main-loop prompts and model requests
+    promptPending: false, // a /compact was handed to the engine and has not reached session.compact yet
+    directRefused, // $.session.compact was refused in this session: later compactions go straight to /compact
   }
 }
 
@@ -1045,7 +1051,7 @@ let ck = freshCompact()
 // toolReady across a reset, and let compactSessionStart (a real start) decide it afresh.
 function resetCompact() {
   cancelAskTimer()
-  ck = freshCompact(ck.toolReady)
+  ck = freshCompact(ck.toolReady, ck.directRefused)
   open.compact = false
 }
 
@@ -1408,6 +1414,7 @@ function scheduleCompaction($) {
 
 async function runCompaction($, attempt, waited = 0) {
   let retry = false
+  let args = {}
   // Subagents started since the approval would lose their place in a summary: wait until they are done.
   if ((await runningAgents($)) > 0) {
     if (waited < MAX_AGENT_WAITS) {
@@ -1421,9 +1428,16 @@ async function runCompaction($, attempt, waited = 0) {
   try {
     const before = await transcriptLines($)
     await copyTranscriptIfNeeded($)
-    const args = (await focusOff($)) ? {} : { instructions: withFocus('', backgroundNote(processHandles())) }
+    args = (await focusOff($)) ? {} : { instructions: withFocus('', backgroundNote(processHandles())) }
+    if (ck.directRefused) {
+      await compactViaCommand($, args)
+      return
+    }
     const result = await $.session.compact(args)
-    if (result && result.skip) {
+    if (result && result.skip && directCompactRefused(String(result.skip))) {
+      ck.directRefused = true
+      await compactViaCommand($, args)
+    } else if (result && result.skip) {
       await failed($, String(result.skip))
     } else if (result && result.messages) {
       cycleDone()
@@ -1431,16 +1445,53 @@ async function runCompaction($, attempt, waited = 0) {
     }
   } catch (err) {
     const message = String(err && err.message ? err.message : err)
-    // Mostly "a turn is running" (compaction waits for a gap between turns); a headless run can never do it.
-    if (attempt < MAX_RETRIES && !/headless|not available/i.test(message)) {
+    // Mostly "a turn is running" (compaction waits for a gap between turns). A headless session (-p, the SDK,
+    // the Desktop app) never takes the direct call: there the same compaction runs as the /compact command.
+    if (directCompactRefused(message)) {
+      ck.directRefused = true
+      await compactViaCommand($, args)
+    } else if (attempt < MAX_RETRIES) {
       retry = true
       $.clock.after(RETRY_MS, () => runCompaction($, attempt + 1))
     } else {
       await failed($, message)
     }
   } finally {
-    if (!retry) ck.compacting = false
+    if (!retry && !ck.promptPending) ck.compacting = false
   }
+}
+
+// The compaction as the /compact command with the same brief as its arguments, as if the person typed it. The
+// engine queues it until the session is idle, so it never cuts into a turn. ($.prompt.submit refuses a text that
+// starts with "/" and points at $.command.run.) ck.compacting stays set ("already being arranged") until the
+// session.compact hook sees the compaction, the command is refused, or PROMPT_WAIT_MS passes.
+async function compactViaCommand($, args) {
+  const cycle = ck
+  ck.compacting = true
+  ck.promptPending = true
+  let refused
+  try {
+    await $.command.run({ command: 'compact', args: args.instructions || '' })
+  } catch (err) {
+    refused = String(err && err.message ? err.message : err) || 'refused'
+  }
+  const lang = await resolveLang($)
+  if (refused !== undefined) {
+    if (cycle === ck) {
+      ck.promptPending = false
+      ck.compacting = false
+    }
+    $.ui.toast(t(lang, 'toast_compact_prompt_failed', { reason: refused.slice(0, 160) }), { timeoutMs: 12000 })
+    return
+  }
+  // Already cleared when the compaction ran before the submission resolved: its own toast says so.
+  if (cycle !== ck || !ck.promptPending) return
+  $.ui.toast(t(lang, 'toast_compact_started'), { timeoutMs: 8000 })
+  $.clock.after(PROMPT_WAIT_MS, () => {
+    if (cycle !== ck || !ck.promptPending) return
+    ck.promptPending = false
+    ck.compacting = false
+  })
 }
 
 async function failed($, reason) {
@@ -1553,6 +1604,7 @@ async function afterCompaction($, result, linesBefore) {
 async function compactSessionStart($) {
   resetCompact()
   ck.toolReady = false
+  ck.directRefused = false
   if (await disabled($)) return
   try {
     await $.tool.register({
@@ -1616,6 +1668,11 @@ function registerCompact(on) {
   // does not: the call "runs through every hook but the calling one", so runCompaction passes the brief
   // itself.)
   on('session.compact', async ($, e, next) => {
+    // The /compact compactViaCommand ran has arrived: the guard is let go whatever the outcome.
+    if (e.agentId === undefined && e.trigger !== 'precompute' && ck.promptPending) {
+      ck.promptPending = false
+      ck.compacting = false
+    }
     if (e.agentId !== undefined || (await focusOff($))) return next(e)
     const before = e.trigger === 'precompute' ? undefined : await transcriptLines($)
     if (e.trigger !== 'precompute') await copyTranscriptIfNeeded($)

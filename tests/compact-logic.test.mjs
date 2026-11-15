@@ -13,6 +13,7 @@ import {
   cardFacts,
   checkSummary,
   compactThresholds,
+  directCompactRefused,
   lineSurvives,
   openTasks,
   parseStatus,
@@ -246,4 +247,13 @@ test('cardFacts: empty ones dropped, one line each, long ones cut with an ellips
   assert.equal(out[3], 'Agents running 0')
   assert.deepEqual(cardFacts(undefined), [])
   assert.deepEqual(cardFacts(['a', 7, null, 'b']), ['a', 'b'])
+})
+
+test('directCompactRefused: only the headless refusal sends the compaction to a /compact prompt', () => {
+  const live = 'crew-chief: $.session.compact: not available in a headless (-p / SDK) session yet: compaction here runs inside a turn (a /compact prompt); catch it and carry on'
+  assert.equal(directCompactRefused(live), true)
+  assert.equal(directCompactRefused('a turn is still running'), false)
+  assert.equal(directCompactRefused('boom'), false)
+  assert.equal(directCompactRefused('test: next() passed an argument with messages that are not a list'), false)
+  assert.equal(directCompactRefused(undefined), false)
 })

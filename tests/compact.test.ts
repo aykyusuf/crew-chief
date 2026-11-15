@@ -10,6 +10,8 @@ const CANCEL = 'Cancel'
 const TOOL = 'mcp__crew-chief__crew_compact_checkpoint'
 const MARKER = '[crew-chief compaction brief]'
 
+const HEADLESS = 'crew-chief: $.session.compact: not available in a headless (-p / SDK) session yet: compaction here runs inside a turn (a /compact prompt); catch it and carry on'
+
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 type Opts = {
@@ -23,6 +25,8 @@ type Opts = {
   compactFails?: string[] // rejection reasons of the first compaction calls
   store?: Record<string, unknown>
   rateLimits?: unknown[]
+  commandFails?: boolean // the engine refuses the /compact command too
+  headless?: boolean // the direct call is refused as a headless (-p / SDK, Desktop) session refuses it
 }
 
 function harness(on: any, opts: Opts = {}) {
@@ -34,6 +38,8 @@ function harness(on: any, opts: Opts = {}) {
     toasts: [] as string[],
     compactCalls: [] as any[],
     submitted: [] as string[],
+    compactRuns: [] as string[], // the args of each /compact the plugin ran
+    engineCompacts: false, // headless: the test stands in for the engine running the /compact
     contexts: [] as string[],
     written: [] as string[],
     ran: [] as string[][],
@@ -100,9 +106,15 @@ function harness(on: any, opts: Opts = {}) {
   })
   on('session.compact', ($: any, e: any) => {
     state.compactCalls.push(e)
+    if (opts.headless && !state.engineCompacts) return { skip: HEADLESS } // how a headless session refuses it
     const fail = state.failuresLeft.shift()
     if (fail) throw new Error(fail)
     return { messages: [{ role: 'user', text: opts.summary ?? 'Summary: all good.', toolUses: [] }], tokensBefore: 1, tokensAfter: 1 }
+  })
+  on('command.run', { command: 'compact' }, ($: any, e: any) => {
+    state.compactRuns.push(e.args)
+    if (opts.commandFails) throw new Error('refused')
+    return { text: '' }
   })
   on('session.start', () => ({ cwd: '/work' }))
   on('session.end', ($: any, e: any) => ({ sessionId: e.sessionId }))
@@ -1068,4 +1080,62 @@ test('handoff: mode turn asks for the update in a turn of its own after unanswer
   await s.clock.advance(8_000)
   await settle()
   expect(s.submitted.filter((t: string) => t.includes('handoff files were not updated')).length).toBe(1) // once per stretch
+})
+
+
+test('headless session: the refused compaction runs once as the /compact command with the brief', async ($, on) => {
+  const s = harness(on, { answers: [YES], headless: true })
+  await start($)
+  await approvedPlan($, s)
+  await finishTurn($, s)
+  await runClock(s, 12_000)
+  expect(s.compactCalls.length).toBe(1) // no retries of the direct call
+  expect(s.compactRuns.length).toBe(1)
+  expect(s.compactRuns[0]).toContain(MARKER)
+  expect(s.toasts.filter((t) => t.startsWith('Compaction started.')).length).toBe(1)
+  expect(s.toasts.some((t) => t.startsWith('Compaction did not run'))).toBe(false)
+})
+
+test('a working direct compaction runs no /compact command', async ($, on) => {
+  const s = harness(on, { answers: [YES] })
+  await start($)
+  await approvedPlan($, s)
+  await finishTurn($, s)
+  await runClock(s, 12_000)
+  expect(s.compactCalls.length).toBe(1)
+  expect(s.compactRuns.length).toBe(0)
+  expect(s.toasts.some((t) => t.startsWith('Compacted.'))).toBe(true)
+})
+
+test('while the /compact is pending a second approval does nothing; the compaction lets the guard go', async ($, on) => {
+  const s = harness(on, { answers: [YES], headless: true })
+  await start($)
+  await approvedPlan($, s)
+  await finishTurn($, s)
+  await runClock(s, 1500)
+  expect(s.compactRuns.length).toBe(1)
+  expect((await $.command.run({ command: 'crew-compact', args: '' })).text).toContain('already')
+  expect(JSON.stringify(await $.tool.call({ tool: TOOL, phase: 'again', user_requested: true }))).toContain('already being arranged')
+  await askAtTurnEnd($, s)
+  await runClock(s, 12_000)
+  expect(s.compactRuns.length).toBe(1)
+  expect(s.questions.length).toBe(1)
+  // The engine runs the /compact: it reaches the session.compact hook.
+  s.engineCompacts = true
+  await $.session.compact({})
+  await settle()
+  expect((await $.command.run({ command: 'crew-compact', args: '' })).text).not.toContain('already')
+})
+
+test('direct call and /compact command both refused: one toast, the guard is let go', async ($, on) => {
+  const s = harness(on, { answers: [YES], headless: true, commandFails: true })
+  await start($)
+  await approvedPlan($, s)
+  await finishTurn($, s)
+  await runClock(s, 12_000)
+  expect(s.compactRuns.length).toBe(1)
+  const failures = s.toasts.filter((t) => t.startsWith('Compaction did not run'))
+  expect(failures.length).toBe(1)
+  expect(s.toasts.some((t) => t.startsWith('Compaction started.'))).toBe(false)
+  expect((await $.command.run({ command: 'crew-compact', args: '' })).text).not.toContain('already')
 })

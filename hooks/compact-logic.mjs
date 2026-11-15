@@ -33,6 +33,13 @@ export function compactThresholds(windowTokens, overrides = {}) {
   return { arm, ask }
 }
 
+// Whether a refusal of $.session.compact (a rejection or a `skip`) says the session never takes the direct call:
+// a headless one (-p, the SDK, so also the Desktop app), where compaction only runs inside a turn as a /compact
+// prompt. Seen live: "crew-chief: $.session.compact: not available in a headless (-p / SDK) session yet: ...".
+export function directCompactRefused(reason) {
+  return typeof reason === 'string' && /headless|not available/i.test(reason)
+}
+
 // ---- the brief for the summarizer -----------------------------------------------------------
 
 export const FOCUS_MARKER = '[crew-chief compaction brief]'
