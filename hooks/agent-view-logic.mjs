@@ -14,7 +14,11 @@ export const VIEW_REPORT_LINES = 12 // lines of the report (the band's section)
 export const VIEW_REPORT_CHARS = 4000 // characters of a report the pane keeps
 export const VIEW_REPORT_BLOCKS = 10 // report paragraphs shown before 'show the full report'
 export const VIEW_REPORT_FOLD = 900 // characters shown before 'show the full report'
-export const VIEW_STEPS = 8 // last steps the pane shows
+export const VIEW_STEPS = 30 // last tool calls the pane keeps (grouped into rows)
+export const VIEW_STEPS_SHOWN = 6 // step rows shown before 'show more'
+export const VIEW_TASK_SHORT = 160 // characters of the task shown folded
+export const VIEW_NOW_SHORT = 220 // characters of the agent's latest text shown folded
+export const VIEW_TASK_MAX = 4000 // characters of the task or the latest text kept
 export const VIEW_FINISHED_MAX = 8 // finished agents listed before 'show N more'
 export const VIEW_REFRESH_MS = 1500 // at most one refresh this often
 export const NOTIFY_BATCH_MS = 1500 // agents that end this close together share one notice
@@ -99,13 +103,17 @@ export function transcriptEntries(messages) {
     if (!m || typeof m !== 'object') continue
     const lines = textLines(m.text)
     if (m.role === 'assistant') {
-      if (lines.length > 0) out.push({ kind: 'text', lines })
+      if (lines.length > 0) out.push({ kind: 'text', lines, raw: m.text })
       for (const u of Array.isArray(m.toolUses) ? m.toolUses : []) {
         if (!u || typeof u !== 'object') continue
         const answered = typeof u.text === 'string'
+        const input = u.input && typeof u.input === 'object' ? u.input : {}
         out.push({
           kind: 'tool',
+          id: typeof u.tool_use_id === 'string' ? u.tool_use_id : undefined,
           tool: cutLine(u.tool, 40) || 'tool',
+          desc: str(input.description) && cutLine(input.description, 100),
+          command: u.tool === 'Bash' && str(input.command) ? input.command : undefined,
           arg: argSummary(u.tool, u.input),
           result: answered ? textLines(u.text)[0] ?? '' : '',
           summary: answered ? resultSummary(u.text) : undefined,
@@ -115,7 +123,7 @@ export function transcriptEntries(messages) {
       }
     } else if (m.role === 'user') {
       if (lines.length === 0) continue
-      out.push({ kind: briefSeen ? 'user' : 'brief', lines })
+      out.push({ kind: briefSeen ? 'user' : 'brief', lines, raw: m.text })
       briefSeen = true
     }
   }
@@ -215,6 +223,70 @@ export function reportFold(blocks, { open = false, maxBlocks = VIEW_REPORT_BLOCK
 // Long absolute paths cut to their last two parts: /private/tmp/x/y/tasks/b.output -> …/tasks/b.output.
 export function shortPaths(text) {
   return String(text ?? '').replace(/(?:~|\/)(?:[\w.@+-]+\/){3,}[\w.@+-]+/g, (p) => '…/' + p.split('/').slice(-2).join('/'))
+}
+
+const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const PATH_END = `(?![\\w.@+-])` // a whole path segment: /work is not /workspace
+
+// Absolute paths in short forms for the pane: a scratchpad or session dir -> …/scratchpad, the project root -> ./
+// (the root itself -> .), the home dir -> ~ (given, else any /Users/x or /home/x), any other deep absolute path ->
+// …/its last two parts. root and home are plain paths without a trailing slash, or absent.
+export function tidyPaths(text, { root, home } = {}) {
+  let s = String(text ?? '')
+  s = s.replace(/(?<![\w.@+-])(?:~|\/)[^\s'"`]*?\/scratchpad(?![\w.@+-])/g, '…/scratchpad')
+  const r = typeof root === 'string' ? root.replace(/\/+$/, '') : ''
+  if (r.length > 1) {
+    s = s.replace(new RegExp(`(?<![\\w.@+/-])${reEscape(r)}/`, 'g'), './')
+    s = s.replace(new RegExp(`(?<![\\w.@+/-])${reEscape(r)}${PATH_END}`, 'g'), '.')
+  }
+  const h = typeof home === 'string' ? home.replace(/\/+$/, '') : ''
+  if (h.length > 1) s = s.replace(new RegExp(`(?<![\\w.@+/-])${reEscape(h)}${PATH_END}`, 'g'), '~')
+  s = s.replace(/(?<![\w.@+/-])\/(?:Users|home)\/[\w.@+-]+(?![\w.@+-])/g, '~')
+  return s.replace(/(?<![\w.@+~/-])\/(?:[\w.@+-]+\/){3,}[\w.@+-]+/g, (p) => '…/' + p.split('/').slice(-2).join('/'))
+}
+
+// A shell command without the leading `cd <dir> &&` (or `;`) it opens with: the step shows what it ran.
+export function stripCd(command) {
+  let s = String(command ?? '')
+  const lead = /^\s*cd\s+(?:"[^"]*"|'[^']*'|[^\s;&|]+)\s*(?:&&|;)\s*/
+  while (lead.test(s)) s = s.replace(lead, '')
+  return s.trim()
+}
+
+// A text folded for the pane: `full` (its lines kept, each cleaned, markdown marks out, paths tidied), `short`
+// (the opening `n` characters as one line, cut at a word) and `more` (whether `short` leaves something out).
+export function foldText(text, n, paths = {}) {
+  const lines = String(text ?? '')
+    .split(/\r?\n/)
+    .map((l) => mdInline(cleanLine(tidyPaths(l, paths))).trim())
+    .filter((l) => l !== '' && !/^[-*_=]{3,}$/.test(l))
+  const full = lines.join('\n')
+  const flat = lines.join(' ')
+  if (flat.length <= n) return { short: flat, full, more: false }
+  const cut = flat.slice(0, n)
+  const at = cut.lastIndexOf(' ')
+  return { short: (at > n * 0.6 ? cut.slice(0, at) : cut).replace(/[\s,.;:–-]+$/, '') + '…', full, more: true }
+}
+
+// Steps in rows: consecutive calls of one tool (none failed) share a row { kind: 'group', id, tool, items, tone, pending },
+// a lone call stays { kind: 'tool', ... }. The id of a row is its first call's, so it holds across refreshes.
+export function stepGroups(steps) {
+  const rows = []
+  for (const st of Array.isArray(steps) ? steps : []) {
+    const last = rows[rows.length - 1]
+    // A failed call stands alone: its error is never folded away.
+    const plain = (x) => x.kind === 'group' || x.tone !== 'crit' // a group holds only calls that did not fail
+    if (last && last.tool === st.tool && plain(last) && plain(st)) {
+      if (last.kind === 'group') last.items.push(st)
+      else rows[rows.length - 1] = { kind: 'group', id: last.id, tool: last.tool, items: [last, st] }
+    } else rows.push(st)
+  }
+  for (const g of rows) {
+    if (g.kind !== 'group') continue
+    g.pending = g.items.some((x) => x.pending)
+    g.tone = g.items.some((x) => x.tone === 'crit') ? 'crit' : g.pending ? 'warn' : 'ok'
+  }
+  return rows
 }
 
 // What the engine says about a call in its own words, as plain words: a refusal, a start in the background,
@@ -331,11 +403,17 @@ export function paneGroups(rows, { selected, all = false, max = VIEW_FINISHED_MA
 
 // The selected agent as data for the pane:
 //   title: { name, status, statusText, tone, time, tokens, calls }
-//   deny?: why it cannot be read; task?: its brief (first user message, short)
+//   deny?: why it cannot be read
+//   task?: its brief folded (foldText): { short, full, more }, paths tidied
+//   now?: while it runs, its latest narrative (the newest assistant text, never tool output), folded the same way.
+//         The rows of $.session.messages({ agentId }) carry only text blocks, no thinking: an agent's thinking is
+//         only in the `as: 'api'` form, which the pane does not read (one read per refresh), so none is shown.
 //   report?: paragraphs (reportBlocks) once it ended
-//   steps: its last `steps` steps, oldest first: { kind: 'tool', tool, arg, summary, tone, pending } or
-//          { kind: 'text', text }; hidden: how many earlier ones are left out; empty: nothing ran yet.
-export function paneDetail({ name, row, messages, deny, answer, done, calls } = {}, { lang = 'en', now, steps = VIEW_STEPS } = {}) {
+//   steps: its last `steps` tool calls as rows (stepGroups), oldest first; a call is { kind: 'tool', id, tool,
+//          label, arg, command?, summary, tone, pending }: a Bash call's label is its own description and its
+//          command (without the leading `cd … &&`) is kept in `command` for an expand; hidden: earlier calls left
+//          out; empty: nothing ran yet. `root`/`home` shorten paths (tidyPaths).
+export function paneDetail({ name, row, messages, deny, answer, done, calls } = {}, { lang = 'en', now, steps = VIEW_STEPS, root, home } = {}) {
   const r = row ? paneRow(row, now) : undefined
   const status = r?.status ?? (done ? 'done' : 'running')
   const title = {
@@ -357,25 +435,35 @@ export function paneDetail({ name, row, messages, deny, answer, done, calls } = 
     if (blocks.length > 0) out.report = blocks
   }
   if (deny !== undefined) return out
+  const paths = { root, home }
+  const tidy = (x) => tidyPaths(x, paths)
   const all = transcriptEntries(messages)
   const brief = all.find((x) => x.kind === 'brief')
-  if (brief) out.task = cutLine(mdInline(brief.lines.join(' ')), 240)
-  const acts = all.filter((x) => x.kind === 'tool' || x.kind === 'text')
-  if (acts.length === 0 && !out.report) out.empty = true
+  if (brief) out.task = foldText(String(brief.raw).slice(0, VIEW_TASK_MAX), VIEW_TASK_SHORT, paths)
+  const said = [...all].reverse().find((x) => x.kind === 'text')
+  if (!done && said) out.now = foldText(String(said.raw).slice(0, VIEW_TASK_MAX), VIEW_NOW_SHORT, paths)
+  const acts = all.filter((x) => x.kind === 'tool')
+  if (acts.length === 0 && !out.report && !out.now) out.empty = true
   const tail = acts.slice(-Math.max(0, steps))
   out.hidden = acts.length - tail.length
-  out.steps = tail.map((x) => {
-    if (x.kind === 'text') return { kind: 'text', text: cutLine(mdInline(x.lines.join(' ')), 240) }
+  const list = tail.map((x, i) => {
     const handback = /handback/i.test(x.tool)
+    const command = x.command !== undefined ? stripCd(tidy(x.command)) : undefined
+    const arg = handback ? '' : command !== undefined ? cutLine(command, 100) : cutLine(tidy(x.arg), 100)
+    const label = x.desc ?? ''
     return {
       kind: 'tool',
+      id: x.id ?? 'step-' + (out.hidden + i),
       tool: x.tool,
-      arg: handback ? '' : x.arg,
-      summary: x.pending ? t(lang, 'view_running_tool') : handback && !x.error ? t(lang, 'view_handed_back') : summaryText(x.summary, lang),
+      label,
+      arg: label !== '' && command !== undefined ? '' : arg,
+      ...(label !== '' && command !== undefined && command !== '' ? { command: cutLine(command, 600) } : {}),
+      summary: x.pending ? t(lang, 'view_running_tool') : handback && !x.error ? t(lang, 'view_handed_back') : tidy(summaryText(x.summary, lang)),
       tone: x.error ? 'crit' : x.pending ? 'warn' : 'ok',
       pending: x.pending,
     }
   })
+  out.steps = stepGroups(list)
   return out
 }
 

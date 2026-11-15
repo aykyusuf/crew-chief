@@ -27,6 +27,10 @@ import {
   reportLines,
   resultSummary,
   shortPaths,
+  stepGroups,
+  stripCd,
+  tidyPaths,
+  foldText,
   summaryText,
   throttlePlan,
   transcriptEntries,
@@ -100,14 +104,15 @@ test('paneDetail: a running agent gets a title, its task and its last steps, res
   const d = paneDetail({ name: 'crew-chief:deep-reader', messages: MESSAGES, done: false }, { now: 0 })
   assert.equal(d.title.name, 'deep-reader')
   assert.equal(d.title.statusText, 'running')
-  assert.equal(d.task, 'Find the auth bug in src/auth')
+  assert.deepEqual(d.task, { short: 'Find the auth bug in src/auth', full: 'Find the auth bug\nin src/auth', more: false })
+  assert.equal(d.now.short, 'Looking at the auth module.') // its latest narrative, not a tool's output
   assert.equal(d.report, undefined)
   assert.deepEqual(
-    d.steps.map((x) => (x.kind === 'tool' ? x.tool + ' ' + x.arg + ' | ' + x.summary : '› ' + x.text)),
-    ['› Looking at the auth module.', 'Read /w/src/auth.js | line one  +1 lines', 'Bash npm test | FAIL auth', 'Grep token | running…'],
+    d.steps.map((x) => x.tool + ' ' + x.arg + ' | ' + x.summary),
+    ['Read /w/src/auth.js | line one  +1 lines', 'Bash npm test | FAIL auth', 'Grep token | running…'],
   )
-  assert.equal(d.steps[2].tone, 'crit')
-  assert.equal(d.steps[3].pending, true)
+  assert.equal(d.steps[1].tone, 'crit')
+  assert.equal(d.steps[2].pending, true)
 })
 
 test('paneDetail: a finished agent keeps its whole report as paragraphs, markdown taken out', () => {
@@ -139,19 +144,69 @@ test('paneDetail: an agent that cannot be read says so and still shows a kept re
   assert.equal(tr.report, undefined)
 })
 
-test('paneDetail: the last 8 steps, the rest counted; a handback is named, not repeated', () => {
+test('paneDetail: the last 30 calls kept, the rest counted; one tool in a row is one group; a handback is named, not repeated', () => {
   const many = [{ role: 'user', text: 'brief', toolUses: [] }]
-  for (let i = 0; i < 20; i++) many.push({ role: 'assistant', text: '', toolUses: [{ tool_use_id: 'u' + i, tool: 'Bash', input: { command: 'step ' + i }, text: 'ok' }] })
+  for (let i = 0; i < 40; i++) many.push({ role: 'assistant', text: '', toolUses: [{ tool_use_id: 'u' + i, tool: i % 2 ? 'Read' : 'Bash', input: i % 2 ? { file_path: '/w/f' + i } : { command: 'step ' + i }, text: 'ok' }] })
   many.push({ role: 'assistant', text: '', toolUses: [{ tool_use_id: 'h', tool: 'SubagentHandback', input: { message: 'the whole report' }, text: '{"success":true,"delivered":true}' }] })
   const d = paneDetail({ name: 'a', messages: many })
-  assert.equal(d.steps.length, 8)
-  assert.equal(d.hidden, 13)
-  assert.equal(d.steps[0].arg, 'step 13')
-  const last = d.steps[7]
+  assert.equal(d.hidden, 11)
+  assert.equal(d.steps.length, 30)
+  assert.equal(d.steps[0].arg, '/w/f11')
+  assert.equal(d.steps[0].id, 'u11') // a row keeps its call's id across refreshes
+  const last = d.steps[29]
   assert.equal(last.tool, 'SubagentHandback')
   assert.equal(last.arg, '')
   assert.equal(last.summary, 'handed its report back')
   assert.equal(paneDetail({ name: 'a', messages: [] }).empty, true)
+  const reads = [{ role: 'user', text: 'b', toolUses: [] }, { role: 'assistant', text: '', toolUses: ['a', 'b', 'c'].map((f) => ({ tool_use_id: f, tool: 'Read', input: { file_path: '/w/' + f }, text: 'x' })) }]
+  const g = paneDetail({ name: 'a', messages: reads }).steps
+  assert.equal(g.length, 1)
+  assert.equal(g[0].kind, 'group')
+  assert.equal(g[0].id, 'a')
+  assert.deepEqual(g[0].items.map((x) => x.arg), ['/w/a', '/w/b', '/w/c'])
+})
+
+test('paneDetail: the task is one short line first, the whole on demand; Now is the latest assistant text, gone once it ended', () => {
+  const brief = 'Fix the renderer in /Users/me/proj/src/render.js.\n\nContext: ' + 'word '.repeat(80) + '\nWrite to /private/tmp/claude-501/-Users-me-proj/abc/scratchpad/out.txt'
+  const messages = [
+    { role: 'user', text: brief, toolUses: [] },
+    { role: 'assistant', text: 'First I read the code.', toolUses: [{ tool_use_id: 'r', tool: 'Read', input: { file_path: '/Users/me/proj/src/a.js' }, text: 'x' }] },
+    { role: 'assistant', text: 'The **bug** is in the loop; fixing it now.', toolUses: [{ tool_use_id: 'b', tool: 'Bash', input: { command: 'cd /Users/me/proj && npm test', description: 'Run the tests' }, text: 'ok' }] },
+    { role: 'assistant', text: '', toolUses: [{ tool_use_id: 'c', tool: 'Bash', input: { command: "cd '/Users/me/other dir' && ls /Users/me/notes" }, text: 'a\nb' }] },
+  ]
+  const d = paneDetail({ name: 'a', messages }, { root: '/Users/me/proj', home: '/Users/me' })
+  assert.ok(d.task.short.length <= 161 && d.task.short.endsWith('…'))
+  assert.ok(d.task.short.startsWith('Fix the renderer in ./src/render.js. Context: word'))
+  assert.equal(d.task.more, true)
+  assert.match(d.task.full, /\nWrite to …\/scratchpad\/out\.txt$/)
+  assert.ok(!/\/Users\/|\/private\/tmp/.test(d.task.full))
+  assert.equal(d.now.short, 'The bug is in the loop; fixing it now.')
+  assert.deepEqual([d.steps[0].tool, d.steps[0].label, d.steps[0].arg], ['Read', '', './src/a.js'])
+  const bash = d.steps[1]
+  assert.equal(bash.kind, 'group')
+  assert.equal(bash.items[0].label, 'Run the tests') // the call's own description first
+  assert.equal(bash.items[0].arg, '')
+  assert.equal(bash.items[0].command, 'npm test') // the leading cd … && dropped
+  assert.equal(bash.items[1].label, '')
+  assert.equal(bash.items[1].arg, 'ls ~/notes')
+  assert.equal(paneDetail({ name: 'a', messages, done: true, answer: 'done' }).now, undefined)
+})
+
+test('tidyPaths, stripCd and foldText', () => {
+  const p = { root: '/work', home: '/Users/me' }
+  assert.equal(tidyPaths('/work/src/a.js and /work', p), './src/a.js and .')
+  assert.equal(tidyPaths('/workspace/a.js', p), '/workspace/a.js') // a whole segment only
+  assert.equal(tidyPaths('/Users/me/x and /Users/other/y', p), '~/x and ~/y')
+  assert.equal(tidyPaths('/private/tmp/claude-501/-Users-me/s1/scratchpad/a.png', p), '…/scratchpad/a.png')
+  assert.equal(tidyPaths('/private/tmp/claude-501/x/tasks/b.output'), '…/tasks/b.output')
+  assert.equal(tidyPaths('./a/b/c/d/e.js'), './a/b/c/d/e.js')
+  assert.equal(stripCd('cd /a/b && cd "c d" && make'), 'make')
+  assert.equal(stripCd("cd '/x y'; ls"), 'ls')
+  assert.equal(stripCd('make && cd x'), 'make && cd x')
+  assert.deepEqual(foldText('one\ntwo', 160), { short: 'one two', full: 'one\ntwo', more: false })
+  assert.deepEqual(foldText('aaa bbb ccc ddd', 9), { short: 'aaa bbb…', full: 'aaa bbb ccc ddd', more: true })
+  assert.deepEqual(foldText('short', 160), { short: 'short', full: 'short', more: false })
+  assert.equal(stepGroups([{ kind: 'tool', id: '1', tool: 'Read' }, { kind: 'tool', id: '2', tool: 'Bash' }]).length, 2)
 })
 
 test('resultSummary: never raw JSON', () => {

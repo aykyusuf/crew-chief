@@ -269,7 +269,7 @@ test('/crew-agents opens a pane: the agents newest first, the picked one\'s tran
   expect(s.reads).toEqual(['a2', 'a1'])
   // The refresh after the press redraws the mounted pane.
   expect(await ui.find({ type: 'Text', text: /^Read$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /\/work\/login\.js/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^\.\/login\.js$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Reading the login module\./ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Fix the login bug/ })).toBeDefined()
   expect(s.reads).toEqual(['a2', 'a1'])
@@ -291,11 +291,11 @@ test('the pane draws and takes presses on the terminal, the Desktop app and VS C
     expect(await ui.find({ type: 'Text', text: /^Finished$/ })).toBeDefined()
     await ui.press({ key: 'agent-a1' })
     await settle()
-    expect(await ui.find({ type: 'Text', text: /\/work\/login\.js/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^\.\/login\.js$/ })).toBeDefined()
     await ui.press({ key: 'agent-a2' })
     await settle()
     expect(await ui.find({ type: 'Text', text: /^Grep$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /\/work\/login\.js/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /^\.\/login\.js$/ })).toBeUndefined()
     await ui.unmount()
   }
 })
@@ -377,14 +377,14 @@ test('band: a press on an agent row opens the side pane on that agent; drawing r
   expect(await ui.find({ type: 'Text', text: /Read \/work\/login\.js/ })).toBeUndefined()
   const pane = await mountView($)
   expect(await pane.find({ type: 'Text', text: /^Read$/ })).toBeDefined()
-  expect(await pane.find({ type: 'Text', text: /\/work\/login\.js/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /^\.\/login\.js$/ })).toBeDefined()
   // A press on another row while the pane is open switches it; no second pane.
   await ui.press({ key: 'open-a2' })
   await settle()
   expect(s.opened.length).toBe(1)
   expect(s.reads).toEqual(['a1', 'a2'])
   expect(await pane.find({ type: 'Text', text: /^Grep$/ })).toBeDefined()
-  expect(await pane.find({ type: 'Text', text: /\/work\/login\.js/ })).toBeUndefined()
+  expect(await pane.find({ type: 'Text', text: /^\.\/login\.js$/ })).toBeUndefined()
   await pane.unmount()
   await ui.unmount()
 })
@@ -569,4 +569,81 @@ test('pane: steps are said in plain words, never as engine tags, raw exit lines 
   expect(await ui.find({ type: 'Text', text: /^arka planda başladı$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /tool_use_error|Exit code|\/private\/tmp/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('pane: the task is one short line until devamını göster; Şu an shows the latest assistant text; a Bash step is its description, the cd and long paths gone', async ($, on) => {
+  const s = harness(on, { CREW_CHIEF_LANG: 'tr' })
+  const brief = 'Render the previews in /work/themes/wall-2.\n\nRules: ' + 'keep it tidy '.repeat(30) + '\nScratch: /private/tmp/claude-501/-work/s1/scratchpad/out.png'
+  s.transcript.a1 = [
+    { role: 'user', text: brief, toolUses: [] },
+    { role: 'assistant', text: 'Reading the theme first.', toolUses: [{ tool_use_id: 'r1', tool: 'Read', input: { file_path: '/work/themes/wall-2/index.json' }, text: '{}' }] },
+    {
+      role: 'assistant',
+      text: 'Now rendering the **previews**.',
+      toolUses: [{ tool_use_id: 'b1', tool: 'Bash', input: { command: 'cd /work/themes && python3 render.py wall-2', description: 'Render previews' }, text: 'wall-2: 123842 chars' }],
+    },
+  ]
+  await start($)
+  await spawn($, s, 'a1', 'crew-chief:implementer')
+  await run($, 'crew-agents')
+  const ui = await mountView($)
+  const reads = s.reads.length
+  // Şu an: the newest narrative, markdown out.
+  expect(await ui.find({ type: 'Text', text: /^Şu an$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Now rendering the previews\.$/ })).toBeDefined()
+  // The task: one short line, paths shortened, the rest behind a press.
+  const short = await ui.find({ type: 'Text', text: /^Render the previews in \.\/themes\/wall-2\. Rules:/ })
+  expect(short).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /scratchpad/ })).toBeUndefined()
+  await ui.press({ key: 'pane-task-a1' })
+  await settle()
+  expect(await ui.find({ type: 'Text', text: /^Scratch: …\/scratchpad\/out\.png$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'pane-task-a1' })).toBeDefined() // now "kısalt"
+  expect(await ui.find({ type: 'Text', text: /^kısalt$/ })).toBeDefined()
+  // The Bash step: its description, the command only on a press and without the cd.
+  expect(await ui.find({ type: 'Text', text: /^Render previews$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /python3 render\.py/ })).toBeUndefined()
+  await ui.press({ key: 'pane-step-b1' })
+  await settle()
+  expect(await ui.find({ type: 'Text', text: /^python3 render\.py wall-2$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /cd \/work/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^\.\/themes\/wall-2\/index\.json$/ })).toBeDefined()
+  expect(s.reads.length).toBe(reads) // the presses only redraw
+  // The message field sits on its own full-width row, its placeholder whole.
+  expect((await ui.find({ key: 'pane-msg-a1' }))?.props?.placeholder).toBe("implementer'a mesaj yaz…")
+  await ui.unmount()
+})
+
+test('pane: only the last 6 step rows until daha fazla göster', async ($, on) => {
+  const s = harness(on, { CREW_CHIEF_LANG: 'tr' })
+  const uses = Array.from({ length: 10 }, (_, i) => ({ tool_use_id: 'x' + i, tool: i % 2 ? 'Read' : 'Grep', input: i % 2 ? { file_path: '/work/f' + i } : { pattern: 'p' + i }, text: 'ok' }))
+  s.transcript.a1 = [{ role: 'user', text: 'go', toolUses: [] }, { role: 'assistant', text: '', toolUses: uses }]
+  await start($)
+  await spawn($, s, 'a1', 'crew-chief:scanner')
+  await run($, 'crew-agents')
+  const ui = await mountView($)
+  expect(await ui.find({ type: 'Text', text: /^p2$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^p4$/ })).toBeDefined()
+  await ui.press({ key: 'pane-more-steps-a1' })
+  await settle()
+  expect(await ui.find({ type: 'Text', text: /^p0$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^daha az göster$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('while the agents pane is open a finished agent raises no toast; closed, it does again', async ($, on) => {
+  const s = harness(on)
+  await start($)
+  await spawn($, s, 'a1', 'crew-chief:implementer')
+  await spawn($, s, 'a2', 'crew-chief:scanner')
+  await run($, 'crew-agents')
+  await finish($, 'a1', 215_000)
+  await s.clock.advance(1600)
+  await settle()
+  expect(s.toasts.filter((x: string) => /finished/.test(x))).toEqual([])
+  await run($, 'crew-agents') // closes it
+  await finish($, 'a2', 215_000)
+  await s.clock.advance(1600)
+  await settle()
+  expect(s.toasts.filter((x: string) => /finished/.test(x))).toHaveLength(1)
 })

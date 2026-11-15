@@ -39,6 +39,7 @@ import {
   notifyText,
   notifyWanted,
   VIEW_FINISHED_MAX,
+  VIEW_STEPS_SHOWN,
   paneChips,
   paneDetail,
   paneGroups,
@@ -64,6 +65,11 @@ function avFresh() {
     snapshot: undefined, // { chips, rows, detail } as the last refresh left it; what the pane draws
     finishedAll: false, // the pane lists every finished agent, not only the newest VIEW_FINISHED_MAX
     reportOpenFor: undefined, // the agent whose report is shown whole
+    taskOpenFor: undefined, // the agent whose task is shown whole
+    nowOpenFor: undefined, // the agent whose latest text ('Now') is shown whole
+    stepsAllFor: undefined, // the agent whose every kept step row is shown, not only the last VIEW_STEPS_SHOWN
+    stepsOpen: new Set(), // step rows opened (a Bash call's command, a group's calls), by their first call's id
+    paths: undefined, // { root, home } for shortening paths, read once per open pane
     detailFor: undefined, // the agent the detail was read for
     detailStale: true,
     selectedLive: false, // the picked agent still runs (the slow tick reads its transcript again)
@@ -118,6 +124,11 @@ export function avClosed() {
   avState.detailStale = true
   avState.finishedAll = false
   avState.reportOpenFor = undefined
+  avState.taskOpenFor = undefined
+  avState.nowOpenFor = undefined
+  avState.stepsAllFor = undefined
+  avState.stepsOpen.clear()
+  avState.paths = undefined
   avState.paneDrafts.clear()
   avState.paneNotes.clear()
 }
@@ -133,7 +144,9 @@ async function avFlush($) {
     const lang = await resolveLang($)
     const text = notifyText(lang, items)
     if (text === '') return
-    if ((await cfgGet($, 'notify.agent')) === 'on') $.ui.toast(text, { timeoutMs: 10000 })
+    // The open agents pane already shows who finished: a toast would only cover it (the user's ask, 2026-11-15).
+    // The host tells a hook nothing of the app's own focus, so the system notification keeps its own rule.
+    if ((await cfgGet($, 'notify.agent')) === 'on' && !avState.open) $.ui.toast(text, { timeoutMs: 10000 })
     const native = nativeWanted({ nativeOn: (await cfgGet($, 'notify.native')) === 'on', mainEndedAt: avState.mainEndedAt, firstEndAt: Math.min(...items.map((i) => i.endedAt)) })
     if (native) {
       try {
@@ -234,6 +247,7 @@ async function avPaneRefresh($, now, lang) {
       const error = r.failed === true || (ended !== undefined && (ended.reason === 'error' || ended.reason === 'refusal'))
       return { ...r, status: error ? 'error' : r.status }
     })
+    if (avState.paths === undefined) avState.paths = await avPaths($)
     const selected = pickSelected(rows, avState.selected)
     avState.selected = selected
     let detail = avState.snapshot?.detail
@@ -259,7 +273,7 @@ async function avPaneRefresh($, now, lang) {
           done: row ? row.status === 'done' || row.status === 'error' : ended !== undefined,
           calls: progressStats(selected)?.calls,
         },
-        { lang, now },
+        { lang, now, ...avState.paths },
       )
       avState.detailFor = selected
       avState.detailStale = false
@@ -277,6 +291,21 @@ async function avPaneRefresh($, now, lang) {
   } catch (err) {
     // The pane keeps what it drew last.
   }
+}
+
+// The project root and the home dir, for the pane's short paths (./, ~). Read in a refresh, never while drawing.
+async function avPaths($) {
+  const read = async (f) => {
+    try {
+      const v = await f()
+      return typeof v === 'string' && v.startsWith('/') ? v : undefined
+    } catch (err) {
+      return undefined
+    }
+  }
+  const root = (await read(() => $.session.root())) ?? (await read(() => $.session.cwd()))
+  const home = await read(() => $.env.get('HOME'))
+  return { root, home }
 }
 
 // The picked agent's bubbles moved by what was just read: its transcript when the session can read it, and its
@@ -418,7 +447,22 @@ export function avTree($, e) {
       ]),
     ]
     if (d.deny) section.push(txt(d.deny, toned('warn')))
-    if (d.task) section.push(col([heading(t(lang, 'view_task'), t(lang, 'view_task_hint')), mute(d.task)]))
+    // A folded text (the task, the latest narrative): one short line first, the whole on a press.
+    const folded = (key, f, stateKey, props = {}) => {
+      const open = avState[stateKey] === id
+      const out = [open ? col(f.full.split('\n').map((l) => txt(l, props)), { gap: 'xs' }) : txt(f.short, props)]
+      if (f.more)
+        out.push(
+          linkButton(key, t(lang, open ? 'view_text_less' : 'view_text_more'), () => {
+            avState[stateKey] = open ? undefined : id
+            avRedraw($)
+          }),
+        )
+      return out
+    }
+    // What it is doing now: its latest narrative, above everything else it did.
+    if (d.now) section.push(col([heading(t(lang, 'view_now'), t(lang, 'view_now_hint')), ...folded('pane-now-' + id, d.now, 'nowOpenFor', { italic: true })], { gap: 'xs' }))
+    if (d.task) section.push(col([heading(t(lang, 'view_task'), t(lang, 'view_task_hint')), ...folded('pane-task-' + id, d.task, 'taskOpenFor', { dimColor: true })], { gap: 'xs' }))
     if (d.report) {
       const fold = reportFold(d.report, { open: avState.reportOpenFor === id })
       const paras = fold.shown.map((b) => {
@@ -442,20 +486,54 @@ export function avTree($, e) {
     }
     if (d.steps.length > 0) {
       const steps = [heading(t(lang, 'view_steps'), t(lang, 'view_steps_hint'))]
-      if (d.hidden > 0) steps.push(mute(t(lang, 'view_earlier', { n: d.hidden }), { size: 'footnote' }))
-      for (const st of d.steps) {
-        if (st.kind === 'text') {
-          steps.push(line([mute('›'), col([txt(st.text, { italic: true })], { flexShrink: 1, flexGrow: 1 })], { alignItems: 'flex-start' }))
-          continue
-        }
-        const top = [one(st.tool, { weight: 'semibold' })]
-        if (st.arg) top.push(one(st.arg, { dimColor: true, mono: true, size: 'footnote' }))
-        const body = [line(top)]
-        if (st.summary) body.push(txt(st.summary, { ...(st.tone === 'ok' ? { dimColor: true } : toned(st.tone)), size: 'footnote' }))
-        const mark = Text({ ...toned(st.tone), children: [st.pending ? '◌' : st.tone === 'crit' ? '✗' : '•'] })
-        steps.push(line([mark, col(body, { flexShrink: 1, flexGrow: 1 })], { alignItems: 'flex-start' }))
+      const all = avState.stepsAllFor === id
+      const rows = all ? d.steps : d.steps.slice(-VIEW_STEPS_SHOWN)
+      const foldedRows = d.steps.length - rows.length
+      if (d.hidden > 0 && all) steps.push(mute(t(lang, 'view_earlier', { n: d.hidden }), { size: 'footnote' }))
+      if (foldedRows > 0 || (all && d.steps.length > VIEW_STEPS_SHOWN)) {
+        steps.push(
+          linkButton('pane-more-steps-' + id, foldedRows > 0 ? t(lang, 'view_steps_more', { n: foldedRows }) : t(lang, 'view_steps_less'), () => {
+            avState.stepsAllFor = foldedRows > 0 ? id : undefined
+            avRedraw($)
+          }),
+        )
       }
-      section.push(col(steps))
+      const markOf = (st) => Text({ ...toned(st.tone), children: [st.pending ? '◌' : st.tone === 'crit' ? '✗' : '•'] })
+      // One call's words: its label (a Bash call's own description) or else its argument, dim and mono.
+      const callTop = (st, prefix) => {
+        const top = prefix ? [prefix] : []
+        if (st.label) top.push(one(st.label))
+        if (st.arg) top.push(one(st.arg, { dimColor: true, mono: true, size: 'footnote' }))
+        return top
+      }
+      const summary = (st) => (st.summary ? [txt(st.summary, { ...(st.tone === 'ok' ? { dimColor: true } : toned(st.tone)), size: 'footnote' })] : [])
+      const command = (st) => (st.command ? [txt(st.command, { dimColor: true, mono: true, size: 'footnote' })] : [])
+      for (const st of rows) {
+        const open = avState.stepsOpen.has(st.id)
+        const toggle = () => {
+          if (open) avState.stepsOpen.delete(st.id)
+          else avState.stepsOpen.add(st.id)
+          avRedraw($)
+        }
+        const toolName = one(st.tool, { weight: 'semibold' })
+        let body
+        if (st.kind === 'group') {
+          // Calls of one tool in a row: the count and the newest; a press lists them all.
+          const lastOne = st.items[st.items.length - 1]
+          const head = Button({ key: 'pane-step-' + st.id, plain: true, onPress: toggle, children: [toolName, one('×' + st.items.length, { dimColor: true, size: 'footnote', tabular: true }), ...callTop(lastOne), one(open ? '▾' : '▸', { dimColor: true })] })
+          body = [head]
+          if (open) for (const it of st.items) body.push(col([line([markOf(it), ...callTop(it)]), ...summary(it), ...command(it)], { paddingLeft: 2 }))
+          else body.push(...summary(lastOne))
+        } else {
+          const top = [toolName, ...callTop(st)]
+          // A Bash call drawn by its description: the command it ran, on a press.
+          body = st.command ? [Button({ key: 'pane-step-' + st.id, plain: true, onPress: toggle, children: [...top, one(open ? '▾' : '▸', { dimColor: true })] })] : [line(top)]
+          if (open) body.push(...command(st))
+          body.push(...summary(st))
+        }
+        steps.push(line([markOf(st), col(body, { flexShrink: 1, flexGrow: 1 })], { alignItems: 'flex-start' }))
+      }
+      section.push(col(steps, { gap: 'xs' }))
     } else if (d.empty) section.push(mute(t(lang, 'view_empty')))
     children.push(col(section, { gap: 1, paddingTop: 1 }))
   }
@@ -495,16 +573,17 @@ export function avTree($, e) {
       },
       onSubmit: (value) => avPaneSend($, id, value, done),
     })
-    // Input is a leaf with no size of its own: the row around it spans the pane and lets it grow.
+    // Input is a leaf with no width prop: the field sits alone on its row, every box from the pane down to it
+    // spans the full width and stretches its children, so the field (and its placeholder) gets the whole line.
     const box = [
       heading(t(lang, 'view_msg_title', { name })),
-      Box({ key: 'pane-msg-row-' + id, flexDirection: 'row', width: '100%', children: [Box({ flexDirection: 'column', flexGrow: 1, flexShrink: 1, children: [field] })] }),
+      Box({ key: 'pane-msg-row-' + id, flexDirection: 'column', width: '100%', alignItems: 'stretch', children: [Box({ flexDirection: 'column', width: '100%', flexGrow: 1, alignItems: 'stretch', children: [field] })] }),
       txt(t(lang, done ? 'view_msg_note_done' : 'view_msg_note_live', { name }), { ...(done ? toned('warn') : { dimColor: true }), size: 'footnote' }),
     ]
     if (note) box.push(txt(note.text, { ...toned('crit'), size: 'footnote' }))
-    children.push(col(box, { gap: 'xs', paddingTop: 1 }))
+    children.push(col(box, { gap: 'xs', paddingTop: 1, width: '100%', alignItems: 'stretch' }))
   }
-  return col(children, { gap: 1, paddingX: 1 })
+  return col(children, { gap: 1, paddingX: 1, alignItems: 'stretch' })
 }
 
 // ---- agents opened in the band -------------------------------------------------------------------
