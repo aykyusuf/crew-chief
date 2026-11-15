@@ -20,6 +20,7 @@ import {
   lineText,
   modeLabels,
   modelChip,
+  questionRows,
   quietFacts,
   sparkline,
   spinnerWord,
@@ -396,25 +397,48 @@ test('the first-run tag is drawn only where line 1 has room for it', () => {
 test('cardRowsFit: whole rows of cards (3 rows and a gap each) in what the frame, lines and a question leave', () => {
   assert.equal(cardRowsFit({ maxRows: 14, frame: 2, line: 1, status: 1 }), 2) // 10 left: 3 + 1 + 3, not a third
   assert.equal(cardRowsFit({ maxRows: 15, frame: 2, line: 1, status: 1 }), 3) // 11 left: 3 + 1 + 3 + 1 + 3
-  assert.equal(cardRowsFit({ maxRows: 6, frame: 2, line: 1, status: 1, question: 4 }), 1) // never none
+  assert.equal(cardRowsFit({ maxRows: 6, frame: 2, line: 1, status: 1, question: 4 }), 1) // never none by default
+  assert.equal(cardRowsFit({ maxRows: 6, frame: 2, line: 1, status: 1, question: 4 }, 3, 0), 0) // a question first: none
   assert.equal(cardRowsFit({}), 1)
 })
 
-test('cardBudget: everything that fits; past the room the last cell is the "+N more" chip, never a cut row', () => {
+test('questionRows: the Desktop card counts its frame, head, facts and wrapped answers; the strip its wrapped text', () => {
+  const look = { kind: 'card', topic: 'Token saver', question: 'Turn on?', facts: ['5-hour 82%'], note: 'a note', labels: ['Turn on saver', 'Ultra', 'Not now', "Don't ask again"] }
+  const q = { text: 'Your 5-hour limit is 82% used. Turn on the token saver?', answers: ['a', 'b', 'c', 'd'], look }
+  assert.equal(questionRows(q, true, 100), 6) // frame 2, head, facts, one row of answers, the gap after it
+  assert.ok(questionRows(q, true, 40) > 6) // the answers wrap in a narrow band
+  assert.equal(questionRows({ ...q, look: { ...look, facts: [], note: '' } }, true, 100), 5)
+  assert.equal(questionRows(q, false, 100), 2)
+  assert.ok(questionRows({ ...q, text: 'x'.repeat(300) }, false, 100) >= 4)
+  assert.equal(questionRows(undefined, true, 100), 0)
+})
+
+test('cardBudget: every cell that fits holds a card; the agents past them are only counted (a chip outside the cards)', () => {
   const needs = (n) => Array.from({ length: n }, () => 60)
   const all = cardBudget(145, needs(4), 2)
   assert.deepEqual([all.cells, all.shown, all.more, all.rows], [4, 4, 0, 4])
   for (const [n, rows] of [[7, 2], [7, 1], [9, 3], [12, 2]]) {
     const b = cardBudget(145, needs(n), rows, 6)
-    const drawnRows = Math.ceil((b.shown + (b.more > 0 ? 1 : 0)) / b.grid.per)
+    const drawnRows = Math.ceil(b.shown / b.grid.per)
     assert.ok(drawnRows <= rows, `${n} agents in ${rows} rows: ${drawnRows} drawn`)
     assert.ok(b.cells <= 6)
     assert.equal(b.shown + b.more, n)
-    assert.ok(b.more > 0 && b.shown === b.cells - 1, 'the chip takes the last cell')
+    assert.ok(b.more > 0 && b.shown === b.cells, 'no cell is given to the chip')
+    assert.equal(b.rows, b.shown)
     assert.deepEqual(cardBudget(145, needs(n), rows, 6), b, 'the same agents and room, the same layout')
   }
-  // One card to a row (a narrow band): every cell is a card, the rest a line of text under them.
+  // Five agents, four cells (two rows of two): four cards and one more, not three and '+2'.
+  const four = cardBudget(145, needs(5), 2, 4)
+  assert.deepEqual([four.shown, four.more], [4, 1])
+  // One card to a row (a narrow band): every cell is a card.
   const narrow = cardBudget(60, needs(5), 2, 6)
   assert.equal(narrow.grid.per, 1)
-  assert.deepEqual([narrow.shown, narrow.more, narrow.rows], [2, 3, 3])
+  assert.deepEqual([narrow.shown, narrow.more, narrow.rows], [2, 3, 2])
+  // No room at all (a question took it): no card, every agent counted.
+  assert.deepEqual([cardBudget(145, needs(3), 0).shown, cardBudget(145, needs(3), 0).more], [0, 3])
+})
+
+test('statusSegments: the agents past the cards come first in the row, as a small chip', () => {
+  assert.equal(lineText(statusSegments({ more: '+1 more', busy: 5 })), '+1 more   5 agents running · more than you can follow')
+  assert.equal(quietFacts({ more: '+2 more' }).more, '+2 more')
 })

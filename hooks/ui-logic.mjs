@@ -141,16 +141,19 @@ export function quietFacts(facts) {
     saver: facts.saver === 'ultra' || (facts.saver && (five || week)) ? facts.saver : false,
     compactKey: facts.compactKey,
     busy: facts.busy,
+    more: facts.more,
   }
 }
 
 // The status line of the band: context, windows, guard, saver, and the compact key when it applies.
-// facts: { ctx, five, week, guard: { on, held } | undefined, saver: boolean, compactKey: boolean }
+// facts: { ctx, five, week, guard: { on, held } | undefined, saver: boolean, compactKey: boolean, more: string }
+// `more`: the agents past the cards' room ('+2 more', said in the person's language by the caller), first in the row.
 // keyHint: whether the compact key names its shortcut ('[1] compact'); the shortcut only works while the band has
 // focus, so outside the terminal (Desktop, VS Code, mobile) the caller leaves it out.
 export function statusSegments(facts, keyHint = true) {
   const out = []
   const gap = () => out.length > 0 && out.push(seg('   ', 'dim'))
+  if (typeof facts.more === 'string' && facts.more !== '') out.push(seg(facts.more, 'info', true))
   if (facts.ctx) {
     gap()
     out.push(seg('ctx ', 'dim'))
@@ -402,31 +405,63 @@ export function cardGrid(columns, needs, count) {
 
 // The rows of agent cards the band has room for (Desktop): what maxRows leaves after the frame, the status
 // line, the status row and a question, one card row taking `rowRows` rows and one more for the gap between two.
-// At least one row. room: { maxRows, frame, line, status, question } in rows.
-export function cardRowsFit({ maxRows, frame = 0, line = 0, status = 0, question = 0 } = {}, rowRows = 3) {
+// At least `min` rows (1 by default; 0 while a question is shown: its rows come first, the cards get what is
+// left). room: { maxRows, frame, line, status, question } in rows.
+export function cardRowsFit({ maxRows, frame = 0, line = 0, status = 0, question = 0 } = {}, rowRows = 3, min = 1) {
   const rows = typeof maxRows === 'number' && Number.isFinite(maxRows) ? maxRows : 0
   const left = rows - frame - line - status - question
-  return Math.max(1, Math.floor((left + 1) / (rowRows + 1)))
+  return Math.max(min, Math.floor((left + 1) / (rowRows + 1)))
+}
+
+// The rows a plugin question takes in the band, so the cards are budgeted around it (it is never cut off).
+// q: { text, answers, look } as uiAskStart keeps it. desk: the Desktop card (a frame, the head, the facts, the
+// answers, which wrap); else the terminal's strip (the text, which wraps, and one row of buttons). columns: the
+// band's width inside its own frame. Generous: a row too many costs a card row, a row too few cuts the question.
+export function questionRows(q, desk, columns) {
+  if (!q) return 0
+  const cols = Math.max(10, typeof columns === 'number' && columns > 0 ? columns : 100)
+  const lines = (n, room) => Math.max(1, Math.ceil(n / Math.max(1, room)))
+  const answers = Array.isArray(q.answers) ? q.answers : []
+  if (!desk) return lines(String(q.text ?? '').length + 20, cols) + 1
+  const c = q.look && q.look.kind === 'card' ? q.look : {}
+  const inner = cols - 4 // the card's border and padding
+  const topic = typeof c.topic === 'string' ? c.topic : ''
+  const line = typeof c.question === 'string' && c.question !== '' ? c.question : String(q.text ?? '')
+  const head = topic !== '' ? 1 : lines(line.length + 16, inner)
+  const facts = (Array.isArray(c.facts) && c.facts.some((f) => typeof f === 'string' && f !== '')) || (typeof c.note === 'string' && c.note !== '') ? 1 : 0
+  const labels = Array.isArray(c.labels) ? c.labels : []
+  let rows = 1
+  let used = 0
+  answers.forEach((a, i) => {
+    const w = textCells(typeof labels[i] === 'string' && labels[i] !== '' ? labels[i] : a) + 6 // its padding and hotkey badge
+    if (used > 0 && used + 1 + w > inner) {
+      rows++
+      used = 0
+    }
+    used += (used > 0 ? 1 : 0) + w
+  })
+  // The frame's two rows, and one for the gap between the card and what follows it.
+  return 2 + head + facts + rows + 1
 }
 
 // Which of `needs` (one per agent, in order) the band draws as cards in `cardRows` rows of the grid, `max`
-// cells at most: { grid, cells, shown, more, rows }. Everything that fits is shown; otherwise the last cell is
-// the '+N more' chip, so no row of cards is ever cut in half. The grid is laid out for `cells` cells: drawn with
-// it, the cards and the chip take at most `cardRows` rows. One card to a row (a narrow band): every cell is a
-// card and the chip is a line of text under them, not a card-sized row of its own. rows: the band rows the
-// cards and a '+N more' take after the status row (for bandRows). Pure: the same agents and room give the
-// same layout.
+// cards at most: { grid, cells, shown, more, rows }. Every cell that fits holds a card (no row of cards is ever
+// cut in half); the agents past them (`more`) are said by a small '+N more' chip in the status row, never in a
+// card's cell. The grid is laid out for `cells` cells: drawn with it, the cards take at most `cardRows` rows.
+// cardRows 0 (a question took the room): no card at all, every agent is in `more`. rows: the band rows the
+// cards take after the status row (for bandRows). Pure: the same agents and room give the same layout.
 export function cardBudget(columns, needs, cardRows, max = 6) {
   const list = Array.isArray(needs) ? needs : []
   const n = list.length
-  const rows = Math.max(1, Math.floor(Number(cardRows) || 1))
+  const asked = Number(cardRows)
+  const rows = Number.isFinite(asked) ? Math.max(0, Math.floor(asked)) : 1
   const top = Math.max(1, Math.floor(Number(max) || 1))
   const all = cardGrid(columns, list)
+  if (rows === 0 || n === 0) return { grid: all, cells: 0, shown: 0, more: n, rows: 0 }
   if (n <= top && Math.ceil(n / all.per) <= rows) return { grid: all, cells: n, shown: n, more: 0, rows: n }
   const cells = Math.min(top, all.fit * rows, n)
   const grid = cardGrid(columns, list, cells)
-  const shown = n <= cells ? cells : grid.per === 1 ? cells : cells - 1
-  return { grid, cells, shown, more: n - shown, rows: shown + (n > shown ? 1 : 0) }
+  return { grid, cells, shown: cells, more: n - cells, rows: cells }
 }
 
 // ---- performance mode in one action (/crew-perf, the toggle at the end of the Desktop status line) ----------

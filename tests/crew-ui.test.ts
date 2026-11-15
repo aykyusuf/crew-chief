@@ -1066,7 +1066,7 @@ test('the saver question on Desktop is the quiet card: topic, two chips, one not
   await after.unmount()
 })
 
-test('Desktop: a question and five agents in a small band: the cards give way, the status line stays', async ($, on) => {
+test('Desktop: a question and five agents in a small band: the question\'s rows come first, the cards give way, the status line stays', async ($, on) => {
   const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_SAVER: 'on' }, surfaces: ['desktop'], rateLimits: SAVER_HIT })
   await start($)
   for (let i = 1; i <= 5; i++) {
@@ -1074,18 +1074,29 @@ test('Desktop: a question and five agents in a small band: the cards give way, t
     await step($, s, 'a' + i, 'claude-haiku-5-5', 'low')
   }
   await askSaver($)
-  const desk = await $.ui.mount({ plugin: 'crew-chief', surface: 'desktop', component: 'AbovePrompt', props: { ...PROPS, maxRows: 12 }, viewport: { columns: 105, rows: 40 } })
-  expect(await desk.find({ type: 'Box', key: 'ask-card' })).toBeDefined()
-  const cards = (await desk.findAll({ type: 'Box' })).filter((b: any) => /^agentrow-/.test(keyOf(b) ?? ''))
-  expect(cards.length).toBeGreaterThan(0)
-  expect(cards.length).toBeLessThan(5)
-  expect(await desk.find({ type: 'Text', text: new RegExp(`\\+${5 - cards.length} more agents`) })).toBeDefined()
-  const kids = kidsOfLine(await desk.find({ type: 'Box', key: 'band-with-line' }))
-  expect(keyOf(kids[kids.length - 1])).toBe('band-statusline') // still the band's last row
-  await desk.unmount()
+  // maxRows 12: the frame (2), the status line (1), the status row (1) and the question card (6: its frame, head,
+  // facts, answers and the gap after it) leave 2 rows, too few for a row of cards: no card is forced in to push
+  // the question out of view; all five agents are the '+5 more' chip.
+  const draw = async (maxRows: number) => {
+    const desk = await $.ui.mount({ plugin: 'crew-chief', surface: 'desktop', component: 'AbovePrompt', props: { ...PROPS, maxRows }, viewport: { columns: 105, rows: 40 } })
+    const ask = await desk.find({ type: 'Box', key: 'ask-card' })
+    const cards = (await desk.findAll({ type: 'Box' })).filter((b: any) => /^agentrow-/.test(keyOf(b) ?? ''))
+    const more = await desk.find({ type: 'Text', text: new RegExp(`^\\+${5 - cards.length} more$`) })
+    const kids = kidsOfLine(await desk.find({ type: 'Box', key: 'band-with-line' }))
+    await desk.unmount()
+    return { ask: ask !== undefined, cards: cards.length, more: more !== undefined, last: keyOf(kids[kids.length - 1]) }
+  }
+  expect(await draw(12)).toEqual({ ask: true, cards: 0, more: true, last: 'band-statusline' })
+  // More room: a row of cards under the question, the rest still the chip, the status line still last.
+  const roomy = await draw(16)
+  expect(roomy.ask).toBe(true)
+  expect(roomy.cards).toBeGreaterThan(0)
+  expect(roomy.cards).toBeLessThan(5)
+  expect(roomy.more).toBe(true)
+  expect(roomy.last).toBe('band-statusline')
 })
 
-test('Desktop: seven agents in a small band keep one layout on every drawing: busy row, whole card rows, a "+N more" chip, the status line last', async ($, on) => {
+test('Desktop: seven agents in a small band keep one layout on every drawing: busy row with a "+N more" chip, whole card rows of cards only, the status line last', async ($, on) => {
   const s = harness(on, { env: { CREW_CHIEF_UI: 'on' }, surfaces: ['desktop'] })
   await start($)
   for (let i = 1; i <= 7; i++) {
@@ -1100,8 +1111,8 @@ test('Desktop: seven agents in a small band keep one layout on every drawing: bu
     const lines = (await Promise.all([0, 1, 2].map((r) => ui.find({ type: 'Box', key: `agentline-0-${r}` })))) as any[]
     const kids = kidsOfLine(await ui.find({ type: 'Box', key: 'band-with-line' }))
     const cells = lines.filter(Boolean).flatMap(kidsOf).map((c: any) => keyOf(c))
-    const more = await ui.find({ type: 'Box', key: 'agentmore' })
-    const moreText = more ? kidsOf(more).map((t: any) => kidsOf(t).join('')).join('') : undefined
+    const more = await ui.find({ type: 'Text', text: /^\+\d+ more$/ })
+    const moreText = more ? kidsOf(more).join('') : undefined
     const faces = (await ui.findAll({ type: 'Svg' })).filter((x: any) => x.props.isInteractive === true).map((x: any) => x.props.source)
     await ui.unmount()
     return { busy: busy !== undefined, rows: lines.filter(Boolean).length, cells, last: keyOf(kids[kids.length - 1]), moreText, faces }
@@ -1111,8 +1122,8 @@ test('Desktop: seven agents in a small band keep one layout on every drawing: bu
   expect(first.last).toBe('band-statusline')
   expect(first.rows).toBe(2) // two whole rows, no third
   const cards = first.cells.filter((k: string) => /^agentrow-/.test(k))
-  expect(first.cells[first.cells.length - 1]).toBe('agentmore') // the chip is the last cell
-  expect(first.moreText).toBe(`+${7 - cards.length} more agents`)
+  expect(cards.length).toBe(first.cells.length) // every cell is a card: the chip takes none
+  expect(first.moreText).toBe(`+${7 - cards.length} more`) // in the busy row
   expect(first.cells.length).toBeLessThanOrEqual(6)
   expect(first.faces.length).toBe(cards.length)
   // Two more drawings, the clock moving on as the agents' events redraw the band: the same layout, the same faces.
@@ -1120,6 +1131,88 @@ test('Desktop: seven agents in a small band keep one layout on every drawing: bu
     await s.clock.advance(ms)
     expect(await draw()).toEqual(first)
   }
+})
+
+// Every element's place (type and key, or its index) down to it, and every picture's props by that place.
+function shape(tree: any): { boxes: string[]; svgs: Record<string, unknown> } {
+  const boxes: string[] = []
+  const svgs: Record<string, unknown> = {}
+  const walk = (el: any, path: string, i: number) => {
+    if (!el || typeof el !== 'object') return
+    const here = path + '/' + el.type + ':' + (el.props?.key ?? '#' + i)
+    if (el.type === 'Box') boxes.push(here)
+    if (el.type === 'Svg') svgs[here] = JSON.parse(JSON.stringify(el.props))
+    kidsOf(el).forEach((c: any, j: number) => walk(c, here, j))
+  }
+  walk(tree, '', 0)
+  return { boxes, svgs }
+}
+const cardTime = async (ui: any) => {
+  const box = await ui.find({ type: 'Box', key: 'time' })
+  return box ? kidsOf(box).map((x: any) => kidsOf(x).join('')).join('') : undefined
+}
+
+test('Desktop: a running agent\'s seconds tick once a second; a tick changes only the time, no picture, prop or key', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on' }, store: { crew_ui_mode: 'full' }, surfaces: ['desktop'] })
+  await start($)
+  await $.command.run({ command: 'saver', args: 'on' }) // the saver badge too: no picture of the band may follow the clock
+  s.agents.push({ id: 'a1', type: 'crew-chief:deep-reader', status: 'running', description: 'a task' })
+  await step($, s, 'a1', 'claude-sonnet-5-5', 'medium')
+  await s.clock.advance(4000)
+  const desk = await mountDesktop($, { maxRows: 30 })
+  const at = async () => ({ ...shape(await desk.drawn()), time: await cardTime(desk) })
+  const t0 = await at()
+  expect(Object.keys(t0.svgs).some((k) => /agentface-a1\/Svg/.test(k))).toBe(true)
+  expect(Object.keys(t0.svgs).some((k) => /agentbar-a1\/Svg/.test(k))).toBe(true)
+  expect(Object.values(t0.svgs).some((p: any) => p.alt === 'saver on')).toBe(true)
+  // Nothing happens but the clock: the ticker alone redraws, and only the time moves.
+  await s.clock.advance(1000)
+  const t1 = await at()
+  expect(t1.time).not.toBe(t0.time)
+  expect(t1.svgs).toEqual(t0.svgs)
+  expect(t1.boxes).toEqual(t0.boxes)
+  await s.clock.advance(1000)
+  const t2 = await at()
+  expect(new Set([t0.time, t1.time, t2.time]).size).toBe(3)
+  expect(t2.svgs).toEqual(t0.svgs)
+  expect(t2.boxes).toEqual(t0.boxes)
+  await desk.unmount()
+})
+
+test('Desktop: no tick while the band is collapsed or no agent runs', async ($, on) => {
+  // Every drawing of the band reads the agent list: counted here, it says whether the band was drawn again.
+  let calls = 0
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on' }, surfaces: ['desktop'] })
+  const list: any[] = []
+  Object.defineProperty(s, 'agents', {
+    get: () => {
+      calls++
+      return list
+    },
+  })
+  await start($)
+  list.push({ id: 'a1', type: 'crew-chief:deep-reader', status: 'running', description: 'a task' })
+  await step($, s, 'a1', 'claude-sonnet-5-5', 'medium')
+  await s.clock.advance(4000)
+  calls = 0
+  const folded = await mountDesktop($, { maxRows: 30, isCollapsed: true })
+  expect(calls).toBeGreaterThan(0) // the counter sees the drawings
+  const before = await cardTime(folded)
+  calls = 0
+  await s.clock.advance(3000)
+  expect(await cardTime(folded)).toBe(before) // not drawn again: the seconds stand still while nothing shows them
+  expect(calls).toBe(0)
+  await folded.unmount()
+  // The agent ends: the last drawing has no card, and the ticker stops.
+  const open = await mountDesktop($, { maxRows: 30 })
+  list.length = 0
+  calls = 0
+  await s.clock.advance(1000) // one tick draws the band without the card
+  expect(calls).toBeGreaterThan(0)
+  calls = 0
+  await s.clock.advance(5000)
+  expect(calls).toBe(0)
+  await open.unmount()
 })
 
 // ---- the status line at the foot of the band on the Desktop app (ui.statusline) ------------------------------

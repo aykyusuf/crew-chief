@@ -254,6 +254,7 @@ export const MESSAGES = {
     band_confirm_busy: 'Nothing sent: another question is open in the band; try again after it.',
     band_view_deny: 'Full view is not possible here: {reason}',
     band_open_hint: 'inspect ›',
+    band_more_agents: '+{n} more',
     band_pane_deny: 'The agents pane could not be opened: {reason}',
     // ---- the guard pane on the Desktop app (hooks/panes-logic.mjs guardView) ----
     gp_title: 'Command guard',
@@ -542,6 +543,7 @@ export const MESSAGES = {
     band_confirm_busy: 'Gönderilmedi: band\'da başka bir soru açık; o bitince yeniden dene.',
     band_view_deny: 'Tam görünüm burada açılamıyor: {reason}',
     band_open_hint: 'incele ›',
+    band_more_agents: '+{n} daha',
     band_pane_deny: 'Agent paneli açılamadı: {reason}',
     // ---- the guard pane on the Desktop app (hooks/panes-logic.mjs guardView) ----
     gp_title: 'Komut koruması',
