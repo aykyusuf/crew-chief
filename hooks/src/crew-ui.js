@@ -267,11 +267,14 @@ export function uiAskStart($, text, answers, look) {
     } catch (err) {
       // The band draws on the next event.
     }
-    // A question that becomes a chip on the Desktop status line (look.chip) says so in its own toast when the chip
-    // first shows (uiChipToast); the digits' toast is for the strip and the card only.
+    // A question that becomes a chip on the Desktop status line (look.chip) says so in its own toast (where to
+    // click), once per question, here and never from a drawing; the digits' toast is for the strip and the card.
     uiChipOnly($, look)
       .then(async (chipOnly) => {
-        if (chipOnly) return
+        if (chipOnly) {
+          if (typeof look.chip.toast === 'string' && look.chip.toast !== '') $.ui.toast(look.chip.toast, { timeoutMs: 12000 })
+          return
+        }
         $.ui.toast(t(await resolveLang($), 'band_ask_toast', { keys: answers.map((a, i) => i + 1).join(', ') }), { timeoutMs: 15000 })
       })
       .catch(() => {})
@@ -296,19 +299,6 @@ async function uiChipOnly($, look) {
   const surfaces = rowSurfaces()
   if (!Array.isArray(surfaces) || !surfaces.includes('desktop') || surfaces.includes('terminal')) return false
   return (await cfgGet($, 'ui.statusline')) === 'on'
-}
-
-// The question shown as a chip (render): its toast once, the first time the chip is drawn, never on a redraw.
-function uiChipToast($, q) {
-  if (q.chipToasted) return
-  q.chipToasted = true
-  const text = q.look?.chip?.toast
-  if (typeof text !== 'string' || text === '') return
-  try {
-    $.ui.toast(text, { timeoutMs: 12000 })
-  } catch (err) {
-    // The chip is on the line either way.
-  }
 }
 
 // Answers the band's open question with `answer`, when it is one of its answers (/crew-compact never). True when
@@ -972,24 +962,36 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
   const chipQ = perf ? perf.ask : undefined
   const chip = chipQ ? chipQ.look.chip : undefined
   const chipText = chip ? String(chip.text) : ''
+  // Each in a keyed Box of its own (as the saver word): `hover` follows the nearest keyed Box, so the chip turns
+  // white under the pointer, not whenever the pointer is anywhere on the line.
   const askChip = chip
     ? [
-        Button({
-          key: 'band-compact-ask',
-          plain: true,
-          label: chipText,
-          hover: { color: '#ffffff' },
-          onPress: answerPress(chipQ, chipQ.answers[chip.yes ?? 0]),
-          children: [Text({ color: UI_HEX.warn, weight: 'bold', children: [chipText] })],
+        Box({
+          key: 'band-compact-ask-box',
+          children: [
+            Button({
+              key: 'band-compact-ask',
+              plain: true,
+              label: chipText,
+              hover: { color: '#ffffff' },
+              onPress: answerPress(chipQ, chipQ.answers[chip.yes ?? 0]),
+              children: [Text({ color: UI_HEX.warn, weight: 'bold', children: [chipText] })],
+            }),
+          ],
         }),
-        Button({
-          key: 'band-compact-no',
-          plain: true,
-          label: '✕',
-          dimColor: true,
-          hover: { color: '#ffffff' },
-          onPress: answerPress(chipQ, chipQ.answers[chip.no ?? 1]),
-          children: [Text({ color: UI_HEX.dim, children: ['✕'] })],
+        Box({
+          key: 'band-compact-no-box',
+          children: [
+            Button({
+              key: 'band-compact-no',
+              plain: true,
+              label: '✕',
+              dimColor: true,
+              hover: { color: '#ffffff' },
+              onPress: answerPress(chipQ, chipQ.answers[chip.no ?? 1]),
+              children: [Text({ color: UI_HEX.dim, children: ['✕'] })],
+            }),
+          ],
         }),
       ]
     : []
@@ -1143,7 +1145,6 @@ export function registerUi(on, saverOn, saverCycle) {
       if (perf && line && line.length > 0 && question && question.look && question.look.chip) {
         perf.ask = question
         shownQ = undefined
-        uiChipToast($, question)
       }
       const qRows = shownQ ? questionRows(shownQ, e.surface !== 'terminal', columns - (uiStyle === 'boxed' ? 4 : 0)) : 0
       const maxLines = Math.max(1, Math.min(UI_MAX_LINES, rows - (uiStyle === 'boxed' ? 2 : 0) - qRows))

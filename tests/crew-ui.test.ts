@@ -509,8 +509,8 @@ test('Desktop status line: the compact question is a lit chip and a ✕ before t
   expect(no?.props?.dimColor).toBe(true)
   expect(await desk.find({ type: 'Button', key: 'band-compact' })).toBeUndefined() // never both
   const keys = await lineKeys(desk)
-  expect(keys.indexOf('band-compact-ask')).toBe(1) // right after the line's text
-  expect(keys.indexOf('band-compact-no')).toBe(2)
+  expect(keys.indexOf('band-compact-ask-box')).toBe(1) // right after the line's text
+  expect(keys.indexOf('band-compact-no-box')).toBe(2)
   expect(keys.indexOf('band-saver')).toBe(3)
   expect(keys[keys.length - 1]).toBe('band-perf')
   await desk.unmount()
