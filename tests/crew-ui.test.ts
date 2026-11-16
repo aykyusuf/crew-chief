@@ -1012,7 +1012,8 @@ test('/crew-ui panel saves the style as /crew-config does, and refuses an unknow
 const saverWord = async (ui: any) => {
   const foot = await ui.find({ type: 'Box', key: 'band-statusline' })
   const k = kidsOfLine(foot).find((x: any) => keyOf(x) === 'band-saver')
-  return k ? kidsOfLine(k).map((t: any) => kidsOfLine(t).join("")).join("") : undefined
+  const textOf = (el: any): string => (typeof el === 'string' ? el : kidsOfLine(el).map(textOf).join(''))
+  return k ? textOf(k) : undefined
 }
 
 test('the saver is a short word at the end of the Desktop status line (no row of its own) and the words in the terminal', async ($, on) => {
@@ -1036,6 +1037,31 @@ test('the saver is a short word at the end of the Desktop status line (no row of
   const term = await mount($)
   expect(await term.find({ type: 'Text', text: /saver on/ })).toBeDefined()
   await term.unmount()
+})
+
+test('the saver word on the Desktop line is a button: off (dim) -> saver -> ultra-saver -> off', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on' } })
+  await start($)
+  const word = async () => {
+    const d = await mountDesktop($)
+    const w = await saverWord(d)
+    await d.unmount()
+    return w
+  }
+  const press = async () => {
+    const d = await mountDesktop($)
+    await d.press({ key: 'band-saver-btn' })
+    await settle()
+    await d.unmount()
+  }
+  expect(await word()).toBe('saver') // off, drawn dim
+  await press()
+  expect(JSON.stringify(await $.command.run({ command: 'saver', args: 'status' }))).toMatch(/saver (is )?on|ON/i)
+  await press()
+  expect(await word()).toBe('ultra-saver')
+  await press()
+  expect(await word()).toBe('saver')
+  expect(s.toasts.length).toBeGreaterThanOrEqual(3)
 })
 
 const SAVER_HIT = [{ kind: 'five_hour', percentUsed: 82, resetsAt: '2026-10-28T21:40:00Z' }]
@@ -1574,7 +1600,7 @@ test('Desktop: the compact key sits at the status line\'s end beside the ⚡, sm
   expect(key?.props?.plain).toBe(true)
   expect(key?.props?.variant).toBeUndefined()
   expect(key?.text).toBe('⇣ ctx')
-  expect((await desk.findAll({ type: 'Button' })).filter((b: any) => keyOf(b) !== 'band-perf').map(keyOf)).toEqual(['band-compact']) // only once
+  expect((await desk.findAll({ type: 'Button' })).filter((b: any) => keyOf(b) !== 'band-perf' && keyOf(b) !== 'band-saver-btn').map(keyOf)).toEqual(['band-compact']) // only once
   await desk.unmount()
   for (const status of ['pending', 'running', 'waiting']) {
     s.agents = [{ id: 'a1', type: 'crew-chief:implementer', status, description: 'job' }]

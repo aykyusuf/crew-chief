@@ -628,7 +628,22 @@ export function register(on) {
   registerAsk(on)
   registerConfig(on)
   registerCompact(on)
-  registerUi(on, () => (ultra ? 'ultra' : saver))
+  // The saver word at the end of the Desktop status line: off -> saver -> ultra-saver -> off. A press does not
+  // touch the "never ask" answer (that stays with /saver on|off and the question).
+  registerUi(on, () => (ultra ? 'ultra' : saver), () => {
+    if (!saver) {
+      saver = true
+      return 'cmd_on'
+    }
+    if (!ultra) {
+      ultra = true
+      return 'toast_ultra_on'
+    }
+    saver = false
+    ultra = false
+    ultraOpus = false
+    return 'toast_saver_off'
+  })
   registerPanes(on)
   registerAgentView(on)
   registerReset(on)

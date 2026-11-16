@@ -3964,7 +3964,26 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
       ]
     : []
   const saverMark = perf && perf.saver
-    ? [Box({ key: 'band-saver', children: [Text({ color: UI_HEX.info, children: [perf.saver === 'ultra' ? 'ultra-saver' : 'saver'] })] })]
+    ? [
+        // A plain button: each press steps off -> saver -> ultra-saver -> off. Off it stays, dim, so it can be turned
+        // on again from here (as the ⚡ stays dim when off).
+        Box({
+          key: 'band-saver',
+          children: [
+            Button({
+              key: 'band-saver-btn',
+              plain: true,
+              label: perf.saver === 'ultra' ? 'ultra-saver' : 'saver',
+              ...(perf.saver === 'off' ? { dimColor: true } : {}),
+              hover: { color: '#ffffff' },
+              onPress: () => {
+                void uiSaverPress($).catch(() => {})
+              },
+              children: [Text({ color: perf.saver === 'off' ? UI_HEX.dim : UI_HEX.info, children: [perf.saver === 'ultra' ? 'ultra-saver' : 'saver'] })],
+            }),
+          ],
+        }),
+      ]
     : []
   const mark = perf ? perfIcon(perf.scope) : undefined
   const toggle = perf
@@ -4048,7 +4067,18 @@ async function uiFacts($, saverOn) {
   }
 }
 
-function registerUi(on, saverOn) {
+// The saver word's press: register.js steps its state and names the message; the toast and redraw are ours.
+async function uiSaverPress($) {
+  if (typeof uiSaverCycle !== 'function') return
+  const key = uiSaverCycle()
+  $.ui.toast(t(await resolveLang($), key), { timeoutMs: 6000 })
+  $.ui.invalidate('ui.render')
+}
+
+let uiSaverCycle // set by registerUi: steps the saver off -> on -> ultra -> off and returns the message key
+
+function registerUi(on, saverOn, saverCycle) {
+  uiSaverCycle = saverCycle
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     let tick = false // whether this drawing shows a running agent's card (the seconds tick while one does)
     try {
@@ -4094,7 +4124,7 @@ function registerUi(on, saverOn) {
       if (perf && line && line.length > 0) {
         perf.compact = facts.compactKey === true
         facts.compactKey = false
-        perf.saver = facts.saver
+        perf.saver = facts.saver || 'off'
         facts.saver = undefined
       }
       // Cards sit two or three to a row outside the terminal, so more agents fit than lines of text would.
@@ -6206,7 +6236,22 @@ export function register(on) {
   registerAsk(on)
   registerConfig(on)
   registerCompact(on)
-  registerUi(on, () => (ultra ? 'ultra' : saver))
+  // The saver word at the end of the Desktop status line: off -> saver -> ultra-saver -> off. A press does not
+  // touch the "never ask" answer (that stays with /saver on|off and the question).
+  registerUi(on, () => (ultra ? 'ultra' : saver), () => {
+    if (!saver) {
+      saver = true
+      return 'cmd_on'
+    }
+    if (!ultra) {
+      ultra = true
+      return 'toast_ultra_on'
+    }
+    saver = false
+    ultra = false
+    ultraOpus = false
+    return 'toast_saver_off'
+  })
   registerPanes(on)
   registerAgentView(on)
   registerReset(on)

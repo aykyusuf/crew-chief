@@ -356,7 +356,7 @@ test('/crew-agents again closes the pane and stops reading; /crew-panel agents s
 const BAND = { hasSurvey: false, isWorking: true, isCollapsed: false, maxRows: 30, bodyColumns: 100, scroll: { offset: 0, bodyRows: 29 }, view: {} }
 const mountBand = ($: any, over: Record<string, unknown> = {}, surface = 'desktop') =>
   $.ui.mount({ plugin: 'crew-chief', surface, component: 'AbovePrompt', props: { ...BAND, ...over }, viewport: { columns: 120, rows: 40, isFullscreen: false } })
-const keysOf = async (ui: any) => (await ui.findAll({ type: 'Button' })).filter((b: any) => b.key !== 'band-perf').map((b: any) => b.key)
+const keysOf = async (ui: any) => (await ui.findAll({ type: 'Button' })).filter((b: any) => b.key !== 'band-perf' && b.key !== 'band-saver-btn').map((b: any) => b.key)
 
 test('band: a press on an agent row opens the side pane on that agent; drawing reads nothing', async ($, on) => {
   const s = harness(on, { CREW_CHIEF_UI: 'on' })
