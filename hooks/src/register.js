@@ -590,9 +590,13 @@ export function register(on) {
     const word = String(e.args || '').trim().toLowerCase()
     const lang = await resolveLang($)
     if (word === 'on') {
+      // From ultra, 'on' steps down to the normal saver (it read as "saver on" and changed nothing).
+      const wasUltra = ultra
       saver = true
+      ultra = false
+      ultraOpus = false
       await askNever($, false)
-      return { text: t(lang, 'cmd_on') }
+      return { text: t(lang, wasUltra ? 'cmd_ultra_off' : 'cmd_on') }
     }
     if (word === 'off') {
       saver = false

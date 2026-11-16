@@ -3963,9 +3963,13 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
         }),
       ]
     : []
+  const saverMark = perf && perf.saver
+    ? [Box({ key: 'band-saver', children: [Text({ color: UI_HEX.info, children: [perf.saver === 'ultra' ? 'ultra-saver' : 'saver'] })] })]
+    : []
   const mark = perf ? perfIcon(perf.scope) : undefined
   const toggle = perf
     ? [
+        ...saverMark,
         ...compactKey,
         Button({
           key: 'band-perf',
@@ -4086,9 +4090,12 @@ function registerUi(on, saverOn) {
       // three, the running count alone missed the last): pressing it could only say "wait"; it comes back after.
       if (!demo && facts.compactKey && ((Array.isArray(agents) && agents.length > 0) || (await runningAgents($)) > 0)) facts.compactKey = false
       // With the Desktop status line the key sits at its end, beside the performance toggle, not in the frame.
+      // The saver too: a short word at the line's end instead of a row of its own above it (user, 2026-11-16).
       if (perf && line && line.length > 0) {
         perf.compact = facts.compactKey === true
         facts.compactKey = false
+        perf.saver = facts.saver
+        facts.saver = undefined
       }
       // Cards sit two or three to a row outside the terminal, so more agents fit than lines of text would.
       const panel = await cfgGet($, 'panel.style')
@@ -6161,9 +6168,13 @@ export function register(on) {
     const word = String(e.args || '').trim().toLowerCase()
     const lang = await resolveLang($)
     if (word === 'on') {
+      // From ultra, 'on' steps down to the normal saver (it read as "saver on" and changed nothing).
+      const wasUltra = ultra
       saver = true
+      ultra = false
+      ultraOpus = false
       await askNever($, false)
-      return { text: t(lang, 'cmd_on') }
+      return { text: t(lang, wasUltra ? 'cmd_ultra_off' : 'cmd_on') }
     }
     if (word === 'off') {
       saver = false

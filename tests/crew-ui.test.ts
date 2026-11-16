@@ -1008,14 +1008,31 @@ test('/crew-ui panel saves the style as /crew-config does, and refuses an unknow
   expect(s.stored.cfg_panel_style).toBe('cat')
 })
 
-test('the saver badge is a picture on Desktop and the words in the terminal', async ($, on) => {
+// The saver's word at the end of the Desktop status line, beside the ⚡.
+const saverWord = async (ui: any) => {
+  const foot = await ui.find({ type: 'Box', key: 'band-statusline' })
+  const k = kidsOfLine(foot).find((x: any) => keyOf(x) === 'band-saver')
+  return k ? kidsOfLine(k).map((t: any) => kidsOfLine(t).join("")).join("") : undefined
+}
+
+test('the saver is a short word at the end of the Desktop status line (no row of its own) and the words in the terminal', async ($, on) => {
   const s = harness(on, { env: { CREW_CHIEF_UI: 'on' }, store: { crew_ui_mode: 'full' } })
   await start($)
   await $.command.run({ command: 'saver', args: 'on' })
   const desk = await mountDesktop($)
-  const badge = await desk.find({ type: 'Svg', alt: 'saver on' })
-  expect(badge).toBeDefined()
+  expect(await desk.find({ type: 'Svg', alt: 'saver on' })).toBeUndefined()
+  expect(await saverWord(desk)).toBe('saver')
   await desk.unmount()
+  // From ultra, /saver on steps down to the normal saver.
+  await $.command.run({ command: 'saver', args: 'ultra' })
+  const ultraDesk = await mountDesktop($)
+  expect(await saverWord(ultraDesk)).toBe('ultra-saver')
+  await ultraDesk.unmount()
+  const down = await $.command.run({ command: 'saver', args: 'on' })
+  expect(JSON.stringify(down)).toContain('ultra-saver off')
+  const downDesk = await mountDesktop($)
+  expect(await saverWord(downDesk)).toBe('saver')
+  await downDesk.unmount()
   const term = await mount($)
   expect(await term.find({ type: 'Text', text: /saver on/ })).toBeDefined()
   await term.unmount()
@@ -1062,7 +1079,7 @@ test('the saver question on Desktop is the quiet card: topic, two chips, one not
   await settle()
   await again.unmount()
   const after = await mountDesktop($)
-  expect(await after.find({ type: 'Svg', alt: 'ultra-saver on' })).toBeDefined()
+  expect(await saverWord(after)).toBe('ultra-saver')
   await after.unmount()
 })
 
@@ -1164,7 +1181,6 @@ test('Desktop: a running agent\'s seconds tick once a second; a tick changes onl
   const t0 = await at()
   expect(Object.keys(t0.svgs).some((k) => /agentface-a1\/Svg/.test(k))).toBe(true)
   expect(Object.keys(t0.svgs).some((k) => /agentbar-a1\/Svg/.test(k))).toBe(true)
-  expect(Object.values(t0.svgs).some((p: any) => p.alt === 'saver on')).toBe(true)
   // Nothing happens but the clock: the ticker alone redraws, and only the time moves.
   await s.clock.advance(1000)
   const t1 = await at()
