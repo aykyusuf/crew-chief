@@ -1268,6 +1268,9 @@ async function askAndPlan($, why) {
       facts: cardFacts([t(lang, 'ck_fact_ctx', { tokens: tokensLabel(tokens) }), why.phase ? t(lang, 'ck_fact_phase', { phase: why.phase }) : '', ...state.facts]),
       note: t(lang, 'ck_note'),
       quiet: 2, // "don't ask again": a quiet text button at the end
+      // Where the Desktop status line is drawn the question is not a card but a small lit chip at the line's end
+      // (pressed: answers[0]; its ✕: answers[1]); "don't ask again" is /crew-compact never there.
+      chip: { text: typeof tokens === 'number' ? `⇣ compact ${tokensLabel(tokens)}` : '⇣ compact', yes: 0, no: 1, toast: t(lang, 'ck_chip_toast') },
     }
     let answer
     try {
@@ -1656,7 +1659,7 @@ async function compactSessionStart($) {
     await $.command.register({
       name: 'crew-compact',
       description: t(await resolveLang($), 'cmd_compact_description'),
-      argumentHint: '',
+      argumentHint: '[never]',
     })
   } catch (err) {
     // The name is taken: the tool and the fallback question still work.
@@ -1721,9 +1724,18 @@ function registerCompact(on) {
     return result
   })
 
-  on('command.run', { command: 'crew-compact' }, async ($) => {
+  on('command.run', { command: 'crew-compact' }, async ($, e) => {
     const lang = await resolveLang($)
     if (await disabled($)) return { text: t(lang, 'cmd_compact_off') }
+    // `never`: the question's third answer, also where it is a chip with no room for it. An open question is
+    // answered with it, so the chip leaves at once.
+    if (String(e?.args || '').trim().toLowerCase() === 'never') {
+      ck.never = true
+      cancelAskTimer()
+      ck.wantAsk = null
+      uiAnswerOpen($, t(lang, 'ck_never'))
+      return { text: t(lang, 'cmd_compact_never') }
+    }
     if (ck.plan || ck.compacting || ck.asking) return { text: t(lang, 'cmd_compact_busy') }
     compactAskLater($)
     return { text: t(lang, 'cmd_compact_ok') }
@@ -3327,8 +3339,13 @@ function uiAskStart($, text, answers, look) {
     } catch (err) {
       // The band draws on the next event.
     }
-    resolveLang($)
-      .then((lang) => $.ui.toast(t(lang, 'band_ask_toast', { keys: answers.map((a, i) => i + 1).join(', ') }), { timeoutMs: 15000 }))
+    // A question that becomes a chip on the Desktop status line (look.chip) says so in its own toast when the chip
+    // first shows (uiChipToast); the digits' toast is for the strip and the card only.
+    uiChipOnly($, look)
+      .then(async (chipOnly) => {
+        if (chipOnly) return
+        $.ui.toast(t(await resolveLang($), 'band_ask_toast', { keys: answers.map((a, i) => i + 1).join(', ') }), { timeoutMs: 15000 })
+      })
       .catch(() => {})
     return {
       promise,
@@ -3342,6 +3359,39 @@ function uiAskStart($, text, answers, look) {
   } catch (err) {
     return undefined
   }
+}
+
+// Whether a question with a chip form is shown only as that chip: every surface of the session is the Desktop app
+// and its status line (ui.statusline) is drawn there.
+async function uiChipOnly($, look) {
+  if (!look || !look.chip) return false
+  const surfaces = rowSurfaces()
+  if (!Array.isArray(surfaces) || !surfaces.includes('desktop') || surfaces.includes('terminal')) return false
+  return (await cfgGet($, 'ui.statusline')) === 'on'
+}
+
+// The question shown as a chip (render): its toast once, the first time the chip is drawn, never on a redraw.
+function uiChipToast($, q) {
+  if (q.chipToasted) return
+  q.chipToasted = true
+  const text = q.look?.chip?.toast
+  if (typeof text !== 'string' || text === '') return
+  try {
+    $.ui.toast(text, { timeoutMs: 12000 })
+  } catch (err) {
+    // The chip is on the line either way.
+  }
+}
+
+// Answers the band's open question with `answer`, when it is one of its answers (/crew-compact never). True when
+// it did.
+function uiAnswerOpen($, answer) {
+  const q = uiQuestion
+  if (q === undefined || !q.answers.includes(answer)) return false
+  uiQuestion = undefined
+  q.resolve(answer)
+  uiTouchNow($)
+  return true
 }
 
 function uiTouchNow($) {
@@ -3988,9 +4038,37 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
         }),
       ]
     : []
+  // A question with a chip form (look.chip), where the status line is drawn: instead of a card, a lit chip before
+  // the saver word (a press answers chip.yes) and a small ✕ (answers chip.no). Plain buttons: the Desktop app
+  // draws the label as the text, so the label is the visible text. Same answers and the same deadline as the card.
+  const chipQ = perf ? perf.ask : undefined
+  const chip = chipQ ? chipQ.look.chip : undefined
+  const chipText = chip ? String(chip.text) : ''
+  const askChip = chip
+    ? [
+        Button({
+          key: 'band-compact-ask',
+          plain: true,
+          label: chipText,
+          hover: { color: '#ffffff' },
+          onPress: answerPress(chipQ, chipQ.answers[chip.yes ?? 0]),
+          children: [Text({ color: UI_HEX.warn, weight: 'bold', children: [chipText] })],
+        }),
+        Button({
+          key: 'band-compact-no',
+          plain: true,
+          label: '✕',
+          dimColor: true,
+          hover: { color: '#ffffff' },
+          onPress: answerPress(chipQ, chipQ.answers[chip.no ?? 1]),
+          children: [Text({ color: UI_HEX.dim, children: ['✕'] })],
+        }),
+      ]
+    : []
   const mark = perf ? perfIcon(perf.scope) : undefined
   const toggle = perf
     ? [
+        ...askChip,
         ...saverMark,
         ...compactKey,
         Button({
@@ -4097,8 +4175,6 @@ function registerUi(on, saverOn, saverCycle) {
       // The room the engine gives the band, less the frame (boxed: two rows) and a question (the strip and its
       // buttons, or the Desktop card): the question's rows are taken first, measured from what it draws.
       const rows = typeof e.props?.maxRows === 'number' ? e.props.maxRows : UI_DEFAULT_ROWS
-      const qRows = question ? questionRows(question, e.surface !== 'terminal', columns - (uiStyle === 'boxed' ? 4 : 0)) : 0
-      const maxLines = Math.max(1, Math.min(UI_MAX_LINES, rows - (uiStyle === 'boxed' ? 2 : 0) - qRows))
       if (!demo && !uiFull && e.surface === 'terminal' && (await uiHasStatusLine($))) {
         // The compact key was decided above from the context; only the figures the status line has are left out.
         facts.ctx = undefined
@@ -4133,6 +4209,16 @@ function registerUi(on, saverOn, saverCycle) {
         perf.saver = facts.saver || 'off'
         facts.saver = undefined
       }
+      // A question with a chip form is the chip at the status line's end there, not a card in the band; `shownQ`
+      // is the question the band itself draws (as a strip or a card).
+      let shownQ = question
+      if (perf && line && line.length > 0 && question && question.look && question.look.chip) {
+        perf.ask = question
+        shownQ = undefined
+        uiChipToast($, question)
+      }
+      const qRows = shownQ ? questionRows(shownQ, e.surface !== 'terminal', columns - (uiStyle === 'boxed' ? 4 : 0)) : 0
+      const maxLines = Math.max(1, Math.min(UI_MAX_LINES, rows - (uiStyle === 'boxed' ? 2 : 0) - qRows))
       // Cards sit two or three to a row outside the terminal, so more agents fit than lines of text would.
       const panel = await cfgGet($, 'panel.style')
       const cardsDrawn = e.surface !== 'terminal' && panel !== 'text' && typeof $.ui.resolve(e).Svg === 'function'
@@ -4154,7 +4240,7 @@ function registerUi(on, saverOn, saverCycle) {
         const openLabel = clickOn ? t(avBandView().lang, 'band_open_hint') : ''
         const needs = agents.map((a) => cardNeedCells(uiCardText(uiCardAgent(a)), clickOn && typeof a?.id === 'string' ? openLabel : ''))
         const fit = (statusRows) =>
-          cardRowsFit({ maxRows: rows, frame: uiStyle === 'boxed' ? 2 : 0, line: line && line.length > 0 ? 1 : 0, status: statusRows, question: qRows }, UI_CARD_ROW_ROWS, question ? 0 : 1)
+          cardRowsFit({ maxRows: rows, frame: uiStyle === 'boxed' ? 2 : 0, line: line && line.length > 0 ? 1 : 0, status: statusRows, question: qRows }, UI_CARD_ROW_ROWS, shownQ ? 0 : 1)
         cardLayout = cardBudget(columns, needs, fit(status.length > 0 ? 1 : 0), UI_CARDS_MAX)
         // The chip brings a status row where there was none: laid out again for the row it takes.
         if (cardLayout.more > 0 && status.length === 0) cardLayout = cardBudget(columns, needs, fit(1), UI_CARDS_MAX)
@@ -4191,7 +4277,7 @@ function registerUi(on, saverOn, saverCycle) {
         const fits = new Map(fitSections(specs, bandExtraRows(rows, used, Math.max(0, BAND_EXTRA_MAX - (bandList.length - before)))).map((f) => [f.id, f]))
         band = { view, fits, lang: view.lang, viewing, canInput }
       }
-      if (bandList.length === 0 && question === undefined && band?.viewing === undefined && !(line && line.length > 0)) return next(e)
+      if (bandList.length === 0 && shownQ === undefined && band?.viewing === undefined && !(line && line.length > 0)) return next(e)
       // Pictures outside the terminal (panel.style capsule or cat), where the surface draws Svg.
       const { Svg } = $.ui.resolve(e)
       let art
@@ -4201,7 +4287,7 @@ function registerUi(on, saverOn, saverCycle) {
         const perf = perfParts(perfInForce(await cfgGet($, 'panel.perf'), uiPerfReader)).agents
         art = { Svg, style: panel, perf, now, prev: uiArtPrev(Array.isArray(agents) ? agents : [], now), columns, grid: cardLayout?.grid }
       }
-      const tree = uiTree($, e, bandList, () => compactBandPress($), uiStyle, question, art, band, line, perf)
+      const tree = uiTree($, e, bandList, () => compactBandPress($), uiStyle, shownQ, art, band, line, perf)
       // A running agent's card on screen (not collapsed, not the sample content): its seconds tick.
       tick = art !== undefined && !demo && e.props?.isCollapsed !== true && bandList.some((r) => r.kind === 'agent' && r.agent?.bgWait !== true)
       return tree

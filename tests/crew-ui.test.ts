@@ -432,9 +432,10 @@ test('a plugin question is asked in the band, as buttons; pressing one answers i
   await after.unmount()
 })
 
-test('Desktop: the compact question is a quiet card (topic, short line, facts, note, answers); the terminal keeps the strip', async ($, on) => {
+test('Desktop without its status line: the compact question is a quiet card (topic, short line, facts, note, answers); the terminal keeps the strip', async ($, on) => {
   const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_COMPACT: 'on' }, tokens: 100_000 })
   await start($)
+  await $.command.run({ command: 'crew-config', args: 'set ui.statusline off' }) // with the line it is a chip there
   await askCompact($, s)
   const desk = await mountDesktop($)
   const card = await desk.find({ type: 'Box', key: 'ask-card' })
@@ -470,9 +471,10 @@ test('Desktop: the compact question is a quiet card (topic, short line, facts, n
   expect(s.submitted[0]).toContain('approved compacting')
 })
 
-test('Desktop: the quiet "don\'t ask again" in the card answers never, as the terminal\'s 3 does', async ($, on) => {
+test('Desktop without its status line: the quiet "don\'t ask again" in the card answers never, as the terminal\'s 3 does', async ($, on) => {
   const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_COMPACT: 'on' }, tokens: 500_000 })
   await start($)
+  await $.command.run({ command: 'crew-config', args: 'set ui.statusline off' })
   await askCompact($, s)
   const desk = await mountDesktop($)
   await desk.press({ key: 'ask-3' })
@@ -482,6 +484,110 @@ test('Desktop: the quiet "don\'t ask again" in the card answers never, as the te
   const never = await mount($)
   expect(await never.find({ type: 'Button' })).toBeUndefined() // never: no compact key any more
   await never.unmount()
+  expect(s.submitted.length).toBe(0)
+})
+
+// ---- the compact question as a chip at the Desktop status line's end -------------------------------------
+
+const lineKeys = async (ui: any) => kidsOfLine(await ui.find({ type: 'Box', key: 'band-statusline' })).map(keyOf)
+
+test('Desktop status line: the compact question is a lit chip and a ✕ before the saver word, no card; one toast; the terminal keeps its strip', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_COMPACT: 'on' }, tokens: 395_000, surfaces: ['desktop'] })
+  await start($)
+  await askCompact($, s)
+  const desk = await mountDesktop($)
+  expect(await desk.find({ type: 'Box', key: 'ask-card' })).toBeUndefined()
+  expect((await desk.findAll({ type: 'Button' })).filter((b: any) => /^ask-\d$/.test(keyOf(b) ?? '')).length).toBe(0)
+  const chip = await desk.find({ type: 'Button', key: 'band-compact-ask' })
+  expect(chip?.props?.label).toBe('⇣ compact 395k')
+  expect(chip?.props?.plain).toBe(true)
+  const lit = await desk.find({ type: 'Text', text: '⇣ compact 395k' })
+  expect(lit?.props?.color).toBe('#facc15') // warm and bold
+  expect(lit?.props?.weight).toBe('bold')
+  const no = await desk.find({ type: 'Button', key: 'band-compact-no' })
+  expect(no?.props?.label).toBe('✕')
+  expect(no?.props?.dimColor).toBe(true)
+  expect(await desk.find({ type: 'Button', key: 'band-compact' })).toBeUndefined() // never both
+  const keys = await lineKeys(desk)
+  expect(keys.indexOf('band-compact-ask')).toBe(1) // right after the line's text
+  expect(keys.indexOf('band-compact-no')).toBe(2)
+  expect(keys.indexOf('band-saver')).toBe(3)
+  expect(keys[keys.length - 1]).toBe('band-perf')
+  await desk.unmount()
+  const again = await mountDesktop($) // a redraw: the same keys, no second toast
+  expect(await lineKeys(again)).toEqual(keys)
+  await again.unmount()
+  expect(s.toasts.filter((x: string) => x.includes('click ⇣ compact')).length).toBe(1)
+  expect(s.toasts.some((x: string) => x.includes('press 1, 2, 3'))).toBe(false) // no digits to press on Desktop
+  const term = await mount($)
+  expect(await term.find({ type: 'Text', text: /crew-chief asks: / })).toBeDefined()
+  expect(await term.find({ type: 'Button', key: 'band-compact-ask' })).toBeUndefined()
+  await term.unmount()
+})
+
+test('Desktop status line: pressing the compact chip is "Yes, compact" (Claude updates the files first) and the chip leaves', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_COMPACT: 'on' }, tokens: 395_000, surfaces: ['desktop'] })
+  await start($)
+  await askCompact($, s)
+  const desk = await mountDesktop($)
+  await desk.press({ key: 'band-compact-ask' })
+  await settle()
+  await desk.unmount()
+  expect(s.submitted.length).toBe(1)
+  expect(s.submitted[0]).toContain('approved compacting')
+  const after = await mountDesktop($)
+  expect(await after.find({ type: 'Button', key: 'band-compact-ask' })).toBeUndefined()
+  expect(await after.find({ type: 'Button', key: 'band-compact' })).toBeUndefined() // the plan is under way
+  await after.unmount()
+})
+
+test('Desktop status line: the chip\'s ✕ is "Not now": nothing submitted, the chip and the compact key stay away until the context grows', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_COMPACT: 'on' }, tokens: 500_000, surfaces: ['desktop'] })
+  await start($)
+  await askCompact($, s)
+  const desk = await mountDesktop($)
+  await desk.press({ key: 'band-compact-no' })
+  await settle()
+  await desk.unmount()
+  expect(s.submitted.length).toBe(0)
+  const after = await mountDesktop($)
+  expect(await after.find({ type: 'Button', key: 'band-compact-ask' })).toBeUndefined()
+  expect(await after.find({ type: 'Button', key: 'band-compact' })).toBeUndefined() // re-armed only 100k later
+  await after.unmount()
+  s.tokens = 650_000
+  const later = await mountDesktop($)
+  expect(await later.find({ type: 'Button', key: 'band-compact' })).toBeDefined()
+  await later.unmount()
+})
+
+test('Desktop status line: an unanswered chip expires to "Not now" at the usual deadline and leaves the line', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_COMPACT: 'on' }, tokens: 395_000, surfaces: ['desktop'] })
+  await start($)
+  await askCompact($, s)
+  const desk = await mountDesktop($)
+  expect(await desk.find({ type: 'Button', key: 'band-compact-ask' })).toBeDefined()
+  await desk.unmount()
+  await s.clock.advance(21 * 60_000)
+  await settle()
+  const after = await mountDesktop($)
+  expect(await after.find({ type: 'Button', key: 'band-compact-ask' })).toBeUndefined()
+  await after.unmount()
+  expect(s.submitted.length).toBe(0)
+  expect(s.toasts.some((x: string) => x.includes('Not now'))).toBe(true)
+})
+
+test('/crew-compact never answers an open chip with "don\'t ask again": the chip leaves and the compact key does not come back', async ($, on) => {
+  const s = harness(on, { env: { CREW_CHIEF_UI: 'on', CREW_CHIEF_COMPACT: 'on' }, tokens: 500_000, surfaces: ['desktop'] })
+  await start($)
+  await askCompact($, s)
+  const r = await $.command.run({ command: 'crew-compact', args: 'never' })
+  expect(JSON.stringify(r)).toContain('will not ask about compacting again')
+  await settle()
+  s.tokens = 900_000
+  const desk = await mountDesktop($)
+  expect(await desk.find({ type: 'Button', key: 'band-compact-ask' })).toBeUndefined()
+  expect(await desk.find({ type: 'Button', key: 'band-compact' })).toBeUndefined()
+  await desk.unmount()
   expect(s.submitted.length).toBe(0)
 })
 

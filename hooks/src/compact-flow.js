@@ -26,6 +26,7 @@ import { statsNoteBoundary } from './stats-flow.mjs'
 import { resolveLang } from './lang.mjs'
 import { cfgGet, cfgState } from './config.mjs'
 import { askWithDeadline } from './ask.mjs'
+import { uiAnswerOpen } from './crew-ui.mjs'
 import { t } from './saver-i18n.mjs'
 import { tokensLabel } from './saver-logic.mjs'
 import {
@@ -328,6 +329,9 @@ async function askAndPlan($, why) {
       facts: cardFacts([t(lang, 'ck_fact_ctx', { tokens: tokensLabel(tokens) }), why.phase ? t(lang, 'ck_fact_phase', { phase: why.phase }) : '', ...state.facts]),
       note: t(lang, 'ck_note'),
       quiet: 2, // "don't ask again": a quiet text button at the end
+      // Where the Desktop status line is drawn the question is not a card but a small lit chip at the line's end
+      // (pressed: answers[0]; its ✕: answers[1]); "don't ask again" is /crew-compact never there.
+      chip: { text: typeof tokens === 'number' ? `⇣ compact ${tokensLabel(tokens)}` : '⇣ compact', yes: 0, no: 1, toast: t(lang, 'ck_chip_toast') },
     }
     let answer
     try {
@@ -716,7 +720,7 @@ export async function compactSessionStart($) {
     await $.command.register({
       name: 'crew-compact',
       description: t(await resolveLang($), 'cmd_compact_description'),
-      argumentHint: '',
+      argumentHint: '[never]',
     })
   } catch (err) {
     // The name is taken: the tool and the fallback question still work.
@@ -781,9 +785,18 @@ export function registerCompact(on) {
     return result
   })
 
-  on('command.run', { command: 'crew-compact' }, async ($) => {
+  on('command.run', { command: 'crew-compact' }, async ($, e) => {
     const lang = await resolveLang($)
     if (await disabled($)) return { text: t(lang, 'cmd_compact_off') }
+    // `never`: the question's third answer, also where it is a chip with no room for it. An open question is
+    // answered with it, so the chip leaves at once.
+    if (String(e?.args || '').trim().toLowerCase() === 'never') {
+      ck.never = true
+      cancelAskTimer()
+      ck.wantAsk = null
+      uiAnswerOpen($, t(lang, 'ck_never'))
+      return { text: t(lang, 'cmd_compact_never') }
+    }
     if (ck.plan || ck.compacting || ck.asking) return { text: t(lang, 'cmd_compact_busy') }
     compactAskLater($)
     return { text: t(lang, 'cmd_compact_ok') }
