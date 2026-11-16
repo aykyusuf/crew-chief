@@ -3963,6 +3963,9 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
         }),
       ]
     : []
+  // On: a filled dot, bright and bold; off: an empty dot, faint (the colour alone did not tell them apart).
+  const saverLit = perf ? perf.saver !== 'off' && perf.saver !== undefined : false
+  const saverText = perf ? `${saverLit ? '●' : '○'} ${perf.saver === 'ultra' ? 'ultra-saver' : 'saver'}` : ''
   const saverMark = perf && perf.saver
     ? [
         // A plain button: each press steps off -> saver -> ultra-saver -> off. Off it stays, dim, so it can be turned
@@ -3973,13 +3976,13 @@ function uiTree($, e, rows, onCompact, style, question, art, band, line, perf) {
             Button({
               key: 'band-saver-btn',
               plain: true,
-              label: perf.saver === 'ultra' ? 'ultra-saver' : 'saver',
-              ...(perf.saver === 'off' ? { dimColor: true } : {}),
+              label: saverText,
+              ...(saverLit ? { color: SAVER_ON_HEX } : { dimColor: true }),
               hover: { color: '#ffffff' },
               onPress: () => {
                 void uiSaverPress($).catch(() => {})
               },
-              children: [Text({ color: perf.saver === 'off' ? UI_HEX.dim : UI_HEX.info, children: [perf.saver === 'ultra' ? 'ultra-saver' : 'saver'] })],
+              children: [Text({ color: saverLit ? SAVER_ON_HEX : SAVER_OFF_HEX, ...(saverLit ? { weight: 'bold' } : {}), children: [saverText] })],
             }),
           ],
         }),
@@ -4074,6 +4077,9 @@ async function uiSaverPress($) {
   $.ui.toast(t(await resolveLang($), key), { timeoutMs: 6000 })
   $.ui.invalidate('ui.render')
 }
+
+const SAVER_ON_HEX = '#7ee8ff'
+const SAVER_OFF_HEX = '#4b5262'
 
 let uiSaverCycle // set by registerUi: steps the saver off -> on -> ultra -> off and returns the message key
 

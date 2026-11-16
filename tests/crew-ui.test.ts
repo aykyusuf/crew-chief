@@ -1022,17 +1022,17 @@ test('the saver is a short word at the end of the Desktop status line (no row of
   await $.command.run({ command: 'saver', args: 'on' })
   const desk = await mountDesktop($)
   expect(await desk.find({ type: 'Svg', alt: 'saver on' })).toBeUndefined()
-  expect(await saverWord(desk)).toBe('saver')
+  expect(await saverWord(desk)).toBe('● saver')
   await desk.unmount()
   // From ultra, /saver on steps down to the normal saver.
   await $.command.run({ command: 'saver', args: 'ultra' })
   const ultraDesk = await mountDesktop($)
-  expect(await saverWord(ultraDesk)).toBe('ultra-saver')
+  expect(await saverWord(ultraDesk)).toBe('● ultra-saver')
   await ultraDesk.unmount()
   const down = await $.command.run({ command: 'saver', args: 'on' })
   expect(JSON.stringify(down)).toContain('ultra-saver off')
   const downDesk = await mountDesktop($)
-  expect(await saverWord(downDesk)).toBe('saver')
+  expect(await saverWord(downDesk)).toBe('● saver')
   await downDesk.unmount()
   const term = await mount($)
   expect(await term.find({ type: 'Text', text: /saver on/ })).toBeDefined()
@@ -1054,13 +1054,13 @@ test('the saver word on the Desktop line is a button: off (dim) -> saver -> ultr
     await settle()
     await d.unmount()
   }
-  expect(await word()).toBe('saver') // off, drawn dim
+  expect(await word()).toBe('○ saver') // off, drawn dim
   await press()
   expect(JSON.stringify(await $.command.run({ command: 'saver', args: 'status' }))).toMatch(/saver (is )?on|ON/i)
   await press()
-  expect(await word()).toBe('ultra-saver')
+  expect(await word()).toBe('● ultra-saver')
   await press()
-  expect(await word()).toBe('saver')
+  expect(await word()).toBe('○ saver')
   expect(s.toasts.length).toBeGreaterThanOrEqual(3)
 })
 
@@ -1105,7 +1105,7 @@ test('the saver question on Desktop is the quiet card: topic, two chips, one not
   await settle()
   await again.unmount()
   const after = await mountDesktop($)
-  expect(await saverWord(after)).toBe('ultra-saver')
+  expect(await saverWord(after)).toBe('● ultra-saver')
   await after.unmount()
 })
 
