@@ -1017,6 +1017,9 @@ const MAX_AGENT_WAITS = 36
 // A /compact handed to the engine that never reached the session.compact hook: after this long the
 // "already being arranged" guard is let go so the flow is not stuck for the rest of the session.
 const PROMPT_WAIT_MS = 10 * 60_000
+// After a yes, the request to update the handoff files goes in as a prompt of its own. If no turn has started
+// this long after it (the submission was lost: seen live on 2.1.329), the compaction goes on without it.
+const UPDATE_WAIT_MS = 2 * 60_000
 // `waiting` is a subagent held on background work it owns (a server it started), on a plan's approval or
 // on another agent: none of these is work that a compaction would cut in half, and a subagent that left a
 // dev server running stays `waiting` for as long as the server lives, so it must never hold a compaction back.
@@ -1058,6 +1061,7 @@ function freshCompact(toolReady = false, directRefused = false) {
     wantAsk: null, // { phase } once the question is due at a quiet turn end
     askTimer: null, // the one pending grace timer
     activity: 0, // counts main-loop prompts and model requests
+    steps: 0, // counts main-loop model requests only (a turn really ran)
     promptPending: false, // a /compact was handed to the engine and has not reached session.compact yet
     directRefused, // $.session.compact was refused in this session: later compactions go straight to /compact
   }
@@ -1132,8 +1136,10 @@ function compactActivity() {
   return ck.activity
 }
 
-function compactNoteActivity() {
+// `kind` 'step': a main-loop model request, proof that a turn is running.
+function compactNoteActivity(kind) {
   ck.activity += 1
+  if (kind === 'step') ck.steps += 1
 }
 
 // compact.enabled (/crew-config, or CREW_CHIEF_COMPACT=off in the environment).
@@ -1313,10 +1319,38 @@ async function askAndPlan($, why) {
   }
 }
 
-// Asks Claude, in a new turn, to update the handoff files (the path with no tool call to answer).
+// Asks Claude, in a new turn, to update the handoff files (the path with no tool call to answer). The yes is
+// never left hanging on that prompt: if the submission is refused, or no turn has started UPDATE_WAIT_MS later,
+// the compaction goes on without the update.
 async function requestStateUpdate($) {
+  const plan = ck.plan
   const text = 'crew-chief: the user approved compacting this conversation. ' + (await updateText($))
-  $.prompt.submit({ text }).catch(() => {})
+  if (plan) plan.requestedSteps = ck.steps
+  $.prompt.submit({ text }).catch(() => updateLost($, plan))
+  if (!plan) return
+  $.clock.after(UPDATE_WAIT_MS, () => {
+    if (ck.plan === plan && ck.steps === plan.requestedSteps) return updateLost($, plan)
+  })
+}
+
+async function updateLost($, plan) {
+  if (!plan || ck.plan !== plan || ck.asking || ck.compacting) return
+  $.ui.toast(t(await resolveLang($), 'toast_compact_update_lost'), { timeoutMs: 12000 })
+  scheduleCompaction($)
+}
+
+// Right after a yes. Handoff files Claude wrote in the last few minutes already pass the gate (advancePlan
+// would let the compaction through after the update turn anyway), so the compaction goes on without one more
+// turn. Otherwise Claude is asked to update them first. A project with no handoff files still gets that turn:
+// its answer names /crew-chief:crew-handoff.
+async function afterApproval($) {
+  const plan = ck.plan
+  if (!plan) return
+  if ((await findHandoff($)) && (await gateSatisfied($, plan))) {
+    if (ck.plan === plan) scheduleCompaction($)
+    return
+  }
+  requestStateUpdate($)
 }
 
 // After a clean turn end: wait compact.quiet seconds, then ask if nothing started meanwhile. At most one timer.
@@ -1346,7 +1380,7 @@ async function askAfterGrace($, seen) {
   // 'busy' (another question is open) and 'subagents' keep the request for the next clean turn end.
   if (outcome === 'busy' || outcome === 'subagents') return
   ck.wantAsk = null
-  if (outcome === 'approved') requestStateUpdate($)
+  if (outcome === 'approved') await afterApproval($)
   // Dismissed, or nobody can be asked: the 400k fallback does not ask again in this cycle either.
   else if (outcome === 'unavailable') ck.askedFallback = true
 }
@@ -1398,7 +1432,7 @@ function compactAskLater($) {
   ck.never = false
   $.clock.after(300, async () => {
     const outcome = await askAndPlan($, {})
-    if (outcome === 'approved') requestStateUpdate($)
+    if (outcome === 'approved') await afterApproval($)
     else if (outcome === 'subagents') $.ui.toast(t(await resolveLang($), 'ck_wait_agents'), { timeoutMs: 10000 })
   })
 }
@@ -1431,6 +1465,7 @@ function compactBandPress($) {
 // `reason` is how the turn ended. Only a turn that ended with an answer counts as a phase boundary: after an
 // interrupt (Esc) the update may be half done, and after an error or a refusal nothing was finished.
 async function compactTurnComplete($, usage, reason) {
+  ck.steps += 1 // a turn ran (the update request's watchdog only waits for one)
   if (await disabled($)) return
   await compactUpdate($, usage)
   const clean = reason === undefined || reason === 'answer'
@@ -1752,6 +1787,12 @@ function registerCompact(on) {
       ck.wantAsk = null
       uiAnswerOpen($, t(lang, 'ck_never'))
       return { text: t(lang, 'cmd_compact_never') }
+    }
+    // A yes is waiting on the update turn and no turn has started since it was asked for: the person asking
+    // again means now.
+    if (ck.plan && !ck.compacting && !ck.asking && ck.plan.requestedSteps !== undefined && ck.steps === ck.plan.requestedSteps) {
+      scheduleCompaction($)
+      return { text: t(lang, 'cmd_compact_now') }
     }
     if (ck.plan || ck.compacting || ck.asking) return { text: t(lang, 'cmd_compact_busy') }
     compactAskLater($)
@@ -6389,7 +6430,7 @@ export function register(on) {
   on('turn.step', async function* ($, e, next) {
     if (e.agentId === undefined) {
       lastStepAt = await $.clock.now()
-      compactNoteActivity()
+      compactNoteActivity('step')
       uiNoteMainStep(e)
     }
     await statsStepStart($, e)

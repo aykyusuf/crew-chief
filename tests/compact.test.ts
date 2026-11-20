@@ -27,6 +27,7 @@ type Opts = {
   rateLimits?: unknown[]
   commandFails?: boolean // the engine refuses the /compact command too
   headless?: boolean // the direct call is refused as a headless (-p / SDK, Desktop) session refuses it
+  submitFails?: boolean // the engine refuses the plugin's prompt submission
 }
 
 function harness(on: any, opts: Opts = {}) {
@@ -100,7 +101,10 @@ function harness(on: any, opts: Opts = {}) {
     return { value: { exitCode: 0, stdout: '', stderr: '' } }
   })
   on('prompt.submit', ($: any, e: any) => {
-    if (e.origin && e.origin.kind === 'plugin') state.submitted.push(e.text)
+    if (e.origin && e.origin.kind === 'plugin') {
+      state.submitted.push(e.text)
+      if (opts.submitFails) throw new Error('refused')
+    }
     for (const c of e.context ?? []) state.contexts.push(String(c))
     return { text: e.text }
   })
@@ -313,6 +317,59 @@ test('yes: the tool returns at once, the question comes after the turn, Claude u
   expect(s.compactCalls[0].instructions).toContain(MARKER)
   expect(s.toasts.some((t) => t.startsWith('Compacted. Raw summary saved:'))).toBe(true)
   expect(s.written.some((p) => p.includes('/compact-summaries/compact-'))).toBe(true)
+})
+
+test('a yes right after Claude updated the handoff files compacts without another turn', async ($, on) => {
+  const s = harness(on, { answers: [YES], files: FILES, mtimes: { '/work/STATUS.md': 3_590_000 }, summary: FAITHFUL })
+  await start($)
+  await approvedPlan($, s)
+  expect(s.submitted.length).toBe(0)
+  await runClock(s, 1500)
+  expect(s.compactCalls.length).toBe(1)
+})
+
+test('the update request never starts a turn: two minutes later the compaction runs anyway', async ($, on) => {
+  const s = harness(on, { answers: [YES], files: FILES, mtimes: { '/work/STATUS.md': 1_000 }, summary: FAITHFUL })
+  await start($)
+  await approvedPlan($, s)
+  expect(s.submitted.length).toBe(1)
+  await s.clock.advance(60_000)
+  await settle()
+  expect(s.compactCalls.length).toBe(0)
+  await s.clock.advance(61_000)
+  await settle()
+  await runClock(s, 1500)
+  expect(s.toasts.some((t) => t.includes('never got the request'))).toBe(true)
+  expect(s.compactCalls.length).toBe(1)
+})
+
+test('the update turn runs: the watchdog stays out of it', async ($, on) => {
+  const s = harness(on, { answers: [YES, CANCEL], files: FILES, mtimes: { '/work/STATUS.md': 1_000 } })
+  await start($)
+  await approvedPlan($, s)
+  await finishTurn($, s) // the update turn ran, files untouched; the gate question is cancelled
+  await s.clock.advance(125_000)
+  await settle()
+  await runClock(s, 1500)
+  expect(s.compactCalls.length).toBe(0)
+})
+
+test('a refused update request compacts at once', async ($, on) => {
+  const s = harness(on, { answers: [YES], files: FILES, mtimes: { '/work/STATUS.md': 1_000 }, summary: FAITHFUL, submitFails: true })
+  await start($)
+  await approvedPlan($, s)
+  await runClock(s, 1500)
+  expect(s.compactCalls.length).toBe(1)
+})
+
+test('/crew-compact while the update request is stuck compacts now', async ($, on) => {
+  const s = harness(on, { answers: [YES], files: FILES, mtimes: { '/work/STATUS.md': 1_000 }, summary: FAITHFUL })
+  await start($)
+  await approvedPlan($, s)
+  const r = await $.command.run({ command: 'crew-compact', args: '' })
+  expect(JSON.stringify(r)).toContain('compacting now')
+  await runClock(s, 1500)
+  expect(s.compactCalls.length).toBe(1)
 })
 
 test('the gate: STATUS.md not updated asks again; "compact anyway" goes on', async ($, on) => {

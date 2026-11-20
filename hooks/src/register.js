@@ -500,7 +500,7 @@ export function register(on) {
   on('turn.step', async function* ($, e, next) {
     if (e.agentId === undefined) {
       lastStepAt = await $.clock.now()
-      compactNoteActivity()
+      compactNoteActivity('step')
       uiNoteMainStep(e)
     }
     await statsStepStart($, e)
