@@ -164,7 +164,45 @@
         "ekran tasarım",
         "mockup",
         "panel tasarim",
-        "ekran tasarim"
+        "ekran tasarim",
+        "ui",
+        "ux",
+        "css",
+        "scss",
+        "tailwind",
+        "button*",
+        "buton*",
+        "navbar",
+        "modal*",
+        "hero section",
+        "responsive",
+        "animasyon*",
+        "animation*",
+        "component*",
+        "bileşen*",
+        "bilesen*",
+        "sayfa tasarım",
+        "sayfa tasarim",
+        "landing*",
+        "sayfası yap*",
+        "sayfasi yap*",
+        "sayfa yap*",
+        "site yap*",
+        "web sayfa*",
+        "web site*",
+        "website*",
+        "ana sayfa*",
+        "homepage*",
+        "home page*",
+        "giriş sayfa*",
+        "giris sayfa*",
+        "login ekran*",
+        "ekran yap*",
+        "ekranı yap*",
+        "ekrani yap*",
+        "tasarım yap*",
+        "tasarim yap*",
+        "html"
       ],
       "prefer": [
         "frontend-design",
@@ -180,7 +218,8 @@
           "risk": "",
           "install": "claude plugin install frontend-design@claude-plugins-official"
         }
-      ]
+      ],
+      "uiPolicy": true
     },
     {
       "id": "ui-redesign",
@@ -199,7 +238,8 @@
         "redesign-existing-projects",
         "frontend-design",
         "design-taste-frontend"
-      ]
+      ],
+      "uiPolicy": true
     },
     {
       "id": "ui-review",
@@ -351,6 +391,20 @@
           "risk": "it runs a Node (18+) script from a SessionStart and Stop hook; the hook only refreshes a map that already exists and never creates one by itself, and /structure-map writes docs/structure/ and one small rule file in the project.",
           "install": "claude plugin marketplace add aykyusuf/structure-map && claude plugin install structure-map@structure-map"
         }
+      ]
+    },
+    {
+      "id": "kickoff",
+      "label": "a new project or feature",
+      "offer": {
+        "skill": "crew-chief:crew-brief"
+      },
+      "keywords": [
+        "yeni proje*",
+        "new project",
+        "yeni özellik*",
+        "new feature",
+        "feature ekle*"
       ]
     }
   ]

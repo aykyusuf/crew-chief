@@ -38,7 +38,7 @@ function harness(on: any, opts: Opts = {}) {
     logs: [] as string[],
   }
   if (opts.file !== undefined) state.files[GUARD_PATH] = opts.file
-  mock.env(on, { CREW_CHIEF_UI: 'off',
+  mock.env(on, { CREW_CHIEF_HANDOFF_OFFER: 'off', CREW_CHIEF_UI: 'off',
     CREW_CHIEF_SAVER: 'off',
     CREW_CHIEF_COMPACT: 'off',
     CREW_CHIEF_ADVISOR_OFFER: 'off',
@@ -452,16 +452,17 @@ test('first run: a deleted file is not recreated (marker)', async ($, on) => {
   expect((await bash($, 'rm -rf ~')).deny).toBeUndefined()
 })
 
-test('first run: a failed write sets failed, does not throw, the guard stays off, no retry next session', async ($, on) => {
+test('first run: a failed write sets failed, does not throw, the guard runs on the defaults, retried next session', async ($, on) => {
   const s = harness(on, { writeFails: true })
   await start($)
   expect(s.writes).toEqual([GUARD_PATH])
   expect(s.store.guard_setup).toBe('failed')
   expect(s.toasts).toEqual([])
-  expect((await bash($, 'rm -rf ~')).deny).toBeUndefined()
+  expect((await bash($, 'rm -rf ~')).deny).toBeDefined() // not left off silently
   await $.session.end({ sessionId: 's1', reason: 'clear' })
   await start($)
-  expect(s.writes).toEqual([GUARD_PATH])
+  expect(s.writes).toEqual([GUARD_PATH, GUARD_PATH]) // tried again
+  expect(s.store.guard_setup).toBe('failed')
 })
 
 // ---- /crew-guard on|off ------------------------------------------------------------------------------

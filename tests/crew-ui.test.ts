@@ -28,7 +28,7 @@ function harness(on: any, opts: Opts = {}) {
     submitted: [] as string[],
     stored: { ...(opts.store ?? {}) } as Record<string, unknown>,
   }
-  mock.env(on, { CREW_CHIEF_SAVER: 'off', CREW_CHIEF_COMPACT: 'off', CREW_CHIEF_ADVISOR_OFFER: 'off', CREW_CHIEF_GUARD: 'off', CREW_CHIEF_ROW: 'off', CREW_CHIEF_ROW_MOD: 'off', CREW_CHIEF_UI: 'off', ...(opts.env ?? {}) })
+  mock.env(on, { CREW_CHIEF_HANDOFF_OFFER: 'off', CREW_CHIEF_SAVER: 'off', CREW_CHIEF_COMPACT: 'off', CREW_CHIEF_ADVISOR_OFFER: 'off', CREW_CHIEF_GUARD: 'off', CREW_CHIEF_ROW: 'off', CREW_CHIEF_ROW_MOD: 'off', CREW_CHIEF_UI: 'off', ...(opts.env ?? {}) })
   state.clock = mock.clock(on, { now: NOW })
   on('store.get', ($: any, e: any) => ({ value: state.stored[e.key] }))
   on('store.set', ($: any, e: any) => {

@@ -13,9 +13,12 @@ Tiers (agents in .claude/agents, default model/effort):
 - scanner (haiku/low): mechanical lookups, filtering long logs or test output.
 - deep-reader (sonnet/medium): read-only analysis across several files, root cause from code, code plus web research (read-only; a long report goes to a file in the crew-chief reports folder and a short summary comes back).
 - implementer (sonnet/medium): changes where files, change, and check are all specified.
+- ui-implementer (sonnet/medium): UI code (components, styles, pages, screens, Flutter widgets, SwiftUI views) with the design skills preloaded; UI code goes here, not to implementer. Pass model and effort on every UI call (the UI hint carries the table, data/ui-policy.json; sonnet/medium is only the default, never Fable unless the user asks). The brief names the project UI profile (.crew-chief/ui-profile.json), the extra skills to load and the reference image paths; a UI brief without them, or sent to another writing agent, is held back once.
 - mechanic (haiku/low): rote edits in named files with a verify command (renames, same line in many files, applying a given diff); anything needing judgement goes to implementer.
 - implementer-hard (opus/high): multi-module, algorithmic, or unknown-root-cause work.
 - planner (opus/high): read-only plan for a multi-module change before implementer-hard: files, order, risks, a testable done condition; no edits.
+- ui-designer (opus/high): read-only design spec for big UI work (3+ screens, a new site, a redesign), written to .crew-chief/design/<slug>.md; no code. ui-implementer then builds from the spec (sonnet/high).
+- ui-scout (sonnet/medium): design reference scout, used when the user picks "find some" at the reference step: it researches what matters in this kind of project, finds 3-4 live sites and open galleries, looks at them in a browser, and writes screenshots and REFS.md to .crew-chief/refs/ (no code; inspiration only). Never run it and ui-tester on the same browser at the same time.
 - ui-smoke (haiku/low): quick read-only check that a page or screen is up, shows given text, or logs errors; no screenshots.
 - ui-tester (sonnet/medium): multi-step browser, emulator, or simulator checks with screenshots; reports pass/fail with evidence; never two UI agents on the same device or browser at once.
 - reviewer (opus/high): independent review before a commit or PR of a significant or risky change; effort xhigh only for security, data loss, concurrency, money, or shipping code; large diffs go to /code-review.
@@ -24,6 +27,7 @@ Rules:
 - Delegate only when the work is self-contained AND (it can run in parallel OR its output would flood your context OR a cheaper tier can do it). Otherwise do it yourself.
 - Brief subagents fully: goal, files, definition of done, check to run, and any constraint the user gave in this conversation (do not modify X, no commits). They do not see this conversation.
 - If your own model is Fable, your context is the most expensive: hand reading and searching (more than two or three files, logs, web pages) to scanner or deep-reader, ask for findings and not file dumps, and keep your context for decisions.
+- Never start a subagent on a Fable model unless the user asked for Fable (use Opus).
 - If a tier reports "stopped", escalate one step: implementer -> implementer-hard -> main session.
 - The Agent tool's model and effort parameters override a tier's defaults for one call; use them when the user names a model or effort ("give this to Sonnet at medium").
 - User overrides win and last until they say otherwise: "do it yourself" = solo; "use agents" = delegate; "X directly with Opus" = X stays in the main session.

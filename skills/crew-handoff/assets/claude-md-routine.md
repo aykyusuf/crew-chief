@@ -1,7 +1,7 @@
 <!-- crew-chief:handoff:start (added by crew-handoff; edit freely, it is not rewritten) -->
 ## Session start (every time, in this order)
 1. `git log --oneline -15` to see recent changes.
-2. Read the working project's `STATUS.md`. Its Constraints are the user's rules: follow them.
+2. Read the working project's `STATUS.md`. Its Constraints are the user's rules: follow them. If a `BRIEF.md` (or the feature's `docs/briefs/<slug>.md`) exists, its constraints, success criteria and decision rights bound what you and your subagents may decide alone.
 3. Pick the first high-priority `"status": "todo"` task in `tasks.json`, unless the user asked for something else.
 4. Start the environment if needed and run the basic check before changing anything.
 

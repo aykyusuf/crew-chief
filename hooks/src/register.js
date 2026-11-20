@@ -44,6 +44,7 @@ import { panesReset, panesSessionStart, registerPanes } from './crew-panes.mjs'
 import { avNote, avReset, avSessionStart, avTurnComplete, registerAgentView } from './agent-view.mjs'
 import { registerUi, uiNoteContext, uiNoteMainStep, uiSessionStart, uiTouch } from './crew-ui.mjs'
 import { guardAfter, guardCheck, guardNudge, guardSessionEnd, guardSessionStart, guardWants, registerGuard } from './guard.mjs'
+import { handoffOfferMarker, handoffOfferNote, handoffOfferStart } from './handoff-offer.mjs'
 import {
   compactNoteActivity,
   compactNudge,
@@ -387,13 +388,14 @@ async function statusText($) {
   return parts.join(' · ')
 }
 
-// True when /saver is a registered command and is not a built-in. The host only routes command.run to
-// the plugin that registered the name, so a listed /saver that this module did not register itself
-// is ours from an earlier registration.
+// True only when the listed /saver is a plugin command that crew-chief itself added (an earlier
+// registration that a reload or /clear kept). The list names the adding plugin as `name@marketplace`,
+// `name@inline` (--plugin-dir) or `name`; anything else (a built-in, another plugin, the user's own
+// command, or an entry that does not say) is not ours, and our command.run hook stays out of its way.
 async function ownsSaver($) {
   try {
     const commands = await $.command.list()
-    return commands.some((c) => c.name === 'saver' && c.source !== 'builtin')
+    return commands.some((c) => c.name === 'saver' && c.source === 'plugin' && /^crew-chief(@|$)/.test(String(c.plugin ?? '')))
   } catch (err) {
     return false
   }
@@ -402,6 +404,7 @@ async function ownsSaver($) {
 export function register(on) {
   on('session.start', async ($, e, next) => {
     resetState()
+    await handoffOfferMarker($)
     const result = await next(e)
     try {
       await $.command.register({
@@ -429,6 +432,7 @@ export function register(on) {
     await uiSessionStart($)
     await panesSessionStart($)
     await avSessionStart($)
+    handoffOfferStart($, e)
     return result
   })
 
@@ -456,7 +460,7 @@ export function register(on) {
       resetNotePrompt(lastPromptAt)
       await cacheOnPrompt($)
     }
-    const notes = [await compactNudge($), guardNudge(), ...(await handoffOnPrompt($, e))].filter((n) => n !== undefined)
+    const notes = [await compactNudge($), guardNudge(), ...(await handoffOnPrompt($, e)), handoffOfferNote()].filter((n) => n !== undefined)
     return next(notes.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...notes] })
   })
 

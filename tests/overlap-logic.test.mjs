@@ -18,6 +18,6 @@ test('overlapping: the same file, or a folder that holds it', () => {
 })
 
 test('isWriterType: crew-chief writers only', () => {
-  assert.ok(isWriterType('crew-chief:implementer') && isWriterType('implementer-hard') && isWriterType('crew-chief:mechanic'))
+  assert.ok(isWriterType('crew-chief:implementer') && isWriterType('implementer-hard') && isWriterType('crew-chief:mechanic') && isWriterType('crew-chief:ui-implementer'))
   assert.ok(!isWriterType('crew-chief:reviewer') && !isWriterType('scanner') && !isWriterType(undefined))
 })

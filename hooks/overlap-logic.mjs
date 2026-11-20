@@ -30,6 +30,8 @@ export function overlapping(paths, other) {
 }
 
 // Only agents that write are worth watching (crew-chief's writers, by name).
+// (ui-designer writes one design spec under .crew-chief/design and ui-scout reference notes and screenshots under
+// .crew-chief/refs, no code, so they are not watched.)
 export function isWriterType(type) {
-  return /(^|:)(implementer|implementer-hard|mechanic)$/.test(String(type ?? ''))
+  return /(^|:)(implementer|implementer-hard|mechanic|ui-implementer)$/.test(String(type ?? ''))
 }

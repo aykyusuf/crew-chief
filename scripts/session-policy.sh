@@ -19,6 +19,15 @@ handoff_offer() {
   [ "$source" = "startup" ] || return 0
   [ "${CREW_CHIEF_HANDOFF_OFFER:-on}" = "off" ] && return 0
   [ -n "$cwd" ] && [ -d "$cwd" ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ] || return 0
+  # The mod asks the same question as a dialog and leaves a marker (a unix time) while it is loaded: stay quiet then.
+  if [ -f "$CLAUDE_PLUGIN_DATA/mod-offer-active" ]; then
+    marker=$(tr -d ' \r\n' < "$CLAUDE_PLUGIN_DATA/mod-offer-active" 2>/dev/null)
+    now=$(date +%s 2>/dev/null)
+    case "$marker$now" in
+      ''|*[!0-9]*) ;;
+      *) [ $((now - marker)) -lt 1209600 ] && return 0 ;;
+    esac
+  fi
   root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || return 0
   [ -n "$root" ] || return 0
   case "$root" in
@@ -56,14 +65,92 @@ handoff_offer() {
     'Skip the line entirely, and record nothing, when the first request describes a long autonomous or unattended job (overnight, all night, until done, in the background, a loop, every N minutes, a schedule, "I am leaving", "I am going to sleep") or the run is non-interactive.' \
     "When you do add the line, record it as offered with Bash right before writing that final answer, exactly one line, so it pauses for a week and is not repeated next session just because it was ignored: printf '%s\\tlater\\t%s\\n' '$root' \"\$(date +%s)\" >> '$state'. Create the directory first if needed: mkdir -p '$CLAUDE_PLUGIN_DATA'." \
     'If the user then asks what it is, explain briefly: three small files let a new session pick up where the last one stopped instead of rediscovering the project: STATUS.md (now, next, open questions, failed attempts), tasks.json (task list where only status and evidence change), PROGRESS.md (dated log). This follows Anthropic'"'"'s engineering guidance for long-running agents, "Effective harnesses for long-running agents" (anthropic.com/engineering/effective-harnesses-for-long-running-agents, Nov 2025): a progress file, a JSON task list whose status field is the only thing that changes (models alter JSON less readily than Markdown), and reading git log plus the progress file at session start.' \
-    'What would change: only those three files are created (nothing existing is overwritten), and a marked start/end routine block is added to CLAUDE.md (rest untouched). Nothing is committed. A preview is shown before anything is written.' \
+    'What would change: only those three files are created (nothing existing is overwritten), and a marked start/end routine block is added to CLAUDE.md (rest untouched). Nothing is committed. After a yes, the plan and a preview are shown and the files are written in the same turn (it waits for another yes only when equivalent files already exist).' \
     "If the user then says yes, run the crew-chief:crew-handoff skill, which records it as installed. If they say never (not for this project), record it with Bash, exactly one line: printf '%s\\tnever\\n' '$root' >> '$state'. Anything else: leave the later record as it is." \
     '</crew-chief-handoff-offer>'
+}
+
+# Once per 7 days per project (startup only): ask Claude to do one consistency pass over the handoff files while it
+# reads them anyway. The shell records the check itself (handoff-checks.tsv, root TAB unix time), so the record
+# does not depend on Claude remembering to write it. Size facts are measured here, cheaply, and only the ones
+# over their limit are printed. Advisory only.
+handoff_check() {
+  [ "$source" = "startup" ] || return 0
+  [ -n "$cwd" ] && [ -d "$cwd" ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ] || return 0
+  root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || root=$cwd
+  [ -n "$root" ] || return 0
+  case "$root" in
+    "$HOME"|/|/tmp|/tmp/*|/private/tmp|/private/tmp/*|/private/var/folders/*|/var/folders/*) return 0 ;;
+  esac
+  hdir=
+  for d in "$cwd" "$root" "$root"/*/; do
+    d=${d%/}
+    if [ -f "$d/STATUS.md" ] || [ -f "$d/tasks.json" ]; then hdir=$d; break; fi
+  done
+  [ -n "$hdir" ] || return 0
+  checks="$CLAUDE_PLUGIN_DATA/handoff-checks.tsv"
+  now=$(date +%s 2>/dev/null)
+  case "$now" in ''|*[!0-9]*) return 0 ;; esac
+  if [ -f "$checks" ]; then
+    last=$(r="$root" awk -F '\t' '$1 == ENVIRON["r"] { last = $2 } END { print last }' "$checks" 2>/dev/null | tr -d '\r')
+    case "$last" in
+      ''|*[!0-9]*) ;;
+      *) [ $((now - last)) -lt 604800 ] && return 0 ;;
+    esac
+  fi
+  mkdir -p "$CLAUDE_PLUGIN_DATA" 2>/dev/null || return 0
+  printf '%s\t%s\n' "$root" "$now" >> "$checks" 2>/dev/null || return 0
+
+  facts=
+  if [ -f "$hdir/STATUS.md" ]; then
+    n=$(wc -c < "$hdir/STATUS.md" 2>/dev/null | tr -d ' ')
+    case "$n" in ''|*[!0-9]*) ;; *) [ "$n" -gt 6144 ] && facts="$facts
+- STATUS.md is $((n / 1024)) KB (limit 6 KB: it should describe the present only)." ;; esac
+  fi
+  if [ -f "$root/CLAUDE.md" ]; then
+    n=$(wc -l < "$root/CLAUDE.md" 2>/dev/null | tr -d ' ')
+    case "$n" in ''|*[!0-9]*) ;; *) [ "$n" -gt 200 ] && facts="$facts
+- CLAUDE.md has $n lines (Anthropic's guide: under 200)." ;; esac
+  fi
+  if [ -f "$hdir/PROGRESS.md" ]; then
+    cutoff=$(date -v-60d +%Y-%m-%d 2>/dev/null || date -d '60 days ago' +%Y-%m-%d 2>/dev/null)
+    case "$cutoff" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+        n=$(c="$cutoff" awk '
+          /^[ \t]*([-*][ \t]+|##+[ \t]+)?[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/ {
+            match($0, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)
+            if ((substr($0, RSTART, RLENGTH) "") < (ENVIRON["c"] "")) old++
+          }
+          END { print old + 0 }' "$hdir/PROGRESS.md" 2>/dev/null)
+        case "$n" in ''|*[!0-9]*) ;; *) [ "$n" -gt 0 ] && facts="$facts
+- PROGRESS.md has $n entries older than 60 days (/crew-tidy archive moves them)." ;; esac ;;
+      *)
+        n=$(wc -c < "$hdir/PROGRESS.md" 2>/dev/null | tr -d ' ')
+        case "$n" in ''|*[!0-9]*) ;; *) [ "$n" -gt 40960 ] && facts="$facts
+- PROGRESS.md is $((n / 1024)) KB (/crew-tidy archive moves old entries)." ;; esac ;;
+    esac
+  fi
+  if [ -f "$hdir/tasks.json" ]; then
+    n=$(wc -c < "$hdir/tasks.json" 2>/dev/null | tr -d ' ')
+    case "$n" in ''|*[!0-9]*) ;; *) [ "$n" -gt 61440 ] && facts="$facts
+- tasks.json is $((n / 1024)) KB (limit 60 KB: finished tasks can be archived)." ;; esac
+  fi
+
+  printf '%s\n' \
+    '<crew-chief-handoff-check>' \
+    "This project's handoff files ($hdir) have not been checked in the last 7 days (once a week per project; advisory only, never blocking)." \
+    'While you do the session-start reading you do anyway (STATUS.md, tasks.json, git log -15), do ONE consistency pass, with no extra commands: does STATUS.md "Now" / "Next" agree with the recent git log and the tasks.json statuses? Is any task in_progress with stale or missing evidence?' \
+    "Do the user's request first; do not delay or interrupt it for this. At the end of your first answer, report what you found in at most 3 lines (say nothing at all when everything is consistent). Do not edit the files for this unless the user asks."
+  if [ -n "$facts" ]; then
+    printf '%s\n' "Size facts measured at session start:$facts" 'Mention them in the same lines; "/crew-tidy" gives the detail and "/crew-tidy archive" moves old PROGRESS.md entries.'
+  fi
+  printf '%s\n' '</crew-chief-handoff-check>'
 }
 
 if [ -n "$cwd" ] && [ -f "$cwd/CLAUDE.md" ] && grep -q '<!-- crew-chief:start' "$cwd/CLAUDE.md"; then
   echo "crew-chief: the routing policy is in this project's CLAUDE.md. The plugin's agents are also available as crew-chief:<tier>; prefer the project's own copies (bare names) so routing stays consistent."
   handoff_offer
+  handoff_check
   exit 0
 fi
 
@@ -81,9 +168,12 @@ printf '%s\n' \
   '- crew-chief:scanner (haiku/low): mechanical lookups, filtering long logs or test output.' \
   '- crew-chief:deep-reader (sonnet/medium): read-only analysis across several files, root cause from code, code plus web research (read-only; a long report goes to a file in the crew-chief reports folder and a short summary comes back).' \
   '- crew-chief:implementer (sonnet/medium): changes where files, change, and check are all specified.' \
+  '- crew-chief:ui-implementer (sonnet/medium): UI code (components, styles, pages, screens, Flutter widgets, SwiftUI views) with the design skills preloaded; UI code goes here, not to implementer. Pass model and effort on every UI call (the UI hint carries the table, data/ui-policy.json; sonnet/medium is only the default, never Fable unless the user asks). The brief names the project UI profile (.crew-chief/ui-profile.json), the extra skills to load and the reference image paths; a UI brief without them, or sent to another writing agent, is held back once.' \
   '- crew-chief:mechanic (haiku/low): rote edits in named files with a verify command (renames, same line in many files, applying a given diff); anything needing judgement goes to implementer.' \
   '- crew-chief:implementer-hard (opus/high): multi-module, algorithmic, or unknown-root-cause work.' \
   '- crew-chief:planner (opus/high): read-only plan for a multi-module change before implementer-hard: files, order, risks, a testable done condition; no edits.' \
+  '- crew-chief:ui-designer (opus/high): read-only design spec for big UI work (3+ screens, a new site, a redesign), written to .crew-chief/design/<slug>.md; no code. ui-implementer then builds from the spec (sonnet/high).' \
+  '- crew-chief:ui-scout (sonnet/medium): design reference scout, used when the user picks "find some" at the reference step: it researches what matters in this kind of project, finds 3-4 live sites and open galleries, looks at them in a browser, and writes screenshots and REFS.md to .crew-chief/refs/ (no code; inspiration only). Never run it and ui-tester on the same browser at the same time.' \
   '- crew-chief:ui-smoke (haiku/low): quick read-only check that a page or screen is up, shows given text, or logs errors; no screenshots.' \
   '- crew-chief:ui-tester (sonnet/medium): multi-step browser, emulator, or simulator checks with screenshots; reports pass/fail with evidence; never two UI agents on the same device or browser at once.' \
   '- crew-chief:reviewer (opus/high): independent review before a commit or PR of a significant or risky change; effort xhigh only for security, data loss, concurrency, money, or shipping code; large diffs go to /code-review.' \
@@ -92,6 +182,7 @@ printf '%s\n' \
   '- Delegate only when the work is self-contained AND (it can run in parallel OR its output would flood your context OR a cheaper tier can do it). Otherwise do it yourself.' \
   '- Brief subagents fully: goal, files, definition of done, check to run, and any constraint the user gave in this conversation (do not modify X, no commits). They do not see this conversation.' \
   '- If your own model is Fable, your context is the most expensive: hand reading and searching (more than two or three files, logs, web pages) to scanner or deep-reader, ask for findings and not file dumps, and keep your context for decisions.' \
+  '- Never start a subagent on a Fable model unless the user asked for Fable (use Opus).' \
   '- If a tier reports "stopped", escalate one step: implementer -> implementer-hard -> main session.' \
   '- The Agent tool'\''s model and effort parameters override a tier'\''s defaults for one call; use them when the user names a model or effort ("give this to Sonnet at medium").' \
   '- User overrides win and last until they say otherwise: "do it yourself" = solo; "use agents" = delegate; "X directly with Opus" = X stays in the main session.' \
@@ -99,3 +190,4 @@ printf '%s\n' \
   '- For polling, waiting, scheduling, workflows, or agent teams, load the crew-chief:crew-routing skill first.' \
   '</crew-chief-policy>'
 handoff_offer
+handoff_check

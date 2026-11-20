@@ -1,0 +1,312 @@
+{
+  "animate": {
+    "repo": "emilkowalski/skills",
+    "path": "skills/animate",
+    "commit": "64eb3deb9a5fbfa041faf783e0bc3fd635872e9c",
+    "license": "MIT",
+    "fetched": "2026-11-20",
+    "modified": true,
+    "sha256": "950514f960cc28948afecfd12cfa79b9015896b77e1d5be184732ad241f9867f",
+    "patches": [
+      {
+        "file": "SKILL.md",
+        "from": "## Initial Response\n\nWhen this skill is first invoked without a specific question, respond only with:\n\n> I'm ready to build animations that feel right, my knowledge comes from Emil Kowalski's animation philosophy.\n\nDo not provide any other information until the user asks a question.\n\n",
+        "to": ""
+      },
+      {
+        "file": "SKILL.md",
+        "from": " For critiquing existing motion use review-animations; for auditing a whole codebase use improve-animations.",
+        "to": ""
+      },
+      {
+        "file": "SKILL.md",
+        "from": "It does not audit a codebase (that's `improve-animations`), critique a diff (that's `review-animations`), hunt for places that could animate (that's `find-animation-opportunities`), or build for React Native (that's `animate-expo`).",
+        "to": "It does not audit a codebase, critique a diff, hunt for places that could animate, or build for React Native."
+      },
+      {
+        "file": "SKILL.md",
+        "from": "The bar is Emil Kowalski's animation philosophy — the same bar `review-animations` enforces. Write it so it passes that review the first time.",
+        "to": "The bar is Emil Kowalski's animation philosophy. Write it so it would pass a strict review the first time."
+      },
+      {
+        "file": "SKILL.md",
+        "from": "Each of these is an automatic block in `review-animations`:",
+        "to": "Each of these is an automatic block in a strict review:"
+      },
+      {
+        "file": "SKILL.md",
+        "from": "## Output\n\nWrite the code. Then, in at most a few lines:\n\n- **The gate result** — frequency tier and the named purpose. If something in the request was rejected, say which and why.\n- **The ingredients** — tool, properties, curve, duration or spring config, in one line each.\n- **What to feel-check** — if the result depends on feel you can't judge from code (a crossfade, a spring's bounce, the opacity/height balance in an entering list), say so and point at the check: play it at 2–5× duration or in the DevTools animation inspector, step it frame by frame, test gestures on a real device, and look again the next day with fresh eyes.\n\nDon't pad this into a report. The code is the deliverable.\n\n",
+        "to": ""
+      }
+    ],
+    "modified_files": [
+      "SKILL.md"
+    ],
+    "notes": "SKILL.md patched by crew-chief: the 'Initial Response' greeting block, the forced output/report format section, and pointers to skills not vendored here (review-animations, improve-animations, find-animation-opportunities, animate-expo) removed or reworded; the guidance itself is unchanged"
+  },
+  "animation-performance": {
+    "repo": "emilkowalski/skills",
+    "path": "skills/animation-performance",
+    "commit": "64eb3deb9a5fbfa041faf783e0bc3fd635872e9c",
+    "license": "MIT",
+    "fetched": "2026-11-20",
+    "modified": true,
+    "sha256": "7eb2d1687bde013c5e67c4fe29cd25173f63172192d4e58bd488cbad294abe07",
+    "patches": [
+      {
+        "file": "SKILL.md",
+        "from": "## Initial Response\n\nWhen this skill is first invoked without a specific question, respond only with:\n\n> I'm ready to find out why your animation drops frames and make it smooth, my knowledge comes from Emil Kowalski's design engineering philosophy.\n\nDo not provide any other information until the user asks a question.\n\n",
+        "to": ""
+      },
+      {
+        "file": "SKILL.md",
+        "from": "; for reviewing motion as a whole use review-animations",
+        "to": ""
+      },
+      {
+        "file": "SKILL.md",
+        "from": "(that's `animate`), judge whether the motion should exist (that's `review-animations`), or handle React Native's threads (that's `animate-expo`).",
+        "to": "(that's `animate`), judge whether the motion should exist, or handle React Native's threads."
+      },
+      {
+        "file": "SKILL.md",
+        "from": "### Phase 3: Report\n\nFor each finding:\n\n```\n**[Element]**: `file.tsx:42`\nCause: [which of the causes above]\nBefore: `transition: all 200ms` (animates `padding`, triggers layout)\nAfter: `transition: transform 200ms` with `scale(0.97)`\nVerified: from code / needs a device recording\n```\n\nOrder findings by cost: layout before paint, busy-main-thread before idle. Then stop. Apply fixes when asked.\n",
+        "to": "### Phase 3: Fix\n\nOrder findings by cost: layout before paint, busy-main-thread before idle. Apply fixes when asked.\n"
+      }
+    ],
+    "modified_files": [
+      "SKILL.md"
+    ],
+    "notes": "SKILL.md patched by crew-chief: the 'Initial Response' greeting block, the forced output/report format section, and pointers to skills not vendored here (review-animations, improve-animations, find-animation-opportunities, animate-expo) removed or reworded; the guidance itself is unchanged"
+  },
+  "choreograph": {
+    "repo": "emilkowalski/skills",
+    "path": "skills/choreograph",
+    "commit": "64eb3deb9a5fbfa041faf783e0bc3fd635872e9c",
+    "license": "MIT",
+    "fetched": "2026-11-20",
+    "modified": true,
+    "sha256": "ce719d512d0f3e51f1ca6f0460c3fe751a4b22c215d1f39754e13d546e83f718",
+    "patches": [
+      {
+        "file": "SKILL.md",
+        "from": "## Initial Response\n\nWhen this skill is first invoked without a specific question, respond only with:\n\n> I'm ready to choreograph your animations, my knowledge comes from Emil Kowalski's animation philosophy.\n\nDo not provide any other information until the user asks a question.\n\n",
+        "to": ""
+      },
+      {
+        "file": "SKILL.md",
+        "from": "A single animation's easing, duration and origin belong to `animate`. Whether something should animate at all is `find-animation-opportunities` or `remove-animations`. Once",
+        "to": "A single animation's easing, duration and origin belong to `animate`. Whether something should animate at all is a separate question (see `remove-animations`). Once"
+      },
+      {
+        "file": "SKILL.md",
+        "from": "**Write the timeline** before coding (format below). Check",
+        "to": "**Write the timeline** before coding (per element: role, start, duration, motion, relationship). Check"
+      },
+      {
+        "file": "SKILL.md",
+        "from": "## Required Output Format\n\n### Part 1 — Timeline\n\nOne row per moving element, in start order:\n\n| Element | Role | Starts | Duration | Motion | Relationship |\n| --- | --- | --- | --- | --- | --- |\n| Title | Lead | 0ms | 600ms | fade + 12px rise | — |\n| Subtitle | Support | 80ms | 500ms | fade + 8px rise | Overlaps title |\n| CTAs | Support | 140ms | 500ms | fade + 6px rise | Overlaps subtitle |\n| Pill | Decoration | 0ms | 400ms | fade only | Together with title |\n| Background | Static | — | — | — | — |\n\n### Part 2 — What doesn't move, and why\n\nList up to 5 elements you deliberately removed motion from, each with its reason (\"Menu items: one entrance per container, the panel carries them\"). If you removed none, say so.\n\n### Part 3 — Feel check\n\nSay what can't be judged from code: whether the stagger reads as a wave, whether the crossfade reads as one object. Name the specific moment to scrub on a recording.\n\n",
+        "to": ""
+      }
+    ],
+    "modified_files": [
+      "SKILL.md"
+    ],
+    "notes": "SKILL.md patched by crew-chief: the 'Initial Response' greeting block, the forced output/report format section, and pointers to skills not vendored here (review-animations, improve-animations, find-animation-opportunities, animate-expo) removed or reworded; the guidance itself is unchanged"
+  },
+  "design-taste-frontend": {
+    "repo": "Leonxlnx/taste-skill",
+    "path": "skills/taste-skill",
+    "commit": "3c7017d636c3a4aad378433ea6d0cfa6c921da4a",
+    "license": "MIT",
+    "fetched": "2026-11-20",
+    "modified": false,
+    "hold": "v1 on purpose; upstream is tasteskill 2.x (36 MB, own Stop hook, forces motion and photos)",
+    "sha256": "40ef50925b446e08a4ad5cead8edeb98f48982eb498b0073fe6a0b27ea736769"
+  },
+  "frontend-design": {
+    "repo": "anthropics/skills",
+    "path": "skills/frontend-design",
+    "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+    "license": "Apache-2.0",
+    "fetched": "2026-11-20",
+    "modified": true,
+    "update": "manual",
+    "also": [
+      {
+        "repo": "nexu-io/open-design",
+        "path": "skills/frontend-design",
+        "commit": "667f19464a920958c78cf1d6336b50e8ce46d747",
+        "license": "Apache-2.0"
+      }
+    ],
+    "modified_files": [
+      "SKILL.md"
+    ],
+    "notes": "Anthropic's original plus a 'Modified by crew-chief' note and an added section with two workflow steps from the OpenDesign fork; the fork's od: and triggers: frontmatter dropped. LICENSE.txt is Anthropic's, unchanged. Hand-merged: --update --apply refuses.",
+    "sha256": "b8530fd9cc851031aac10c0dc4ae233bdc63ab7f2441569748e695488d5d5317"
+  },
+  "frontend-ui-engineering": {
+    "repo": "addyosmani/agent-skills",
+    "path": "skills/frontend-ui-engineering",
+    "commit": "8c99fa36d90068c82d547f7c12a9d67a3e95f4ee",
+    "license": "MIT",
+    "fetched": "2026-11-20",
+    "modified": false,
+    "sha256": "f36880b780b330f3b1e25a38ed0a7d5113a9c94582d862156822a8efc2dd06e0"
+  },
+  "interaction-design": {
+    "repo": "wshobson/agents",
+    "path": "plugins/ui-design/skills/interaction-design",
+    "commit": "42203085cfc5736204bf0f6d436dff7e1da0bf3f",
+    "license": "MIT",
+    "fetched": "2026-11-20",
+    "modified": false,
+    "sha256": "123b7ba6e07e06f24b1abb4ce0eb633845657dc4215da40f47c591db0c3edda3"
+  },
+  "remove-animations": {
+    "repo": "emilkowalski/skills",
+    "path": "skills/remove-animations",
+    "commit": "64eb3deb9a5fbfa041faf783e0bc3fd635872e9c",
+    "license": "MIT",
+    "fetched": "2026-11-20",
+    "modified": true,
+    "sha256": "48060c08c390a2be9b495c5cc8d7eb0220e9bd760d8a496371e75632eb9bae4b",
+    "patches": [
+      {
+        "file": "SKILL.md",
+        "from": "## Initial Response\n\nWhen this skill is first invoked without a specific question, respond only with:\n\n> I'm ready to remove the animations your interface doesn't need, my knowledge comes from Emil Kowalski's animation philosophy.\n\nDo not provide any other information until the user asks a question.\n\n",
+        "to": ""
+      },
+      {
+        "file": "SKILL.md",
+        "from": " For finding places that should animate, use find-animation-opportunities; for fixing animations that should stay, use improve-animations or review-animations.",
+        "to": ""
+      },
+      {
+        "file": "SKILL.md",
+        "from": "It is the counterpart to `find-animation-opportunities`. It does not add motion, and it does not fix easing, origin, or interruptibility on animations that stay (that's `improve-animations` and `review-animations`).",
+        "to": "It does not add motion, and it does not fix easing, origin, or interruptibility on animations that stay."
+      },
+      {
+        "file": "SKILL.md",
+        "from": "If an animation should stay but is badly built, list it for `improve-animations` and leave it untouched.",
+        "to": "If an animation should stay but is badly built, leave it untouched."
+      },
+      {
+        "file": "SKILL.md",
+        "from": "7. **Report** in the format below.",
+        "to": "7. **Report** what was removed, reduced and kept, with `file:line`."
+      },
+      {
+        "file": "SKILL.md",
+        "from": "## Required Output Format\n\n### Part 1 — Removed and reduced\n\nOne row per change, ordered by how often the user hits it:\n\n| # | Location | Was | Verdict | Deciding branch |\n| --- | --- | --- | --- | --- |\n| 1 | `CommandMenu.tsx:24` | 200ms scale + fade on open/close | Deleted | Keyboard-triggered |\n| 2 | `ProjectCard.tsx:31` | `hover:scale-105` with shadow growth | Reduced → border color, 150ms, same curve | Tens/day hover |\n| 3 | `sections/*.tsx` | `whileInView` fade-up on 9 sections | Deleted, `initial` opacity removed | No purpose |\n\n### Part 2 — Kept (REQUIRED)\n\nList up to 5 animations you considered and deliberately kept, each with the purpose that saved it. If none survived the gate, say so:\n\n- `Toast.tsx:41` — enter from bottom edge. **Kept: prevents a jarring change; occasional frequency.**\n- `Onboarding.tsx:88` — success confetti. **Kept: rare, first-time moment.**\n\nAlso list animations that stay but are badly built, for `improve-animations` (e.g. \"`Dropdown.tsx:12` — `ease-in` on enter, kept but should be `ease-out`\").\n\nThis section is what separates this skill from deleting every transition in the codebase.\n\n### Part 3 — Cleanup and verdict\n\nList orphaned code removed and any dependency you propose dropping. Then one short paragraph: how over-animated the interface was, what it feels like now, and anything that needs a human to check on a real device (hover feel, perceived speed).\n\n",
+        "to": ""
+      }
+    ],
+    "modified_files": [
+      "SKILL.md"
+    ],
+    "notes": "SKILL.md patched by crew-chief: the 'Initial Response' greeting block, the forced output/report format section, and pointers to skills not vendored here (review-animations, improve-animations, find-animation-opportunities, animate-expo) removed or reworded; the guidance itself is unchanged"
+  },
+  "security-audit": {
+    "repo": "cloudflare/security-audit-skill",
+    "path": "skills/security-audit",
+    "commit": "c1c8a8c1471069fb0e188eeaff69b8e8db6564a8",
+    "license": "MIT",
+    "fetched": "2026-11-20",
+    "modified": false,
+    "exclude": [
+      "*.test.cjs"
+    ],
+    "notes": "the two *.test.cjs upstream test files are not vendored",
+    "sha256": "c7d1fca1669ebbb1ace34a464a23c58c4bdbd5a39bff0c1418697e19eec023f0"
+  },
+  "thesvg": {
+    "repo": "glincker/thesvg",
+    "path": "skills/thesvg",
+    "commit": "0670ffc8e6e75cd21d6115915175f1859d47b5fb",
+    "license": "MIT",
+    "fetched": "2026-11-20",
+    "modified": false,
+    "notes": "skill text only; the icon files of the upstream repo are not vendored",
+    "sha256": "5b0c0bc10e063614b263cabf3639676940cbb2314e9a621e1d2c78355495f0cf"
+  },
+  "ui-ux-pro-max": {
+    "repo": "nextlevelbuilder/ui-ux-pro-max-skill",
+    "path": ".claude/skills/ui-ux-pro-max",
+    "commit": "2de1134dc4d1cfe112934611ae5803ae17a1bd7e",
+    "license": "MIT",
+    "fetched": "2026-11-20",
+    "modified": true,
+    "exclude": [
+      "scripts/tests/*"
+    ],
+    "patches": [
+      {
+        "file": "SKILL.md",
+        "from": "${CLAUDE_PLUGIN_ROOT}/.claude/skills/ui-ux-pro-max/",
+        "to": "${CLAUDE_PLUGIN_ROOT}/skills/ui-ux-pro-max/"
+      }
+    ],
+    "modified_files": [
+      "SKILL.md"
+    ],
+    "notes": "scripts/tests/ (upstream dev tests and fixtures) not vendored; SKILL.md script paths changed from ${CLAUDE_PLUGIN_ROOT}/.claude/skills/ui-ux-pro-max/ to ${CLAUDE_PLUGIN_ROOT}/skills/ui-ux-pro-max/ so they resolve in this plugin",
+    "sha256": "9c9c1f301e5f0916259cac7ef19a6bc6330f7af4229764de4993bae333289491"
+  },
+  "vercel-react-best-practices": {
+    "repo": "vercel-labs/agent-skills",
+    "path": "skills/react-best-practices",
+    "commit": "1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62",
+    "license": "MIT",
+    "fetched": "2026-11-20",
+    "modified": false,
+    "notes": "no LICENSE file upstream at this commit; SKILL.md frontmatter says license MIT and the README says MIT. Upstream folder is react-best-practices, vendored under its frontmatter name",
+    "sha256": "741c320ab924f3d033c763574c1a166e4318454937dce6e10015f0230830a6bf"
+  },
+  "web-design-guidelines": {
+    "repo": "vercel-labs/agent-skills",
+    "path": "skills/web-design-guidelines",
+    "commit": "1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62",
+    "license": "MIT",
+    "fetched": "2026-11-20",
+    "modified": true,
+    "notes": "SKILL.md patched by crew-chief to read the local guidelines.md instead of fetching the rules from raw.githubusercontent.com at run time (no network). guidelines.md is command.md of vercel-labs/web-interface-guidelines pinned at 4ecfb9fb (MIT, LICENSE file in that repo, copyright Vercel Labs), added by hand: --update --apply refuses. No LICENSE file in vercel-labs/agent-skills at the pinned commit (GitHub shows none); MIT per its README",
+    "sha256": "34b7ed00c599a4ba4802dc8b40f52677d8df8bac47151032a5e7e3892bd26d76",
+    "update": "manual",
+    "also": [
+      {
+        "repo": "vercel-labs/web-interface-guidelines",
+        "path": "command.md",
+        "commit": "4ecfb9fb8d1d3b7009674869b3aaee2f904042e1",
+        "license": "MIT"
+      }
+    ],
+    "patches": [
+      {
+        "file": "SKILL.md",
+        "from": "1. Fetch the latest guidelines from the source URL below\n",
+        "to": "1. Read the bundled guidelines file `guidelines.md` (next to this SKILL.md; no network needed)\n"
+      },
+      {
+        "file": "SKILL.md",
+        "from": "3. Check against all rules in the fetched guidelines\n",
+        "to": "3. Check against all rules in `guidelines.md`\n"
+      },
+      {
+        "file": "SKILL.md",
+        "from": "## Guidelines Source\n\nFetch fresh guidelines before each review:\n\n```\nhttps://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md\n```\n\nUse WebFetch to retrieve the latest rules. The fetched content contains all the rules and output format instructions.\n\n",
+        "to": "## Guidelines Source\n\nThe rules and output format are in `guidelines.md` in this skill's folder, a pinned copy of `command.md` from vercel-labs/web-interface-guidelines (see THIRD_PARTY_NOTICES.md). Read it before each review. Do not fetch anything from the network.\n\n"
+      },
+      {
+        "file": "SKILL.md",
+        "from": "1. Fetch guidelines from the source URL above\n2. Read the specified files\n3. Apply all rules from the fetched guidelines\n4. Output findings using the format specified in the guidelines",
+        "to": "1. Read `guidelines.md`\n2. Read the specified files\n3. Apply all rules from `guidelines.md`\n4. Output findings using the format specified in `guidelines.md`"
+      }
+    ],
+    "modified_files": [
+      "SKILL.md"
+    ]
+  }
+}

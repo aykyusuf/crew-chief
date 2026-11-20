@@ -1,4 +1,4 @@
-// A note, never a block, when an Agent call for a writing agent (implementer, implementer-hard, mechanic) names
+// A note, never a block, when an Agent call for a writing agent (implementer, implementer-hard, mechanic, ui-implementer) names
 // files that another running writer's brief also named: parallel edits to one file collide, and the routing
 // skill says to give parallel implementers disjoint file sets. The model sees the note with the call's result
 // and decides; nothing is stopped. Briefs are free text, so the files are found by shape (hooks/overlap-logic.mjs).

@@ -45,10 +45,10 @@ def world(name, skills=(), plugin_skills=(), trash_skills=()):
     return home, data
 
 
-def run(home, data, prompt, session="s1", env_extra=None, raw=None):
-    env = {"PATH": os.environ["PATH"], "HOME": home, "CLAUDE_PLUGIN_ROOT": ROOT, "CLAUDE_PLUGIN_DATA": data}
+def run(home, data, prompt, session="s1", env_extra=None, raw=None, cwd=None):
+    env = {"PATH": os.environ["PATH"], "HOME": home, "CLAUDE_PLUGIN_ROOT": ROOT, "CLAUDE_PLUGIN_DATA": data, "GIT_CEILING_DIRECTORIES": SCRATCH}
     env.update(env_extra or {})
-    payload = raw if raw is not None else json.dumps({"prompt": prompt, "session_id": session, "cwd": home})
+    payload = raw if raw is not None else json.dumps({"prompt": prompt, "session_id": session, "cwd": cwd or home})
     r = subprocess.run(["sh", HOOK], input=payload, capture_output=True, text=True, env=env)
     if r.returncode != 0 or r.stderr:
         check("exit 0, no stderr", False, f"rc={r.returncode} {r.stderr!r}")
@@ -118,6 +118,100 @@ def main():
         check("a keyword that is only a star or empty matches nothing", run(h, d, "what is the weather", session="s7b") == "")
         open(os.path.join(h, ".claude", "crew-chief-skills.json"), "w").write("{not json")
         check("broken user file falls back to the shipped catalog", "load the flutter skill" in hint(run(h, d, "flutter", session="s8")))
+
+        # The brief offer: a plugin skill that needs no install, once per project, never where a brief exists.
+        h, d = world("kickoff")
+        proj = os.path.join(SCRATCH, "kickoff", "proj")
+        os.makedirs(proj)
+        out = hint(run(h, d, "Yeni proje başlatalım, bir takip uygulaması", session="k1", cwd=proj))
+        check("TR new-project prompt offers the brief", "/crew-chief:crew-brief" in out and "ONE short line" in out, out)
+        check("the offer is not a load-the-skill hint", "load the" not in out, out)
+        check("not offered twice for the same project, even in a new session", run(h, d, "new project: a blog", session="k2", cwd=proj) == "")
+        proj2 = os.path.join(SCRATCH, "kickoff", "proj2")
+        os.makedirs(proj2)
+        out = hint(run(h, d, "let's add a new feature to the cart", session="k3", cwd=proj2))
+        check("EN new-feature prompt in another project offers the brief", "/crew-chief:crew-brief" in out, out)
+        proj3 = os.path.join(SCRATCH, "kickoff", "proj3")
+        os.makedirs(proj3)
+        open(os.path.join(proj3, "BRIEF.md"), "w").write("# Brief\n")
+        check("not offered when BRIEF.md exists", run(h, d, "new project time", session="k4", cwd=proj3) == "")
+        proj4 = os.path.join(SCRATCH, "kickoff", "proj4")
+        os.makedirs(os.path.join(proj4, "docs", "briefs"))
+        check("not offered when docs/briefs exists", run(h, d, "yeni özellik ekleyelim", session="k5", cwd=proj4) == "")
+        proj5 = os.path.join(SCRATCH, "kickoff", "proj5")
+        os.makedirs(proj5)
+        check("feature ekle* matches", "crew-brief" in hint(run(h, d, "sepete feature ekle", session="k6", cwd=proj5)))
+        check("not offered in the home directory", run(h, d, "new project", session="k7") == "")
+        check("no offer without a data folder (cannot be once per project)", "crew-brief" not in subprocess.run(
+            ["sh", HOOK], input=json.dumps({"prompt": "new project", "session_id": "k8", "cwd": proj5}), capture_output=True, text=True,
+            env={"PATH": os.environ["PATH"], "HOME": h, "CLAUDE_PLUGIN_ROOT": ROOT}).stdout)
+
+        # UI policy text (data/ui-policy.json): no skill needs to be installed, the plugin's own skills are always there.
+        h, d = world("ui", skills=["unrelated"])
+        proj_ui = os.path.join(h, "proj-ui")
+        os.makedirs(proj_ui)
+        out = hint(run(h, d, "bana bir landing page tasarla", session="u1", cwd=proj_ui))
+        check("UI prompt: STOP first line, before any file is read or written", out.split("\n")[1].startswith("UI task. STOP before reading or writing project files: ask ONE AskUserQuestion"), out)
+        check("UI prompt: routes all UI code to crew-chief:ui-implementer, ui-designer first for a big job", "hand ALL UI code" in out.replace("Then hand", "hand") and "crew-chief:ui-implementer" in out and "crew-chief:ui-designer first for 3+ screens, a new site or a redesign" in out and "never write UI files yourself" in out, out)
+        check("UI prompt: no escape hatch to write UI code yourself", "write UI code yourself" not in out and "If you write UI" not in out, out)
+        check("UI prompt: profile step (no profile yet) writes the profile file", ".crew-chief/ui-profile.json" in out and "AskUserQuestion" in out and "motion 0-10" in out, out)
+        check("UI prompt: the reference question has the three choices in both languages", all(w in out for w in ("\"I'll send one\" / \"Ben göndereyim\"", "\"Find some (ui-scout)\" / \"Sen bul (ui-scout)\"", "\"None\" / \"Yok\"")), out)
+        check("UI prompt: find = brief crew-chief:ui-scout, then one AskUserQuestion with the candidates, #1 when no answer, picks into refs[]", all(w in out for w in ("brief crew-chief:ui-scout sonnet/medium", "one AskUserQuestion", "its #1 if the user does not answer", "picks go to refs[]")), out)
+        check("UI prompt: the brief contents are listed (profile and motion band, extra skills, reference paths)", "The brief names: the effective profile and motion band" in out and "crew-chief:design-taste-frontend" in out and "reference paths" in out, out)
+        check("UI prompt: base skills are in the brief's skill list", "crew-chief:frontend-design, crew-chief:ui-ux-pro-max" in out, out)
+        check("UI prompt: the compact model line (rules, model/effort) and the never list", all(w in out for w in ("Pass `model` and `effort` on every UI Agent call", "small fix sonnet/medium", "with a reference or DESIGN.md sonnet/high", "clear direction opus/medium", "new landing, redesign or hero opus/high", "immersive scene opus/high", "sonnet at xhigh or max", "effort above high", "a Fable model unless the user asked for Fable")), out)
+        check("UI prompt: asking the profile is neutral (no recommended marker)", "no recommended marker" in out and "too heavy" not in out, out)
+        check("UI prompt: the long details stay out of the main session (they go to the agents)", not any(w in out for w in ("Banned default look", "Polish checklist", "Motion bands", "Visual self-check", "Never run ui-scout")), out)
+        check("UI prompt: the profile question uses the labels in both languages", all(w in out for w in ("Calm: almost no motion, fast and crisp", "Sakin: neredeyse hareketsiz, hızlı ve net", "Lively: measured animation, smooth transitions", "Canlı: ölçülü animasyon, akıcı geçişler", "Immersive 3D: a real WebGL scene within a performance budget", "Sürükleyici 3D: gerçek WebGL sahne, performans bütçeli")) and "in the user's language" in out, out)
+        check("UI prompt: short enough", len(out) <= 2200, str(len(out)))
+        check("UI prompt: once per session", run(h, d, "yeni arayüz tasarla", session="u1", cwd=proj_ui) == "")
+        check("UI prompt: no skill-specific one-line hint beside it", "work: load the" not in out, out)
+        for i, text in enumerate(("make the navbar sticky", "buton rengini değiştir", "add a modal to the cart", "tailwind classes for the card", "the ui is too busy", "fix the css")):
+            check(f"UI keyword: {text}", "crew-chief:ui-implementer" in hint(run(h, d, text, session=f"uk{i}", cwd=proj_ui)))
+        live = "kahve dükkanı için tek sayfalık bir landing sayfası yap, index.html olarak"
+        out = hint(run(h, d, live, session="ul1", cwd=proj_ui))
+        check("the live-test prompt (Turkish, landing sayfası yap, index.html) gets the UI rules", "crew-chief:ui-implementer" in out and "STOP before reading or writing project files" in out and "Write the answers to" in out, out)
+        for i, text in enumerate(("bana bir web sitesi yap", "ana sayfayı yenile", "giriş sayfası hazırla", "login ekranı yap", "Build a website for the bakery",
+                                  "create the homepage", "make a home page for it", "tasarım yap", "sayfası yap", "bu ekranı yap", "landing sayfasına bölüm ekle", "export it as html",
+                                  "ANA SAYFA YAP", "Landing page ekle", "site yapalım")):
+            check(f"widened UI keyword: {text}", "crew-chief:ui-implementer" in hint(run(h, d, text, session=f"uw{i}", cwd=proj_ui)))
+        for i, text in enumerate(("write index.html", "add Settings.vue", "edit src/App.tsx", "fix styles/app.scss", "port Cart.svelte", "update lib/cart_screen.dart widget")):
+            check(f"UI file name in the prompt: {text}", "crew-chief:ui-implementer" in hint(run(h, d, text, session=f"uf{i}", cwd=proj_ui)))
+        for i, text in enumerate(("backend API endpoint yaz", "veritabanı şemasını düzelt", "write a python script to rename files", "add a migration for the orders table",
+                                  "fix lib/model.dart", "the site is down, check the server logs")):
+            check(f"widened detection, negative: {text}", run(h, d, text, session=f"un{i}", cwd=proj_ui) == "", text)
+        check("non-UI prompt gets no UI text", run(h, d, "add a retry to the api client and run the tests", session="u2", cwd=proj_ui) == "")
+        check("a UI word inside another word does not match", run(h, d, "the guild quits and the curl failed", session="u3", cwd=proj_ui) == "")
+
+        os.makedirs(os.path.join(proj_ui, ".crew-chief"))
+        json.dump({"profile": "immersive", "motion": 8, "perfBudget": "60 fps", "notes": "dark, neon", "refs": [".crew-chief/refs/a.png"]},
+                  open(os.path.join(proj_ui, ".crew-chief", "ui-profile.json"), "w"))
+        out = hint(run(h, d, "redesign the pricing page", session="u4", cwd=proj_ui))
+        check("with a profile file: its values are shown, no ask", "Profile: immersive | motion 8 | perf budget: 60 fps" in out and "Notes: dark, neon" in out, out)
+        check("with a profile file: its extra skills", "Extra skills for this profile: crew-chief:animate, crew-chief:choreograph, crew-chief:web-3d-perf" in out, out)
+        check("with a profile file: no profile question, the file is used", "ask ONE AskUserQuestion" not in out and "so use it" in out, out)
+        check("with a profile file: the recorded reference is shown", ".crew-chief/refs/a.png" in out, out)
+        json.dump({"profile": "static-minimal", "motion": 0}, open(os.path.join(proj_ui, ".crew-chief", "ui-profile.json"), "w"))
+        out = hint(run(h, d, "redesign the pricing page", session="u4b", cwd=proj_ui))
+        check("old id static-minimal in the profile file shows as calm", "Profile: calm | motion 0" in out and "static-minimal" not in out and "Extra skills for this profile: crew-chief:remove-animations" in out, out)
+        json.dump({"profile": "immersive", "motion": 8, "perfBudget": "60 fps", "notes": "dark, neon", "refs": [".crew-chief/refs/a.png"]},
+                  open(os.path.join(proj_ui, ".crew-chief", "ui-profile.json"), "w"))
+
+        h2, d2 = world("ui-deps", skills=[])
+        proj_deps = os.path.join(h2, "proj")
+        os.makedirs(proj_deps)
+
+        os.makedirs(os.path.join(h2, ".claude"), exist_ok=True)
+        json.dump({"base": ["crew-chief:frontend-design"], "profiles": {"mine": {"skills": ["crew-chief:remove-animations"]}}}, open(os.path.join(h2, ".claude", "crew-chief-ui.json"), "w"))
+        out = hint(run(h2, d2, "build a dashboard", session="u6", cwd=proj_deps))
+        check("~/.claude/crew-chief-ui.json is merged (own profile, own base list)", "mine = \"mine\" / \"mine\"" in out and "immersive = " in out and "ui-ux-pro-max" not in out, out)
+        json.dump({"models": {"rules": {"small-fix": {"model": "haiku", "effort": "low"}}, "never": ["anything at all"]}}, open(os.path.join(h2, ".claude", "crew-chief-ui.json"), "w"))
+        out = hint(run(h2, d2, "build a dashboard", session="u6b", cwd=proj_deps))
+        check("~/.claude/crew-chief-ui.json changes one model rule key by key, the other rules stay", "small fix haiku/low" in out and "with a reference or DESIGN.md sonnet/high" in out and "Never: anything at all." in out, out)
+
+        h3, d3 = world("ui-off", skills=[])
+        json.dump({"categories": [{"id": "ui-build", "disabled": True}]}, open(os.path.join(h3, ".claude", "crew-chief-skills.json"), "w"))
+        check("a user catalog can disable the UI category", run(h3, d3, "build a dashboard", session="u7") == "")
 
         h, d = world("off", skills=["flutter"])
         check("CREW_CHIEF_SKILL_HINTS=off", run(h, d, "flutter", env_extra={"CREW_CHIEF_SKILL_HINTS": "off"}) == "")

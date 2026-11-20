@@ -14,7 +14,8 @@ jobs:
         with:
           node-version: 22
       - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code
+        # Pinned so a new release cannot change the mod tests under us; bump it on purpose after a local run.
+        run: npm install -g @anthropic-ai/claude-code@2.1.329
       - name: Validate marketplace, plugin, skills, agents
         run: |
           claude plugin validate . --strict
@@ -32,6 +33,8 @@ jobs:
         run: python3 tests/test_skill_hint.py
       - name: Skill offer tests
         run: python3 tests/test_skill_offer.py
+      - name: Vendored skills tests
+        run: python3 tests/test_vendored_skills.py
       - name: Progress hook tests
         run: python3 tests/test_progress_hook.py
       - name: Panel row installer tests

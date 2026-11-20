@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: "Implements well-specified code changes (Sonnet, medium effort). Use when the task names the files, the change, and how to verify it: adding a parameter, writing a test, fixing a located bug. Rote edits that need no judgement (renames, the same line in many files) go to mechanic. Do not use when requirements are ambiguous, a design decision is needed, the change spans several modules, or the logic is algorithmically hard (use implementer-hard or keep it in the main session)."
+description: "Implements well-specified code changes (Sonnet, medium effort). Use when the task names the files, the change, and how to verify it: adding a parameter, writing a test, fixing a located bug. Rote edits that need no judgement (renames, the same line in many files) go to mechanic. UI code (components, styles, pages, screens) goes to ui-implementer instead. Do not use when requirements are ambiguous, a design decision is needed, the change spans several modules, or the logic is algorithmically hard (use implementer-hard or keep it in the main session)."
 tools: Read, Edit, Write, Grep, Glob, Bash, Skill
 model: sonnet
 effort: medium

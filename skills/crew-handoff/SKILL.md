@@ -8,23 +8,36 @@ Set up session handoff files. Arguments: `$ARGUMENTS` (optional sub-project dire
 
 Why: a fresh session otherwise rediscovers the project from scratch. This is the pattern in Anthropic's "Effective harnesses for long-running agents" (https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents): a progress file, a JSON task list where only the status changes (models alter JSON less readily than Markdown), and reading git log plus the progress file at the start of each session.
 
+## 0. Is there a git repository?
+
+Run `git -C <cwd> rev-parse --show-toplevel` (cwd: the argument if given, otherwise the session's directory). If it finds a repository, go to step 1.
+
+No repository:
+- If the prompt that started this already says what the user chose (`git init` first, or set up without git), follow it. For `git init`: run `git init` in that directory and use the new repository root as the target. For without git: the target is that directory itself.
+- Otherwise ask once (AskUserQuestion), in the user's language: "git init, then set up" (recommended) or "Set up without git in this folder". Nothing is written before the answer. If they decline both, record `later` (step 4) and stop.
+
 ## 1. Look before writing
 
-Target directory: the argument if given, otherwise `git rev-parse --show-toplevel`.
+Target directory: the argument if given; otherwise the repository root (`git rev-parse --show-toplevel`); with no repository, the current directory.
 
 Search the target and one level below for handoff-like files under any name or language, for example `STATUS.md`, `PROGRESS.md`, `HANDOFF.md`, `tasks.json`, `feature_list.json`, `claude-progress.txt`, `durum.md`, `ilerleme.md`, and for a session start/end routine in `CLAUDE.md` (a `crew-chief:handoff` block, or headings such as "Session start" or their translation).
 
 - **Something equivalent exists:** do not create a parallel set. Show what you found and ask whether to keep using it (default), add only the missing pieces next to it, or stop. Never rename or rewrite the user's files. If they keep using it, record `installed` (step 4) so the offer does not return. If their `STATUS.md` has no Constraints section (a heading named Constraints or Kısıtlar), say what it is for (the compact flow puts those lines back verbatim after every compaction) and ask whether to add the empty section; add it only after a yes.
 - **Nothing exists:** continue.
 
-## 2. Show the plan and a preview, then confirm
+## 2. Show the plan and a preview, then write
 
 Show the user, in their language:
 - the exact files to be created (only missing ones) and the block to add to `CLAUDE.md` between `<!-- crew-chief:handoff:start` and `<!-- crew-chief:handoff:end -->`; the rest of `CLAUDE.md` stays as it is;
 - that nothing is committed and no other file changes;
 - a short preview of each file's contents, filled from what you can verify in the repository (README, build files, scripts, CI config, `git log`). Mark anything you could not verify as "unverified"; never invent commands, results, or tasks.
 
-Wait for confirmation. If the user declines, record `never` or `later` as in step 4 and stop.
+Whether to wait depends on what the user already said:
+- **The user already said yes** (they accepted crew-chief's offer, the prompt says so, or they asked you to set it up, for example "kur" or "set up handoff"): do not ask again. Show the plan and preview and go straight on to step 3 in the same turn.
+- **Step 1 found equivalent files** (the case where you asked what to do with them): wait for their answer before writing anything.
+- **Anything else** (the skill was invoked without a clear yes): wait for confirmation.
+
+If the user declines, record `never` or `later` as in step 4 and stop.
 
 ## 3. Write
 

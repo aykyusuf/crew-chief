@@ -1,0 +1,204 @@
+{
+  "_comment": "crew-chief UI policy (task UI-ENFORCE-29). Read by scripts/skill-hint.sh, scripts/subagent-start.sh and scripts/ui-brief-check.sh through scripts/ui-lib.sh. Your own changes go in ~/.claude/crew-chief-ui.json (same shape, merged on top of this file: objects merge key by key, lists and strings are replaced). The plugin never writes that file. Skills are plugin skills named crew-chief:<folder>.",
+  "profileFile": ".crew-chief/ui-profile.json",
+  "profileDocs": {
+    "file": ".crew-chief/ui-profile.json",
+    "shape": "{profile, motion 0-10, perfBudget, notes, refs[], pages?}: the top level is the project's default profile",
+    "pages": "optional object: keys are file paths or route globs (\"index.html\", \"src/pages/menu/**\"), values override profile, motion, perfBudget and notes for the files they match; everything a page does not override stays the default",
+    "rule": "A new page or screen gets no profile question: it uses the default unless a page entry matches it. When the main session briefs an agent it applies the matching page entry and names the effective profile (profile, motion, perfBudget) for that page in the brief; an agent working on a file applies the entry whose key matches the file and says which one it used.",
+    "noCommentary": "When asking for the profile, use the profiles' labels (profiles.<id>.label, en or tr: the user's language) as the three option labels, in the order immersive, lively, calm, and list them neutrally: no recommended option based on project size, no warning that a profile is too heavy or too light. The user picks; Claude follows the pick."
+  },
+  "base": [
+    "crew-chief:frontend-design",
+    "crew-chief:ui-ux-pro-max"
+  ],
+  "landing": {
+    "when": "a landing page, a portfolio or a redesign of an existing look",
+    "skills": [
+      "crew-chief:design-taste-frontend"
+    ]
+  },
+  "aliases": {"static-minimal": "calm", "clean-practical": "lively", "performance-3d": "immersive"},
+  "profiles": {
+    "immersive": {
+      "label": {"en": "Immersive 3D: a real WebGL scene within a performance budget", "tr": "Sürükleyici 3D: gerçek WebGL sahne, performans bütçeli"},
+      "skills": [
+        "crew-chief:animate",
+        "crew-chief:choreograph",
+        "crew-chief:web-3d-perf"
+      ],
+      "motion": 8,
+      "perfBudget": "60 fps on a mid-range laptop, DPR capped at 2, scene lazy-loaded, paused offscreen and in a hidden tab, reduced-motion fallback",
+      "rule": "immersive means a real 3D scene: the hero or main scene is built with Three.js/WebGL (react-three-fiber when the project is React) following the web-3d-perf rules; a CSS or SVG imitation is not acceptable. If you cannot build real 3D (a constraint, no WebGL available), say so explicitly in your report with the reason instead of substituting."
+    },
+    "lively": {
+      "label": {"en": "Lively: measured animation, smooth transitions", "tr": "Canlı: ölçülü animasyon, akıcı geçişler"},
+      "skills": [
+        "crew-chief:animate"
+      ],
+      "motion": 3,
+      "perfBudget": "state and focus transitions 150-250 ms, transform and opacity only, no decorative loops"
+    },
+    "calm": {
+      "label": {"en": "Calm: almost no motion, fast and crisp", "tr": "Sakin: neredeyse hareketsiz, hızlı ve net"},
+      "skills": [
+        "crew-chief:remove-animations"
+      ],
+      "motion": 0,
+      "perfBudget": "no animation beyond focus and state changes; no animation library"
+    }
+  },
+  "infer": {
+    "_comment": "Dependencies that make a profile likely. The main session infers the profile from these (and from DESIGN.md), says so, and asks only when the project is not clear.",
+    "immersive": [
+      "three",
+      "@react-three/fiber",
+      "@react-three/drei",
+      "babylonjs",
+      "@babylonjs/core",
+      "ogl",
+      "pixi.js"
+    ],
+    "lively": [
+      "framer-motion",
+      "motion",
+      "gsap",
+      "@formkit/auto-animate",
+      "react-spring"
+    ]
+  },
+  "models": {
+    "_comment": "Model and effort for every UI Agent call (the main session passes them; they override the agent's own Sonnet medium default). rules is an object keyed by id so ~/.claude/crew-chief-ui.json can change one rule. Source: docs/research-2026-11-20/ui-dynamic-model-195925.md and the user's decisions.",
+    "rules": {
+      "small-fix": {
+        "short": "small fix",
+        "when": "a small fix: 1-2 files, existing look (CSS, a bug, wiring, copy, a token swap)",
+        "model": "sonnet",
+        "effort": "medium"
+      },
+      "with-direction": {
+        "short": "with a reference or DESIGN.md",
+        "when": "a component or screen with a reference image or a DESIGN.md",
+        "model": "sonnet",
+        "effort": "high"
+      },
+      "clear-work": {
+        "short": "clear direction",
+        "when": "clear simple-to-mid UI work with a defined direction",
+        "model": "opus",
+        "effort": "medium"
+      },
+      "new-no-direction": {
+        "short": "new landing, redesign or hero",
+        "when": "a new landing, redesign or hero with no direction",
+        "model": "opus",
+        "effort": "high"
+      },
+      "new-3d-scene": {
+        "short": "immersive scene",
+        "when": "a new immersive scene",
+        "model": "opus",
+        "effort": "high"
+      },
+      "repair": {
+        "when": "a repair pass after a visual review (give the concrete defect list)",
+        "model": "sonnet",
+        "effort": "medium"
+      },
+      "repair-twice": {
+        "when": "the same defect survived two repair passes",
+        "model": "opus",
+        "effort": "high"
+      }
+    },
+    "never": [
+      "sonnet at xhigh or max (use opus high instead)",
+      "effort above high on any UI call",
+      "a Fable model unless the user asked for Fable"
+    ],
+    "designer": {
+      "agent": "crew-chief:ui-designer",
+      "when": "3 or more screens, a new site or a redesign",
+      "model": "opus",
+      "effort": "high",
+      "specDir": ".crew-chief/design",
+      "builder": {
+        "agent": "crew-chief:ui-implementer",
+        "model": "sonnet",
+        "effort": "high"
+      }
+    }
+  },
+  "bannedDefaults": [
+    "Inter as the font",
+    "Arial or the system font stack as the font",
+    "purple or indigo-to-blue gradients",
+    "a cream or beige page background",
+    "a terracotta or orange accent colour",
+    "a serif headline chosen only because it is the default",
+    "three equal feature cards in a row",
+    "a centred hero over a gradient mesh"
+  ],
+  "bannedNote": "These are Claude's default look. Use one only when the project profile, DESIGN.md or the brief chooses it on purpose; otherwise pick a deliberate alternative and say what you chose.",
+  "logos": "Brand logos and service icons come from theSVG (the crew-chief:thesvg skill), never hand-drawn. Logos stay their owners' trademarks.",
+  "polishChecklist": {
+    "credit": "after jakub.kr, MIT (https://jakub.kr/writing/details-that-make-interfaces-feel-better), reworded",
+    "items": [
+      "headings use text-wrap: balance, body paragraphs use text-wrap: pretty",
+      "nested rounded corners: outer radius = inner radius + the padding between them",
+      "the root is font-smoothed (-webkit-font-smoothing: antialiased; Tailwind: antialiased)",
+      "numbers that change (counters, prices, timers) use font-variant-numeric: tabular-nums",
+      "separate surfaces with layered low-opacity shadows (a 1px ring plus one or two soft blurs) instead of solid borders; hover changes only box-shadow",
+      "images get a 1px outline at about 10% opacity with outline-offset: -1px",
+      "never transition: all; name the properties",
+      "pressable elements scale to about 0.96 on :active",
+      "touch targets are at least 44px",
+      "no horizontal overflow at 360px width: header actions and CTAs must fit or collapse into a menu on mobile (check the header first)",
+      "an icon's stroke weight matches the text beside it",
+      "enter and exit motion follows the motion level: 0-2 none beyond focus and state changes; 3-6 short fades and small moves (up to 250 ms), exits subtler than enters; 7-10 staged entrances with a stagger; always honour prefers-reduced-motion; interactions use CSS transitions so they can be interrupted, keyframes only for one-off sequences"
+    ]
+  },
+  "motionBands": {
+    "_comment": "What a motion value means (user decision 2026-11-20, after a live 'lively, motion 5' page that only had 2 keyframes and a scroll reveal and read as level 2-3). A value inside a band must deliver that band's whole list, and every list includes the lists of the bands below it.",
+    "bands": [
+      {"range": "0-1", "delivers": "no motion: colour and opacity changes on hover and focus only"},
+      {"range": "2-3", "delivers": "scroll reveal of the sections, hover and press feedback"},
+      {"range": "4-6", "delivers": "everything in 2-3, plus a staggered hero entrance sequence, a micro-interaction on every interactive element, one ambient loop (for example steam over a cup) and choreographed section transitions"},
+      {"range": "7-8", "delivers": "everything in 4-6, plus scroll-linked scenes, parallax and page or view transitions"},
+      {"range": "9-10", "delivers": "everything in 7-8, plus a continuous scene and 3D/WebGL effects"}
+    ],
+    "every": "In every band: a prefers-reduced-motion fallback, only compositor properties (transform and opacity), and the crew-chief:animation-performance rules.",
+    "rule": "A motion value inside a band must deliver that band's list; if one item cannot be delivered, say which and why in the report."
+  },
+  "selfCheck": {
+    "_comment": "Mandatory visual self-check before ui-implementer reports done (user decision 2026-11-20, after a live page that overflowed horizontally at 390px although the 360px rule was in the checklist).",
+    "dir": ".crew-chief/check",
+    "widths": [1440, 390],
+    "overflowWidths": [390, 360],
+    "steps": [
+      "take headless Chrome screenshots at 1440 and 390 wide (the same command pattern as ui-scout: --headless=new --user-data-dir=<temp folder>/crew-chief-check --hide-scrollbars --virtual-time-budget=8000 --window-size=W,H --screenshot=<path> <url>), save them under .crew-chief/check/ or the OS temp folder, never in the project source, and open them with Read",
+      "measure horizontal overflow at 390 and 360 wide with a script (document.documentElement.scrollWidth > window.innerWidth) and fix every overflow, header and CTAs first; the numbers go into the report",
+      "compare the animations the page has (keyframes, transitions, observers, ambient loops) with the chosen motion band's list and add what is missing, or state in the report why not",
+      "if no headless browser exists, say so in the report and mark the check not verified"
+    ],
+    "report": "The report lists the screenshot paths, the overflow numbers (width, scrollWidth, innerWidth) and the band check (each item of the band: present or missing and why).",
+    "ignore": "Add .crew-chief/check/ to the project's .gitignore: it holds screenshots, not source."
+  },
+  "reference": {
+    "dir": ".crew-chief/refs",
+    "choices": [
+      {"id": "send", "label": {"en": "I'll send one", "tr": "Ben göndereyim"}, "does": "the user sends an image or URL"},
+      {"id": "find", "label": {"en": "Find some (ui-scout)", "tr": "Sen bul (ui-scout)"}, "does": "brief crew-chief:ui-scout with the project, the effective profile and motion level and what the user asked for; it researches the domain, finds 3-4 live sites and open galleries, looks at them (Claude in Chrome, else headless Chrome, else curl) and saves screenshots and a ranked REFS.md to .crew-chief/refs/"},
+      {"id": "none", "label": {"en": "None", "tr": "Yok"}, "does": "no reference"}
+    ],
+    "scout": {
+      "agent": "crew-chief:ui-scout",
+      "model": "sonnet",
+      "effort": "medium",
+      "pick": "Then show the candidates (path and one line each) in one AskUserQuestion (multiSelect allowed), name the scout's #1 pick, and use #1 if the user does not answer (away or night mode). The picked paths go into refs[] of the profile (as project-relative paths such as .crew-chief/refs/1-cafe-desktop.png, not absolute ones) and into every UI brief.",
+      "never": "Never run ui-scout and ui-tester on the same browser at the same time."
+    },
+    "note": "A reference is for layout, density and type feel: inspiration only, never copied 1:1 (its assets, code, copy and fonts belong to their owners). The agent opens the paths with Read (images) and reports what it took.",
+    "reanimate": "Optional, only under immersive, when the user wants an animation from a live site reproduced: the reanimate skill (npx skills add NiazMorshed2007/reanimate; needs Bun and Chromium, about 250 MB). Offer it, install it only with the user's yes."
+  }
+}

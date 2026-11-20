@@ -146,6 +146,205 @@ def file_tool_cases(failures):
     return n
 
 
+def design_spec_cases(failures):
+    """ui-designer may write its design spec (a .md under .crew-chief/design/ in the project) and nothing else."""
+    import shutil
+    import tempfile
+    scratch = os.path.realpath(tempfile.mkdtemp(prefix="crew-chief-design-"))
+    proj = os.path.join(scratch, "proj")
+    sub = os.path.join(proj, "web", "app")
+    os.makedirs(sub)
+    n = 0
+
+    def expect(code, label, tool, tool_input, agent="crew-chief:ui-designer", cwd=proj, project=False):
+        nonlocal n
+        n += 1
+        payload = {"tool_name": tool, "tool_input": tool_input, "cwd": cwd}
+        if agent:
+            payload["agent_type"] = agent
+        env = dict(ENV if ENV is not None else os.environ, TMPDIR=scratch)
+        got = subprocess.run([GUARD] + (["--project"] if project else []), input=json.dumps(payload), capture_output=True, text=True, env=env).returncode
+        if got != code:
+            failures.append(f"design spec: expected {code}, got {got}: {label}")
+
+    spec = proj + "/.crew-chief/design/site.md"
+    try:
+        expect(0, "spec, folder does not exist yet", "Write", {"file_path": spec})
+        os.makedirs(proj + "/.crew-chief/design")
+        expect(0, "spec, folder exists", "Write", {"file_path": spec})
+        expect(0, "spec in a nested folder", "Write", {"file_path": proj + "/.crew-chief/design/a/b.md"})
+        expect(0, "project install, bare agent name", "Write", {"file_path": spec}, agent="ui-designer", project=True)
+        expect(0, "cwd is a subfolder of a non-git project: its own .crew-chief", "Write", {"file_path": sub + "/.crew-chief/design/x.md"}, cwd=sub)
+        expect(2, "cwd is a subfolder of a non-git project: not the parent's", "Write", {"file_path": spec}, cwd=sub)
+        expect(2, "code file", "Write", {"file_path": proj + "/src/App.tsx"})
+        expect(2, "code file in the spec folder", "Write", {"file_path": proj + "/.crew-chief/design/App.tsx"})
+        expect(2, "css next to the spec", "Write", {"file_path": proj + "/.crew-chief/design/site.css"})
+        expect(2, "md outside the spec folder", "Write", {"file_path": proj + "/DESIGN.md"})
+        expect(2, "the profile file", "Write", {"file_path": proj + "/.crew-chief/ui-profile.json"})
+        expect(2, "a sibling folder with the same prefix", "Write", {"file_path": proj + "/.crew-chief/design-evil/x.md"})
+        expect(2, "the reports folder", "Write", {"file_path": scratch + "/crew-chief-reports/x.md"})
+        expect(2, "Edit of the spec", "Edit", {"file_path": spec})
+        expect(2, "MultiEdit of the spec", "MultiEdit", {"file_path": spec})
+        expect(2, "relative path", "Write", {"file_path": ".crew-chief/design/x.md"})
+        expect(2, "dot dot out", "Write", {"file_path": proj + "/.crew-chief/design/../x.md"})
+        expect(2, "no path", "Write", {})
+        expect(2, "no project folder", "Write", {"file_path": spec}, cwd="")
+        outside = os.path.join(scratch, "outside")
+        os.makedirs(outside)
+        os.symlink(outside, proj + "/.crew-chief/design/link")
+        expect(2, "symlinked subfolder out", "Write", {"file_path": proj + "/.crew-chief/design/link/x.md"})
+        os.symlink(os.path.join(outside, "t.md"), proj + "/.crew-chief/design/file-link.md")
+        expect(2, "symlinked file out", "Write", {"file_path": proj + "/.crew-chief/design/file-link.md"})
+        proj2 = os.path.join(scratch, "proj2")
+        os.makedirs(proj2)
+        os.symlink(outside, proj2 + "/.crew-chief")
+        expect(2, "symlinked .crew-chief folder", "Write", {"file_path": proj2 + "/.crew-chief/design/x.md"}, cwd=proj2)
+        expect(2, "another project's spec folder", "Write", {"file_path": proj2 + "/.crew-chief/design/x.md"})
+        # The other read-only agents keep the reports-folder rule only; writing agents are never touched.
+        expect(2, "planner may not write a spec", "Write", {"file_path": spec}, agent="crew-chief:planner")
+        expect(2, "reviewer may not write a spec", "Write", {"file_path": spec}, agent="crew-chief:reviewer")
+        expect(0, "implementer is not touched", "Write", {"file_path": proj + "/src/App.tsx"}, agent="crew-chief:ui-implementer")
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    return n
+
+
+def scout_cases(failures):
+    """ui-scout may write REFS.md and screenshots under <project>/.crew-chief/refs/ (Write, and one headless Chrome command) and nothing else."""
+    import shutil
+    import tempfile
+    scratch = os.path.realpath(tempfile.mkdtemp(prefix="crew-chief-scout-"))
+    proj = os.path.join(scratch, "proj")
+    os.makedirs(proj)
+    n = 0
+    env = dict(ENV if ENV is not None else os.environ, TMPDIR=scratch)
+
+    def expect(code, label, tool, tool_input, agent="crew-chief:ui-scout", cwd=proj, project=False):
+        nonlocal n
+        n += 1
+        payload = {"tool_name": tool, "tool_input": tool_input, "cwd": cwd}
+        if agent:
+            payload["agent_type"] = agent
+        got = subprocess.run([GUARD] + (["--project"] if project else []), input=json.dumps(payload), capture_output=True, text=True, env=env).returncode
+        if got != code:
+            failures.append(f"scout: expected {code}, got {got}: {label}")
+
+    refs = proj + "/.crew-chief/refs"
+    chrome = '"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"'
+    udd = "--user-data-dir=" + scratch + "/crew-chief-scout"
+
+    def shot(path, extra="", url="https://example.com/", binary=chrome, flags="--headless=new"):
+        return f"{binary} {flags} {udd} {extra} --screenshot={path} {url}"
+
+    try:
+        expect(0, "REFS.md, folder does not exist yet", "Write", {"file_path": refs + "/REFS.md"})
+        expect(0, "png", "Write", {"file_path": refs + "/1-cafe-desktop.png"})
+        expect(0, "jpg", "Write", {"file_path": refs + "/1-cafe-mobile.jpg"})
+        expect(0, "webp", "Write", {"file_path": refs + "/1-cafe-mobile.webp"})
+        expect(0, "upper-case extension", "Write", {"file_path": refs + "/1-cafe.PNG"})
+        expect(0, "project install, bare agent name", "Write", {"file_path": refs + "/REFS.md"}, agent="ui-scout", project=True)
+        os.makedirs(refs)
+        expect(0, "REFS.md, folder exists", "Write", {"file_path": refs + "/REFS.md"})
+        expect(2, "code file", "Write", {"file_path": proj + "/src/App.tsx"})
+        expect(2, "html in refs", "Write", {"file_path": refs + "/page.html"})
+        expect(2, "svg in refs", "Write", {"file_path": refs + "/logo.svg"})
+        expect(2, "script in refs", "Write", {"file_path": refs + "/a.sh"})
+        expect(2, "md outside refs", "Write", {"file_path": proj + "/README.md"})
+        expect(2, "png outside refs", "Write", {"file_path": proj + "/a.png"})
+        expect(2, "the design spec folder", "Write", {"file_path": proj + "/.crew-chief/design/x.md"})
+        expect(2, "the profile file", "Write", {"file_path": proj + "/.crew-chief/ui-profile.json"})
+        expect(2, "a sibling folder with the same prefix", "Write", {"file_path": proj + "/.crew-chief/refs-evil/x.md"})
+        expect(2, "Edit", "Edit", {"file_path": refs + "/REFS.md"})
+        expect(2, "MultiEdit", "MultiEdit", {"file_path": refs + "/REFS.md"})
+        expect(2, "relative path", "Write", {"file_path": ".crew-chief/refs/REFS.md"})
+        expect(2, "dot dot out", "Write", {"file_path": refs + "/../x.md"})
+        expect(2, "no path", "Write", {})
+        expect(2, "no project folder", "Write", {"file_path": refs + "/REFS.md"}, cwd="")
+        outside = os.path.join(scratch, "outside")
+        os.makedirs(outside)
+        os.symlink(outside, refs + "/link")
+        expect(2, "symlinked subfolder out", "Write", {"file_path": refs + "/link/x.md"})
+        os.symlink(os.path.join(outside, "t.png"), refs + "/file-link.png")
+        expect(2, "symlinked file out", "Write", {"file_path": refs + "/file-link.png"})
+        proj2 = os.path.join(scratch, "proj2")
+        os.makedirs(proj2)
+        os.symlink(outside, proj2 + "/.crew-chief")
+        expect(2, "symlinked .crew-chief folder", "Write", {"file_path": proj2 + "/.crew-chief/refs/REFS.md"}, cwd=proj2)
+        expect(2, "another project's refs folder", "Write", {"file_path": proj2 + "/.crew-chief/refs/REFS.md"})
+        # The other read-only agents may not write into refs; the designer keeps only its spec folder.
+        expect(2, "ui-designer may not write refs", "Write", {"file_path": refs + "/REFS.md"}, agent="crew-chief:ui-designer")
+        expect(2, "planner may not write refs", "Write", {"file_path": refs + "/REFS.md"}, agent="crew-chief:planner")
+        # Bash: the one headless screenshot command into refs.
+        d = refs + "/1-cafe-desktop.png"
+        expect(0, "screenshot desktop", "Bash", {"command": shot(d, "--hide-scrollbars --window-size=1440,900")})
+        expect(0, "screenshot mobile, quoted url, time budget", "Bash", {"command": shot(refs + "/1-cafe-mobile.png", "--window-size=390,844 --virtual-time-budget=8000", url='"https://example.com/a?b=1"')})
+        expect(0, "screenshot, webgl flags and long budget", "Bash", {"command": shot(d, "--use-angle=swiftshader --enable-unsafe-swiftshader --use-gl=angle --virtual-time-budget=20000")})
+        expect(2, "screenshot, unknown gpu flag", "Bash", {"command": shot(d, "--use-angle=metal")})
+        expect(2, "screenshot, unknown flag", "Bash", {"command": shot(d, "--enable-unsafe-webgpu")})
+        expect(0, "screenshot, quoted path with a space", "Bash", {"command": f'{chrome} --headless=new {udd} --screenshot="{refs}/1 a-desktop.png" https://example.com/'})
+        expect(0, "screenshot, rtk prefix", "Bash", {"command": "rtk " + shot(d)})
+        expect(0, "screenshot, linux binary", "Bash", {"command": shot(d, binary="chromium")})
+        expect(0, "screenshot, linux binary with path", "Bash", {"command": shot(d, binary="/usr/bin/google-chrome")})
+        expect(0, "screenshot, jpg", "Bash", {"command": shot(refs + "/1-a.jpg")})
+        expect(0, "screenshot in a nested refs folder", "Bash", {"command": shot(refs + "/sub/1-a.png")})
+        expect(0, "project install, bare agent name", "Bash", {"command": shot(d)}, agent="ui-scout", project=True)
+        expect(2, "screenshot elsewhere in the project", "Bash", {"command": shot(proj + "/public/x.png")})
+        expect(2, "screenshot in the design folder", "Bash", {"command": shot(proj + "/.crew-chief/design/x.png")})
+        expect(2, "screenshot to /tmp", "Bash", {"command": shot("/tmp/x.png")})
+        expect(2, "screenshot, home folder", "Bash", {"command": shot(os.path.expanduser("~/x.png"))})
+        expect(2, "screenshot, relative path", "Bash", {"command": shot(".crew-chief/refs/x.png")})
+        expect(2, "screenshot, dot dot out of refs", "Bash", {"command": shot(refs + "/../x.png")})
+        expect(2, "screenshot, wrong extension", "Bash", {"command": shot(refs + "/x.html")})
+        expect(2, "screenshot, no extension", "Bash", {"command": shot(refs + "/x")})
+        expect(2, "screenshot, symlinked subfolder out", "Bash", {"command": shot(refs + "/link/x.png")})
+        expect(2, "screenshot, symlinked file out", "Bash", {"command": shot(refs + "/file-link.png")})
+        expect(2, "screenshot, symlinked .crew-chief", "Bash", {"command": shot(proj2 + "/.crew-chief/refs/x.png")}, cwd=proj2)
+        expect(2, "screenshot, another project's refs", "Bash", {"command": shot(proj2 + "/.crew-chief/refs/x.png")})
+        expect(2, "two screenshots", "Bash", {"command": shot(d, f"--screenshot={proj}/x.png")})
+        expect(2, "no screenshot flag (headless would only print)", "Bash", {"command": f"{chrome} --headless=new {udd} https://example.com/"})
+        expect(2, "dump-dom flag", "Bash", {"command": shot(d, "--dump-dom")})
+        expect(2, "print-to-pdf elsewhere", "Bash", {"command": shot(d, "--print-to-pdf=/tmp/a.pdf")})
+        expect(2, "log file flag", "Bash", {"command": shot(d, "--enable-logging --log-file=/tmp/a.log")})
+        expect(2, "remote debugging flag", "Bash", {"command": shot(d, "--remote-debugging-port=9222")})
+        expect(2, "load-extension flag", "Bash", {"command": shot(d, "--load-extension=/tmp/e")})
+        expect(2, "not headless", "Bash", {"command": shot(d, flags="--window-size=1440,900")})
+        expect(2, "no user data dir (would reuse the user's browser)", "Bash", {"command": f"{chrome} --headless=new --screenshot={d} https://example.com/"})
+        expect(2, "user data dir outside temp", "Bash", {"command": f"{chrome} --headless=new --user-data-dir=/home/someone/p --screenshot={d} https://example.com/"})
+        expect(2, "user data dir with dot dot", "Bash", {"command": f"{chrome} --headless=new --user-data-dir={scratch}/../etc --screenshot={d} https://example.com/"})
+        expect(2, "file url", "Bash", {"command": shot(d, url="file:///etc/passwd")})
+        expect(2, "no url", "Bash", {"command": shot(d, url="")})
+        expect(2, "pipe", "Bash", {"command": shot(d) + " | cat"})
+        expect(2, "redirect", "Bash", {"command": shot(d) + " > /tmp/log"})
+        expect(2, "redirect to dev null still not the one command", "Bash", {"command": shot(d) + " 2>/dev/null"})
+        expect(2, "second command", "Bash", {"command": shot(d) + "; rm -rf x"})
+        expect(2, "and", "Bash", {"command": shot(d) + " && touch x"})
+        expect(2, "background", "Bash", {"command": shot(d) + " &"})
+        expect(2, "command substitution in url", "Bash", {"command": shot(d, url="https://a.com/$(id)")})
+        expect(2, "backtick in url", "Bash", {"command": shot(d, url="https://a.com/`id`")})
+        expect(2, "variable", "Bash", {"command": shot(d, url="https://a.com/$HOME")})
+        expect(2, "newline", "Bash", {"command": shot(d) + "\nrm x"})
+        expect(2, "quote escape", "Bash", {"command": shot(d, url='"https://a.com/\\"')})
+        expect(2, "env prefix", "Bash", {"command": "FOO=1 " + shot(d)})
+        # Other read-only agents and the other Bash rules are unchanged for ui-scout.
+        expect(2, "env prefix on the browser command", "Bash", {"command": "env " + shot(d)})
+        expect(2, "shell wrapper around the browser command", "Bash", {"command": "sh -c 'x' --screenshot=/tmp/a.png"})
+        expect(0, "ui-tester is not touched", "Bash", {"command": shot("/tmp/x.png")}, agent="crew-chief:ui-tester")
+        expect(2, "curl download", "Bash", {"command": "curl -sL -o " + refs + "/a.png https://example.com/a.png"})
+        expect(0, "curl to read html", "Bash", {"command": "curl -sL https://example.com/ | head -c 60000"})
+        expect(0, "curl and grep for colours", "Bash", {"command": "curl -sL https://example.com/ | grep -o '#[0-9a-fA-F]\\{6\\}' | sort -u"})
+        expect(0, "date", "Bash", {"command": "date +%F"})
+        expect(0, "temp folder lookup", "Bash", {"command": 'printf %s "${TMPDIR:-/tmp}"'})
+        expect(0, "chrome binary check", "Bash", {"command": 'ls "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"'})
+        expect(0, "progress line", "Bash", {"command": ": 'crew-progress 40 | looking at site 2 |'"})
+        expect(2, "mkdir", "Bash", {"command": "mkdir -p " + refs})
+        expect(2, "cp into refs", "Bash", {"command": "cp a.png " + refs + "/a.png"})
+        expect(2, "redirect into refs", "Bash", {"command": "echo x > " + refs + "/REFS.md"})
+        expect(2, "git write", "Bash", {"command": "git add -A"})
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    return n
+
+
 def main():
     failures = []
 
@@ -154,7 +353,7 @@ def main():
         if got != code:
             failures.append(f"expected {code}, got {got}: {command!r} {kw}")
 
-    for agent in ("crew-chief:scanner", "crew-chief:deep-reader", "crew-chief:reviewer", "crew-chief:ui-smoke", "crew-chief:planner"):
+    for agent in ("crew-chief:scanner", "crew-chief:deep-reader", "crew-chief:reviewer", "crew-chief:ui-smoke", "crew-chief:planner", "crew-chief:ui-designer", "crew-chief:ui-scout"):
         for c in ALLOWED:
             expect(0, c, agent_type=agent)
         for c in BLOCKED:
@@ -164,7 +363,7 @@ def main():
         for c in BLOCKED:
             expect(0, c, agent_type=agent)
     # --project (settings hook from /crew-setup) matches bare agent names only.
-    for agent in ("scanner", "deep-reader", "reviewer", "ui-smoke", "planner"):
+    for agent in ("scanner", "deep-reader", "reviewer", "ui-smoke", "planner", "ui-designer", "ui-scout"):
         for c in BLOCKED:
             expect(2, c, agent_type=agent, project=True)
         for c in ALLOWED:
@@ -179,7 +378,10 @@ def main():
         expect(0, c, always=True)
 
     total = 8 * (len(ALLOWED) + len(BLOCKED)) + 11 * len(BLOCKED) + len(BLOCKED) + len(ALLOWED)
+    total += 4 * (len(ALLOWED) + len(BLOCKED))
     total += file_tool_cases(failures)
+    total += design_spec_cases(failures)
+    total += scout_cases(failures)
     if failures:
         print("\n".join(failures))
         print(f"FAIL {len(failures)}/{total}")
@@ -192,7 +394,7 @@ def without_jq_env():
     import shutil
     import tempfile
     bindir = tempfile.mkdtemp(prefix="crew-chief-nojq-")
-    for tool in ("sh", "cat", "grep", "sed", "tr", "mkdir", "chmod", "dirname"):
+    for tool in ("sh", "cat", "grep", "sed", "tr", "mkdir", "chmod", "dirname", "wc"):
         path = shutil.which(tool)
         if path:
             os.symlink(path, os.path.join(bindir, tool))

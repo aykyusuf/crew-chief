@@ -12,7 +12,10 @@
 // scripts, variables, ssh config aliases or other tools. The README says so and lists the server-side
 // controls that do protect a server.
 
-export const READONLY_AGENTS = ['scanner', 'deep-reader', 'reviewer', 'ui-smoke', 'planner']
+// Read-only agents. ui-designer (its spec under .crew-chief/design/) and ui-scout (REFS.md and screenshots under
+// .crew-chief/refs/) may write that one folder; that exception lives in scripts/readonly-guard.sh, not here: this list
+// only decides that a rule that would ask the user is a plain deny for them, since an agent cannot be asked.
+export const READONLY_AGENTS = ['scanner', 'deep-reader', 'reviewer', 'ui-smoke', 'planner', 'ui-designer', 'ui-scout']
 export const MAX_RULES = 100
 export const MAX_PATTERN = 300
 export const MAX_STATE = 500

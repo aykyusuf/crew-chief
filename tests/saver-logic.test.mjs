@@ -191,6 +191,11 @@ test('ultra: Sonnet agents are capped at high, Haiku and forks are left alone', 
   assert.equal(ultraAgentCall(null), undefined)
 })
 
+test('ultra: ui-implementer is a Sonnet agent even when the main model is Opus', () => {
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:ui-implementer' }, false, 'claude-opus-5-5'), undefined)
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'ui-implementer', effort: 'max' }, false, 'claude-opus-5-5').rewrite, { effort: 'high' })
+})
+
 test('ultra: an agent with no model of its own follows the main model', () => {
   assert.deepEqual(ultraAgentCall({ subagent_type: 'general-purpose' }, false, 'claude-opus-5-5').rewrite, { model: 'sonnet', effort: 'medium' })
   assert.equal(ultraAgentCall({ subagent_type: 'general-purpose' }, false, 'claude-sonnet-5-5'), undefined)
@@ -200,4 +205,53 @@ test('ultra: with the standing yes, Opus is left alone', () => {
   assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:reviewer', effort: 'xhigh' }, true), undefined)
   assert.equal(ultraAgentCall({ subagent_type: 'x', model: 'opus' }, true), undefined)
   assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:implementer', effort: 'xhigh' }, true).rewrite, { effort: 'high' })
+})
+
+test('ultra: ui-designer drops to Sonnet high silently like the other heavy agents; naming Opus asks', () => {
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:ui-designer' }), { rewrite: { model: 'sonnet', effort: 'high' }, ask: false, tier: 'heavy' })
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'ui-designer', model: 'opus', effort: 'high' }), { rewrite: { model: 'sonnet', effort: 'high' }, ask: true, tier: 'heavy' })
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:ui-designer', effort: 'xhigh' }).rewrite, { model: 'sonnet', effort: 'high' })
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:ui-designer', model: 'opus', effort: 'high' }, true), undefined) // the standing yes
+})
+
+test('ultra: a ui-implementer call that names Opus (the UI model table) asks, and on a no runs on Sonnet at the same effort up to high', () => {
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:ui-implementer', model: 'opus', effort: 'high' }), { rewrite: { model: 'sonnet', effort: 'high' }, ask: true, tier: 'heavy' })
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:ui-implementer', model: 'opus', effort: 'medium' }).rewrite, { model: 'sonnet', effort: 'medium' })
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:ui-implementer', model: 'sonnet', effort: 'high' }), undefined)
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:ui-implementer', model: 'sonnet', effort: 'medium' }), undefined)
+})
+
+test('plain saver: ui-designer, and a ui-implementer call naming Opus, drop above medium to medium; Sonnet UI calls are left alone', () => {
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:ui-designer' }), 'medium')
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:ui-designer', effort: 'high' }), 'medium')
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:ui-implementer', model: 'opus', effort: 'high' }), 'medium')
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:ui-implementer', model: 'opus', effort: 'medium' }), undefined)
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:ui-implementer', model: 'sonnet', effort: 'high' }), undefined)
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:ui-implementer' }), undefined)
+})
+
+test('the saver never rewrites a call to Fable: the only model it ever writes is sonnet, and a Fable call is a heavy one that is asked about', () => {
+  const calls = []
+  for (const type of ['crew-chief:ui-designer', 'crew-chief:ui-implementer', 'crew-chief:implementer-hard', 'crew-chief:reviewer', 'crew-chief:planner', 'general-purpose', 'crew-chief:deep-reader']) {
+    for (const model of [undefined, 'opus', 'fable', 'Fable', 'claude-fable-5-2', 'sonnet', 'haiku']) {
+      for (const effort of [undefined, 'low', 'medium', 'high', 'xhigh', 'max']) calls.push({ subagent_type: type, model, effort })
+    }
+  }
+  for (const c of calls) {
+    for (const main of [undefined, 'claude-opus-5-5', 'claude-fable-5-2', 'claude-sonnet-5-5']) {
+      const r = ultraAgentCall(c, false, main)
+      if (r !== undefined && r.rewrite.model !== undefined) assert.equal(r.rewrite.model, 'sonnet', JSON.stringify(c))
+      const eff = agentCallEffort(c)
+      assert.ok(eff === undefined || eff === 'medium', JSON.stringify(c))
+    }
+  }
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:implementer', model: 'fable' }), { rewrite: { model: 'sonnet', effort: 'medium' }, ask: true, tier: 'heavy' })
+})
+
+test('ui-scout is a Sonnet agent: untouched by the plain saver, effort capped at high by the ultra-saver, never rewritten to another model', () => {
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:ui-scout' }), undefined)
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:ui-scout', effort: 'medium' }), undefined)
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:ui-scout' }), undefined)
+  assert.equal(ultraAgentCall({ subagent_type: 'ui-scout', effort: 'high' }), undefined)
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:ui-scout', effort: 'xhigh' }), { rewrite: { effort: 'high' }, ask: false, tier: 'sonnet' })
 })

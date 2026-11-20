@@ -10,7 +10,7 @@ Set up crew-chief in the current project. Arguments: `$ARGUMENTS`. Assets are in
 ## 1. Check what is already there
 
 - If agent types named `crew-chief:scanner` and so on are available to you, the crew-chief **plugin** is installed: its agents, guard, and policy are already active. Do not copy agents or hooks (that would create duplicates). Say so, and continue only with step 5 (`--handoff`) or step 6 (`--explore`) if the user passed that flag or wants it.
-- List `.claude/agents/`, `.claude/hooks/`, `.claude/settings.json`, and `CLAUDE.md` in the project root. Note any file that setup would overwrite: `scanner.md`, `deep-reader.md`, `implementer.md`, `implementer-hard.md`, `mechanic.md`, `planner.md`, `reviewer.md`, `ui-smoke.md`, `ui-tester.md`, `crew-chief-guard.sh`.
+- List `.claude/agents/`, `.claude/hooks/`, `.claude/settings.json`, and `CLAUDE.md` in the project root. Note any file that setup would overwrite: `scanner.md`, `deep-reader.md`, `implementer.md`, `implementer-hard.md`, `mechanic.md`, `planner.md`, `reviewer.md`, `ui-implementer.md`, `ui-designer.md`, `ui-scout.md`, `ui-smoke.md`, `ui-tester.md`, `crew-chief-guard.sh`.
 
 ## 2. Confirm the plan
 

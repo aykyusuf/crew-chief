@@ -12,7 +12,8 @@
 //     once, keeps the note in memory (at most 50) and never asks anything; /crew-guard shows them.
 //   - first run: in an interactive session with no config file and no SETUP_KEY in the plugin store, the
 //     default config is written once (CREW_CHIEF_GUARD_AUTOSETUP=off or CREW_CHIEF_GUARD=off prevent it);
-//     the marker keeps a deleted file from coming back. /crew-guard on|off is the only other write.
+//     the marker keeps a deleted file from coming back. A write that fails leaves the guard on the
+//     defaults for that session and is tried again next session. /crew-guard on|off is the only other write.
 // The config is read once per session. Gate state lives in memory, with a copy in the plugin store (one key
 // per session) so a plugin reload or worker respawn mid-session keeps approved retries; it ends with the session.
 // A speed bump, not a security boundary. Any failure lets the call through (fail open).
@@ -127,7 +128,8 @@ async function guardAutoSetup($, path, fileText) {
   } catch (err) {
     return undefined
   }
-  if (marker !== undefined && marker !== null) return undefined
+  // 'failed' (an earlier write that did not land) is tried again; any other marker means set up already.
+  if (marker !== undefined && marker !== null && marker !== 'failed') return undefined
   if (typeof fileText === 'string') {
     await setMarker($, 'done') // the owner's own file: never touched
     return undefined
@@ -152,7 +154,9 @@ async function guardAutoSetup($, path, fileText) {
       // nothing else to do
     }
     await setMarker($, 'failed')
-    return undefined
+    // The guard still runs on the defaults in this session (it is not left off silently); the next
+    // interactive session tries the write again.
+    return text
   }
   await setMarker($, 'done')
   try {

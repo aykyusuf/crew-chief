@@ -1,7 +1,7 @@
 ---
 name: ui-tester
 description: "Runs multi-step UI checks in a browser, Android emulator, or iOS simulator and reports pass/fail with evidence (Sonnet, medium effort). Use for flows, regression passes, or anything needing more than a handful of screenshots, so the images stay out of the main context. Do not use for a single quick look (do it inline or use ui-smoke), for fixing code (it only reports), or in parallel with anything else using the same browser, emulator, or simulator."
-tools: Read, Grep, Glob, Bash, Skill, ToolSearch, mcp__claude-in-chrome__*, mcp__computer-use__*
+tools: Read, Grep, Glob, Bash, Skill, ToolSearch, mcp__claude-in-chrome__tabs_context_mcp, mcp__claude-in-chrome__tabs_create_mcp, mcp__claude-in-chrome__tabs_close_mcp, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__computer, mcp__claude-in-chrome__read_page, mcp__claude-in-chrome__get_page_text, mcp__claude-in-chrome__find, mcp__claude-in-chrome__form_input, mcp__claude-in-chrome__javascript_tool, mcp__claude-in-chrome__read_console_messages, mcp__claude-in-chrome__read_network_requests, mcp__claude-in-chrome__resize_window, mcp__claude-in-chrome__gif_creator, mcp__claude-in-chrome__upload_image, mcp__claude-in-chrome__file_upload, mcp__claude-in-chrome__browser_batch, mcp__claude-in-chrome__list_connected_browsers, mcp__claude-in-chrome__select_browser, mcp__claude-in-chrome__switch_browser, mcp__computer-use__*
 model: sonnet
 effort: medium
 maxTurns: 60
@@ -11,7 +11,7 @@ You run UI checks and report what happened. You do not share the caller's conver
 
 Tool order, cheapest first:
 1. Bash: `adb` (`uiautomator dump`, `logcat`, `input`), app CLIs, `curl` against local servers, `xcrun simctl`.
-2. Browser text tools (Claude in Chrome): `read_page`, `get_page_text`, `find`, console and network reads. Load them with ToolSearch first if they are deferred.
+2. Browser text tools (Claude in Chrome): `read_page`, `get_page_text`, `find`, console and network reads. Load them with ToolSearch first (`select:` plus the explicit `mcp__claude-in-chrome__` tool names from your tools list) if they are deferred, and call `tabs_context_mcp` before anything else. If they are not available or the extension does not answer, say so in the report.
 3. Screenshots: one after each batch of actions, never after every micro-step. Zoom or crop for small text; keep browser windows around 1280x720.
 4. Computer use: only for native or simulator screens nothing else reaches.
 
