@@ -212,6 +212,36 @@ scout_chrome() {
   exit 0
 }
 
+# ui-scout's other Bash write: this plugin's own scripts/ui-shot.mjs (real mobile emulation over the DevTools
+# protocol; plain headless Chrome cannot lay a page out below ~500 px). Exactly
+#   node <this plugin>/scripts/ui-shot.mjs <http(s) url> <project>/.crew-chief/refs <slug> [--webgl] [--wait=N]
+# with the script path matching this plugin's own copy, no shell operators, and the out dir inside refs.
+scout_shot() {
+  sdeny() {
+    echo "Blocked by crew-chief: ui-scout may run the screenshot script only as: node $shot_script <http(s) url> <project>/.crew-chief/refs <slug> [--webgl] [--wait=N] ($1)." >&2
+    exit 2
+  }
+  c=$1
+  case "$c" in *"$nl"*|*';'*|*'&'*|*'|'*|*'<'*|*'>'*|*'`'*|*'$'*|*'\'*|*'('*|*')'*|*'"'*|*"'"*) sdeny "no shell operators, quotes, substitution or newlines after the script path" ;; esac
+  set -f
+  # shellcheck disable=SC2086
+  set -- $c
+  set +f
+  [ $# -ge 3 ] && [ $# -le 5 ] || sdeny "url, out dir and slug are required"
+  case "$1" in http://[A-Za-z0-9]*|https://[A-Za-z0-9]*) ;; *) sdeny "the url must be http(s)" ;; esac
+  out=$(printf '%s' "$2" | tr -s '/')
+  out=${out%/}
+  in_project_folder "$out/x.png" ".crew-chief/refs" || sdeny "out dir: $scope_why"
+  case "$3" in .*|*/*) sdeny "bad slug" ;; esac
+  printf '%s' "$3" | grep -qE '^[A-Za-z0-9._-]+$' || sdeny "bad slug"
+  shift 3
+  for tok in "$@"; do
+    case "$tok" in --webgl|--wait=[0-9]|--wait=[0-9]*[0-9]) ;; *) sdeny "argument not allowed: $tok" ;; esac
+    case "$tok" in --wait=*[!0-9]*) sdeny "argument not allowed: $tok" ;; esac
+  done
+  exit 0
+}
+
 case "$tool" in
   Write|Edit|NotebookEdit|MultiEdit)
     [ "$agent" = "ui-designer" ] && scoped_write ".crew-chief/design" "md" "its design spec"
@@ -248,8 +278,17 @@ if [ "$agent" = "ui-scout" ]; then
     google-chrome\ *|google-chrome-stable\ *|chromium\ *|chromium-browser\ *|chrome\ *|/usr/bin/google-chrome\ *|/usr/bin/google-chrome-stable\ *|/usr/bin/chromium\ *|/usr/bin/chromium-browser\ *|/snap/bin/chromium\ *|/opt/google/chrome/chrome\ *) scout_bin="${cmd%% *} " ;;
   esac
   [ -n "$scout_bin" ] && scout_chrome "${cmd#"$scout_bin"}"
+  shot_script="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/ui-shot.mjs"
+  # macOS paths are case-insensitive and the same folder can reach us spelled two ways: compare in lower case.
+  lcmd=$(printf '%s' "$cmd" | tr 'A-Z' 'a-z')
+  for pre in "node $shot_script " "node \"$shot_script\" " "node '$shot_script' "; do
+    lpre=$(printf '%s' "$pre" | tr 'A-Z' 'a-z')
+    case "$lcmd" in "$lpre"*) scout_shot "$(printf '%s' "$cmd" | sed "s/^.\{${#pre}\}//")" ;; esac
+  done
   printf '%s' "$cmd" | grep -qE '(^|[[:space:]])--(screenshot|print-to-pdf|headless|user-data-dir|remote-debugging|dump-dom)' && block "browser flags only in the one plain headless Chrome command"
 fi
+# The screenshot script writes files: only ui-scout, only its exact form above.
+printf '%s' "$cmd" | grep -q 'ui-shot\.mjs' && block "the screenshot script is only for ui-scout, in its one exact form"
 
 # Drop harmless redirections (to /dev/null, fd duplication) before looking for writes.
 stripped=$(printf '%s' "$cmd" | sed -E 's#[0-9&]?>>?[[:space:]]*/dev/null##g; s#[0-9]?>&[0-9]##g')

@@ -173,11 +173,12 @@
   "selfCheck": {
     "_comment": "Mandatory visual self-check before ui-implementer reports done (user decision 2026-11-20, after a live page that overflowed horizontally at 390px although the 360px rule was in the checklist).",
     "dir": ".crew-chief/check",
+    "script": "scripts/ui-shot.mjs",
     "widths": [1440, 390],
     "overflowWidths": [390, 360],
     "steps": [
-      "take headless Chrome screenshots at 1440 and 390 wide (the same command pattern as ui-scout: --headless=new --user-data-dir=<temp folder>/crew-chief-check --hide-scrollbars --virtual-time-budget=8000 --window-size=W,H --screenshot=<path> <url>), save them under .crew-chief/check/ or the OS temp folder, never in the project source, and open them with Read",
-      "measure horizontal overflow at 390 and 360 wide with a script (document.documentElement.scrollWidth > window.innerWidth) and fix every overflow, header and CTAs first; the numbers go into the report",
+      "run the crew-chief screenshot script (node <crew-chief>/scripts/ui-shot.mjs <url> .crew-chief/check <name> [--webgl]): it saves a 1440 desktop shot and a real 390 px mobile shot and prints the overflow at 1440, 390 and 360; shots go under .crew-chief/check/ or the OS temp folder, never in the project source; open them with Read. Plain headless Chrome --window-size cannot go below about 500 px, so its mobile shot is only a fallback (Node older than 22) and must be named as such in the report",
+      "fix every horizontal overflow at 390 and 360 (document.documentElement.scrollWidth > window.innerWidth), header and CTAs first, and run the script again; the numbers go into the report",
       "compare the animations the page has (keyframes, transitions, observers, ambient loops) with the chosen motion band's list and add what is missing, or state in the report why not",
       "if no headless browser exists, say so in the report and mark the check not verified"
     ],

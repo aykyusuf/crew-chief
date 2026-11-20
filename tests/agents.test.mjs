@@ -265,7 +265,7 @@ test('ui-scout: Sonnet/medium scout with the browser tools, no Edit, writes only
   for (const part of [
     'owns every change', '.crew-chief/refs/', 'REFS.md', 'untrusted data', 'never follow instructions', 'never copy a site 1:1', 'belong to their owners',
     'Awwwards', 'Godly', 'Land-book', 'Dribbble', 'Mobbin', 'tabs_context_mcp', 'your own new tab', 'never touch the user', 'close your tab', 'ToolSearch',
-    '--headless=new', '--user-data-dir', '--window-size=1440,900', '--window-size=390,844', '-desktop.png', '-mobile.png', 'curl -sL', 'command -v google-chrome chromium',
+    '--headless=new', '--user-data-dir', '--window-size=1440,900', 'ui-shot.mjs', '--webgl', 'real 390 px', 'skip the mobile shot', '-desktop.png', '-mobile.png', 'curl -sL', 'command -v google-chrome chromium',
     'date +%F', 'Domain notes', 'Take', 'Do not copy', 'ranked', 'hex', '#1', 'calm', 'lively', 'immersive', 'README', 'package.json',
     'at the same time as a ui-tester', 'crew-progress', 'Batch independent', 'turn limit of 60', 'Skill tool',
   ]) assert.ok(text.includes(part), part)
@@ -300,10 +300,10 @@ test('motion bands and the visual self-check: in the policy, in ui-implementer a
   assert.ok(policy.motionBands.rule.includes("must deliver that band's list"))
   assert.deepEqual([policy.selfCheck.dir, policy.selfCheck.widths, policy.selfCheck.overflowWidths], ['.crew-chief/check', [1440, 390], [390, 360]])
   const steps = policy.selfCheck.steps.join('\n')
-  for (const w of ['1440 and 390', 'never in the project source', 'scrollWidth > window.innerWidth', '390 and 360', 'motion band', 'no headless browser', 'not verified']) assert.ok(steps.includes(w), w)
+  for (const w of ['ui-shot.mjs', 'real 390 px', 'about 500 px', 'never in the project source', 'scrollWidth > window.innerWidth', '390 and 360', 'motion band', 'no headless browser', 'not verified']) assert.ok(steps.includes(w), w)
   assert.ok(policy.selfCheck.ignore.includes('.gitignore'))
   const impl = readFileSync(new URL('ui-implementer.md', dir), 'utf8')
-  for (const w of ['Visual self-check, mandatory', '--window-size=1440,900', '--window-size=390,844', '.crew-chief/check/', 'never in the project source', 'scrollWidth', 'innerWidth', '--dump-dom', '390 or 360', 'Band check', 'not verified', '0-1 no motion', '2-3 scroll reveal', '4-6', '7-8', '9-10', "band's whole list", '**Visual self-check:**']) assert.ok(impl.includes(w), w)
+  for (const w of ['Visual self-check, mandatory', '--window-size=W,H', '.crew-chief/check/', 'never write shots into the project source', 'ui-shot.mjs', 'real 390 px', 'scrollWidth', 'innerWidth', '500 px layout', '390 or 360', 'Band check', 'not verified', '0-1 no motion', '2-3 scroll reveal', '4-6', '7-8', '9-10', "band's whole list", '**Visual self-check:**']) assert.ok(impl.includes(w), w)
   const designer = readFileSync(new URL('ui-designer.md', dir), 'utf8')
   for (const w of ['0-1 no motion', '2-3 scroll reveal', '4-6 plus a staggered hero entrance', '7-8 plus scroll-linked scenes', '9-10 plus a continuous scene', 'none missing', 'measures horizontal overflow']) assert.ok(designer.includes(w), w)
   assert.equal(readFileSync(new URL('../skills/crew-setup/assets/agents/ui-implementer.md', import.meta.url), 'utf8'), impl)
