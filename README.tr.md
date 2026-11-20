@@ -288,6 +288,15 @@ Asla Sonnet xhigh (yerine Opus high), UI işinde asla high üstü effort, sen is
 
 Profillerin kullandığı UI skill'leri, `THIRD_PARTY_NOTICES.md` içinde sıralanan, pakete gömülü üçüncü taraf kopyalardır.
 
+## Güvenlik incelemesi
+
+Ayrı, salt-okunur bir ajan, **`security-reviewer`** (Opus, high; kimlik doğrulama, kripto, gizli anahtarlar, ödeme, migration ve SQL, shell ya da dosya yoluna ulaşan girdi için `effort: "xhigh"`; yalnızca CI ya da bağımlılık değişikliğinde Sonnet high yeter), paketle gelen `security-audit` skill'ini (Cloudflare, MIT) hazır yüklü alır. Değişikliğin dokunduğu her girdiyi girdiği yerden kullanıldığı yere kadar izler, her bulguyu `path:line` ile doğrular, kendi High ve Critical bulgularını çürütmeye çalışır ve önem sırasıyla raporlar; projeye asla yazmaz.
+
+- **`/crew-chief:security [staged | branch | <yol ya da aralık> | map]`** kapsamdaki güvenlikle ilgili dosyaları bulur, neye dokunduklarına göre model ve effort'u seçer, ajana brief verir, bulduklarını raporlar ve düzeltme önerir.
+- **Risk haritası: `.crew-chief/security-map.json`.** `scripts/security-map.sh scan` projenin güvenlikle ilgili dosyalarını kategori ve gerekçeyle listeler; ucuz yol ve içerik regex'leriyle (model çağrısı yok; eşleşme bakma sebebidir, bulgu değil). Elle eklediğin girdiler (`"manual": true` ya da bir `"glob"`) her yeniden taramada korunur. Claude'un yazdığı ve eşleşen yeni dosya var olan haritaya eklenir (Write ve Edit üzerinde PostToolUse); 7 günden eski harita oturum başında arka planda yeniden taranır. Haritanın git'e girip girmeyeceği senin seçimin.
+- **Commit kapısı.** `scripts/security-gate.sh` (Bash üzerinde PreToolUse), commit'e girecek dosyalar (staged, `-a` ya da aynı komuttaki bir `git add`) güvenlikle ilgiliyse Claude'un ilk `git commit`'ini durdurur, dosyaları ve yapılacak incelemeyi listeler; aynı komutun 4 saat içinde tekrarı geçer, yani incelenmiş ya da bilerek atlanmış bir commit iki kez engellenmez. Yalnızca Claude'un commit'lerini görür, terminalde senin yazdıklarını görmez. `CREW_CHIEF_SECURITY_GATE=off` kapatır.
+- **Saver.** Normal saver onu high'da tutar (yalnızca xhigh ve max high'a iner); ultra saver Opus'ta çalıştırmadan önce sana sorar (cevap yoksa: Sonnet high).
+
 ## crew-ui: band, sorular ve paneller
 
 **Varsayılan açık ve sessiz.** Prompt'un üstünde, söyleyecek bir şey yokken hiçbir şey çizmeyen bir band (terminal ve Desktop uygulaması; VS Code kendi durum satırında kalır). Güncellemeden sonra bir kez bildirimle söylenir; `/crew-ui off` kalıcı olarak kapatır, `/crew-ui on` geri açar. `settings.json`'a hiç yazmaz. Mod'un küçük bir parçası (`hooks/src/crew-ui.js`, düzeni `hooks/ui-logic.mjs`).

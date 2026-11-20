@@ -207,6 +207,19 @@ test('ultra: with the standing yes, Opus is left alone', () => {
   assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:implementer', effort: 'xhigh' }, true).rewrite, { effort: 'high' })
 })
 
+test('security-reviewer: the plain saver keeps high (only xhigh/max come down); ultra always asks before Sonnet', () => {
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:security-reviewer' }), undefined)
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:security-reviewer', effort: 'high' }), undefined)
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:security-reviewer', effort: 'xhigh' }), 'high')
+  assert.equal(agentCallEffort({ subagent_type: 'security-reviewer', effort: 'max' }), 'high')
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:security-reviewer', model: 'sonnet', effort: 'high' }), undefined)
+  assert.equal(agentCallEffort({ subagent_type: 'crew-chief:reviewer', effort: 'xhigh' }), 'medium') // the plain reviewer is unchanged
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:security-reviewer' }), { rewrite: { model: 'sonnet', effort: 'high' }, ask: true, tier: 'heavy' })
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:security-reviewer', effort: 'xhigh' }), { rewrite: { model: 'sonnet', effort: 'high' }, ask: true, tier: 'heavy' })
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:security-reviewer', effort: 'high' }, true), undefined)
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:security-reviewer', model: 'sonnet', effort: 'high' }), undefined)
+})
+
 test('ultra: ui-designer drops to Sonnet high silently like the other heavy agents; naming Opus asks', () => {
   assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:ui-designer' }), { rewrite: { model: 'sonnet', effort: 'high' }, ask: false, tier: 'heavy' })
   assert.deepEqual(ultraAgentCall({ subagent_type: 'ui-designer', model: 'opus', effort: 'high' }), { rewrite: { model: 'sonnet', effort: 'high' }, ask: true, tier: 'heavy' })

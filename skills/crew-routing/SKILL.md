@@ -44,6 +44,7 @@ Multi-agent setups cost several times the tokens of one session, and most coding
 | Quick read-only check that a page or screen is up, shows text X, or logs errors | `crew-chief:ui-smoke` | haiku / low |
 | Multi-step UI flow or regression pass in a browser, emulator, or simulator (screenshots) | `crew-chief:ui-tester` | sonnet / medium |
 | Independent check before a commit or PR of a significant or risky change, or when the user asks | `crew-chief:reviewer` | opus / high |
+| Security review of a change to auth, crypto, secrets, payments, migrations, or input reaching SQL/shell/path sinks (and CI or dependency changes), or when the security gate holds back a commit; `/crew-chief:security` runs it | `crew-chief:security-reviewer` | opus / xhigh for that list; sonnet / high for CI or dependencies only |
 
 If the plugin is not installed but the project has `.claude/agents/` copies from `/crew-chief:crew-setup`, use the bare names (`scanner`, `implementer`, ...).
 
@@ -67,7 +68,7 @@ The first two decide the tier; the last decides how carefully the result is chec
 
 **Review depth by risk.** Spend review tokens where a missed bug is expensive:
 - Ordinary change: `reviewer` at its default (high).
-- Security, auth, data loss or migrations, concurrency, money or billing logic, or code about to ship: `reviewer` with `effort: "xhigh"`. On Opus 5.5, xhigh scores slightly higher than high at about 2.5 times the cost, so use it only on this list.
+- Security-relevant files (the list in the table above): `security-reviewer` (it has the security-audit skill), not `reviewer`. Data loss, concurrency, or code about to ship: `reviewer` with `effort: "xhigh"`. On Opus 5.5, xhigh scores slightly higher than high at about 2.5 times the cost, so use it only on this list.
 - A large diff across many files: the built-in `/code-review` (it runs several finders plus a verification pass), or a workflow with adversarial verification. Not one reviewer at max effort.
 - Small or mechanical edits: no review agent. Run the checks yourself.
 

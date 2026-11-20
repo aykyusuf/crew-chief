@@ -22,6 +22,7 @@ Tiers (agents in .claude/agents, default model/effort):
 - ui-smoke (haiku/low): quick read-only check that a page or screen is up, shows given text, or logs errors; no screenshots.
 - ui-tester (sonnet/medium): multi-step browser, emulator, or simulator checks with screenshots; reports pass/fail with evidence; never two UI agents on the same device or browser at once.
 - reviewer (opus/high): independent review before a commit or PR of a significant or risky change; effort xhigh only for security, data loss, concurrency, money, or shipping code; large diffs go to /code-review.
+- security-reviewer (opus/high, read-only, security-audit skill preloaded): security review before committing changes to auth, crypto, secrets, payments, migrations or input reaching SQL/shell/path sinks (effort xhigh there; model sonnet, effort high for CI or dependency changes only). /security runs it; a gate holds back the first git commit of such files (the identical retry passes).
 
 Rules:
 - Delegate only when the work is self-contained AND (it can run in parallel OR its output would flood your context OR a cheaper tier can do it). Otherwise do it yourself.

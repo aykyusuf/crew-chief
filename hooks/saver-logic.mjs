@@ -123,10 +123,12 @@ export function capEffort(model, effort) {
   return { effort: ceiling, capped: true, from: effort, tier }
 }
 
+const SECURITY_AGENT = /(^|:)security-reviewer$/
+
 // crew-chief's own Opus agents. Their model comes from the agent definition, which a tool call does
 // not show, so they are named here; any other agent counts only when the call names an Opus or
 // Fable model itself.
-const HEAVY_AGENT = /(^|:)(implementer-hard|reviewer|planner|ui-designer)$/
+const HEAVY_AGENT = /(^|:)(implementer-hard|reviewer|security-reviewer|planner|ui-designer)$/
 
 // The effort the saver puts on an Agent tool call, or undefined to leave the call alone. The
 // subagent's own `effort:` in its definition beats a rewrite made later at turn.step (seen with
@@ -140,6 +142,8 @@ export function agentCallEffort(input) {
   const heavy = model !== undefined ? modelTier(model) === 'heavy' : HEAVY_AGENT.test(type)
   if (!heavy) return undefined
   const rank = EFFORT_RANK[input.effort]
+  // The security reviewer keeps high under the saver (user, 2026-11-20): only xhigh and max come down to high.
+  if (SECURITY_AGENT.test(type)) return rank !== undefined && rank > EFFORT_RANK.high ? 'high' : undefined
   if (input.effort !== undefined && (rank === undefined || rank <= EFFORT_RANK.medium)) return undefined
   return 'medium'
 }
@@ -160,7 +164,7 @@ export function agentCallEffort(input) {
 // { rewrite: {model?, effort?}, ask: boolean, tier }.
 const SONNET_NAMED = /(^|:)(deep-reader|implementer|ui-implementer|ui-tester|ui-scout)$/
 const HAIKU_NAMED = /(^|:)(scanner|ui-smoke|mechanic)$/
-const HIGH_FIRST = /(^|:)(implementer-hard|reviewer|planner|ui-designer)$/
+const HIGH_FIRST = /(^|:)(implementer-hard|reviewer|security-reviewer|planner|ui-designer)$/
 
 export function ultraAgentCall(input, allowHeavy = false, mainModel = undefined) {
   if (input === null || typeof input !== 'object') return undefined
@@ -180,7 +184,8 @@ export function ultraAgentCall(input, allowHeavy = false, mainModel = undefined)
   if (tier === 'heavy' && !allowHeavy) {
     // The ui-designer is treated like the other heavy agents (user, 2026-11-20): it drops to Sonnet silently
     // unless the call names Opus itself. The rewrite target is always Sonnet, never Fable.
-    const strongRequest = named || (/(^|:)reviewer$/.test(type) && (input.effort === 'xhigh' || input.effort === 'max'))
+    // The security reviewer always asks before it goes to Sonnet (decision 2026-11-20): a security review is the risky work.
+    const strongRequest = named || SECURITY_AGENT.test(type) || (/(^|:)reviewer$/.test(type) && (input.effort === 'xhigh' || input.effort === 'max'))
     const effort = rank === undefined ? (HIGH_FIRST.test(type) ? 'high' : 'medium') : rank > EFFORT_RANK.high ? 'high' : input.effort
     return { rewrite: { model: 'sonnet', effort }, ask: strongRequest, tier }
   }

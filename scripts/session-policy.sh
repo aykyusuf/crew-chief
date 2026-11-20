@@ -74,6 +74,19 @@ handoff_offer() {
 # reads them anyway. The shell records the check itself (handoff-checks.tsv, root TAB unix time), so the record
 # does not depend on Claude remembering to write it. Size facts are measured here, cheaply, and only the ones
 # over their limit are printed. Advisory only.
+# A project with a security risk map (.crew-chief/security-map.json) gets it rescanned in the background once it
+# is more than 7 days old, so files added outside Claude's writes are not missed. Startup only; never waits.
+security_rescan() {
+  [ "$source" = "startup" ] || return 0
+  [ -n "$cwd" ] && [ -d "$cwd" ] || return 0
+  root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || return 0
+  map="$root/.crew-chief/security-map.json"
+  [ -f "$map" ] || return 0
+  [ -n "$(find "$map" -mtime +7 2>/dev/null)" ] || return 0
+  ( sh "$(dirname "$0")/security-map.sh" scan "$root" >/dev/null 2>&1 & ) 2>/dev/null
+  return 0
+}
+
 handoff_check() {
   [ "$source" = "startup" ] || return 0
   [ -n "$cwd" ] && [ -d "$cwd" ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ] || return 0
@@ -151,6 +164,7 @@ if [ -n "$cwd" ] && [ -f "$cwd/CLAUDE.md" ] && grep -q '<!-- crew-chief:start' "
   echo "crew-chief: the routing policy is in this project's CLAUDE.md. The plugin's agents are also available as crew-chief:<tier>; prefer the project's own copies (bare names) so routing stays consistent."
   handoff_offer
   handoff_check
+  security_rescan
   exit 0
 fi
 
@@ -177,6 +191,7 @@ printf '%s\n' \
   '- crew-chief:ui-smoke (haiku/low): quick read-only check that a page or screen is up, shows given text, or logs errors; no screenshots.' \
   '- crew-chief:ui-tester (sonnet/medium): multi-step browser, emulator, or simulator checks with screenshots; reports pass/fail with evidence; never two UI agents on the same device or browser at once.' \
   '- crew-chief:reviewer (opus/high): independent review before a commit or PR of a significant or risky change; effort xhigh only for security, data loss, concurrency, money, or shipping code; large diffs go to /code-review.' \
+  '- crew-chief:security-reviewer (opus/high, read-only, security-audit skill preloaded): security review before committing changes to auth, crypto, secrets, payments, migrations or input reaching SQL/shell/path sinks (effort xhigh there; model sonnet, effort high for CI or dependency changes only). /crew-chief:security runs it; a gate holds back the first git commit of such files (the identical retry passes).' \
   '' \
   'Rules:' \
   '- Delegate only when the work is self-contained AND (it can run in parallel OR its output would flood your context OR a cheaper tier can do it). Otherwise do it yourself.' \
@@ -191,3 +206,4 @@ printf '%s\n' \
   '</crew-chief-policy>'
 handoff_offer
 handoff_check
+security_rescan

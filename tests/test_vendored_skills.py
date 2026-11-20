@@ -55,7 +55,7 @@ dirs = sorted(d for d in os.listdir(SKILLS) if os.path.isdir(os.path.join(SKILLS
 
 check("lock lists at least one skill", len(lock) > 0)
 # crew-chief's own skills: crew-* and the ones written from scratch here (not vendored, no lock entry).
-OWN = {"web-3d-perf"}
+OWN = {"web-3d-perf", "security"}
 check("every skills/ dir is vendored (in the lock) or crew-chief's own (crew-* or written from scratch)",
       all(d in lock or d.startswith("crew-") or d in OWN for d in dirs),
       str([d for d in dirs if d not in lock and not d.startswith("crew-") and d not in OWN]))
