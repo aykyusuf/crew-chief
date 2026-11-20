@@ -154,6 +154,7 @@
       "pressable elements scale to about 0.96 on :active",
       "touch targets are at least 44px",
       "no horizontal overflow at 360px width: header actions and CTAs must fit or collapse into a menu on mobile (check the header first)",
+      "a fixed or sticky header never collides with the content scrolling under it: give it a backdrop (solid, blur or scrim) once the page scrolls, or hide it on scroll down; check it over the biggest headline and over every coloured section",
       "an icon's stroke weight matches the text beside it",
       "enter and exit motion follows the motion level: 0-2 none beyond focus and state changes; 3-6 short fades and small moves (up to 250 ms), exits subtler than enters; 7-10 staged entrances with a stagger; always honour prefers-reduced-motion; interactions use CSS transitions so they can be interrupted, keyframes only for one-off sequences"
     ]
