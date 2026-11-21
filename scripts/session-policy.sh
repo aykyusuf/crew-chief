@@ -142,6 +142,12 @@ handoff_check() {
     case "$n" in ''|*[!0-9]*) ;; *) [ "$n" -gt 6144 ] && facts="$facts
 - STATUS.md is $((n / 1024)) KB (limit 6 KB: it should describe the present only)." ;; esac
   fi
+  # The routine block crew-handoff copied into CLAUDE.md is never rewritten; when it predates a step the plugin's
+  # template has now (the repeated-mistake rule, 2026-11-21), Claude offers the user the missing lines once a week.
+  if [ -f "$root/CLAUDE.md" ] && grep -q 'crew-chief:handoff:start' "$root/CLAUDE.md" 2>/dev/null && ! grep -q 'Repeated mistake' "$root/CLAUDE.md" 2>/dev/null; then
+    facts="$facts
+- CLAUDE.md's crew-chief routine is older than the plugin's template ($(dirname "$0")/../skills/crew-handoff/assets/claude-md-routine.md): it lacks the session-end step that proposes a rule for a mistake corrected twice, and the date-and-model note on new Constraints. Offer the user once to add those lines inside the crew-chief:handoff block (show them); edit only after a yes."
+  fi
   if [ -f "$root/CLAUDE.md" ]; then
     n=$(wc -l < "$root/CLAUDE.md" 2>/dev/null | tr -d ' ')
     case "$n" in ''|*[!0-9]*) ;; *) [ "$n" -gt 200 ] && facts="$facts

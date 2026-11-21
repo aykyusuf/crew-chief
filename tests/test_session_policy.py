@@ -64,6 +64,13 @@ def suite():
     os.makedirs(SCRATCH)
     data = os.path.join(SCRATCH, "data")
     try:
+        # An old crew-chief routine in CLAUDE.md (no repeated-mistake step) is named in the weekly check, a current one is not.
+        old_routine = "<!-- crew-chief:handoff:start -->\n## Session end\n1. x\n<!-- crew-chief:handoff:end -->\n"
+        ro = repo("routine-old", [("CLAUDE.md", old_routine), ("STATUS.md", "# s\n")])
+        out = run(ro, data=os.path.join(SCRATCH, "rdata1"))
+        check("weekly check: an old routine is named with the missing step", "older than the plugin's template" in out and "edit only after a yes" in out, out)
+        rn = repo("routine-new", [("CLAUDE.md", old_routine.replace("1. x", "1. x\n4. Repeated mistake: ...")), ("STATUS.md", "# s\n")])
+        check("weekly check: a current routine is not named", "older than the plugin's template" not in run(rn, data=os.path.join(SCRATCH, "rdata2")))
         # Night mode: a finished night's report is shown once, at the next startup only.
         nr = repo("night-report", [("night/abcd1234/state.json", json.dumps({"status": "done"})), ("night/abcd1234/REPORT.md", "# r\n"), ("night/live0000/state.json", json.dumps({"status": "armed"})), ("night/live0000/REPORT.md", "# x\n")])
         ndata = os.path.join(SCRATCH, "ndata")
