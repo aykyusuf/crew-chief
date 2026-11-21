@@ -316,3 +316,17 @@ test('no agent lists a wildcard MCP tool in tools (Claude Code matches none of t
   const list = front('ui-tester.md').tools.split(',').map((x) => x.trim())
   for (const n of ['tabs_context_mcp', 'tabs_create_mcp', 'tabs_close_mcp', 'navigate', 'computer', 'read_page', 'get_page_text', 'find', 'form_input', 'javascript_tool', 'read_console_messages', 'read_network_requests', 'resize_window', 'gif_creator', 'upload_image', 'file_upload', 'browser_batch', 'list_connected_browsers', 'select_browser', 'switch_browser']) assert.ok(list.includes('mcp__claude-in-chrome__' + n), n)
 })
+
+test('researcher is a read-only Sonnet with web tools, named in the policy, the routing skill, the mode skill and both guard lists', () => {
+  const r = front('researcher.md')
+  assert.equal(r.model, 'sonnet')
+  assert.ok(r.tools.includes('WebFetch') && r.tools.includes('WebSearch'))
+  assert.ok(!r.tools.includes('Edit'))
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8')
+  assert.ok(read('../scripts/session-policy.sh').includes('crew-chief:researcher'))
+  assert.ok(read('../skills/crew-routing/SKILL.md').includes('crew-chief:researcher'))
+  assert.ok(read('../skills/crew-mode/SKILL.md').includes('researcher'))
+  const guard = read('../scripts/readonly-guard.sh')
+  assert.ok(guard.includes('crew-chief:researcher') && guard.includes('|researcher|'))
+  assert.ok(read('../hooks/guard-logic.mjs').includes("'researcher'"))
+})

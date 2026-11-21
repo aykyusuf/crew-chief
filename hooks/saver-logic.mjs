@@ -162,7 +162,7 @@ export function agentCallEffort(input) {
 // `allowHeavy` is the person's standing "yes" for the session (/saver ultra opus on): nothing is rewritten
 // except effort above high for Sonnet agents. Returns undefined when the call is left alone, otherwise
 // { rewrite: {model?, effort?}, ask: boolean, tier }.
-const SONNET_NAMED = /(^|:)(deep-reader|implementer|ui-implementer|ui-tester|ui-scout|verifier)$/
+const SONNET_NAMED = /(^|:)(deep-reader|implementer|ui-implementer|ui-tester|ui-scout|verifier|researcher)$/
 const HAIKU_NAMED = /(^|:)(scanner|ui-smoke|mechanic)$/
 // Ultra-saver only: these Opus agents get Sonnet at HIGH (not medium) when they are moved off Opus, to make up for the
 // smaller model, even though their own default is now medium on Opus.

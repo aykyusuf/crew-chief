@@ -268,3 +268,9 @@ test('ui-scout is a Sonnet agent: untouched by the plain saver, effort capped at
   assert.equal(ultraAgentCall({ subagent_type: 'ui-scout', effort: 'high' }), undefined)
   assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:ui-scout', effort: 'xhigh' }), { rewrite: { effort: 'high' }, ask: false, tier: 'sonnet' })
 })
+
+test('researcher is a Sonnet agent for the saver: effort above high is capped, a heavy model is moved to Sonnet', () => {
+  assert.deepEqual(ultraAgentCall({ subagent_type: 'crew-chief:researcher', effort: 'xhigh' }, false), { rewrite: { effort: 'high' }, ask: false, tier: 'sonnet' })
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:researcher' }, false), undefined)
+  assert.equal(ultraAgentCall({ subagent_type: 'crew-chief:researcher', model: 'opus' }, false).rewrite.model, 'sonnet')
+})

@@ -3,7 +3,7 @@
 #
 # Blocks Bash commands that modify files, git state, or installed software when
 # they come from one of crew-chief's read-only agents (scanner, deep-reader,
-# reviewer, security-reviewer, verifier, critic, planner, ui-smoke, ui-designer, ui-scout). Reading, listing, and running tests stay allowed.
+# reviewer, security-reviewer, verifier, researcher, critic, planner, ui-smoke, ui-designer, ui-scout). Reading, listing, and running tests stay allowed.
 #
 # File tools: the only write a read-only agent may make is a Write into the crew-chief
 # reports folder, ${TMPDIR:-/tmp}/crew-chief-reports (a long report goes there, a short
@@ -54,12 +54,12 @@ case "$1" in
   --always) ;;
   --project)
     case "$(field agent_type)" in
-      scanner|deep-reader|reviewer|security-reviewer|verifier|critic|ui-smoke|planner|ui-designer|ui-scout) ;;
+      scanner|deep-reader|reviewer|security-reviewer|verifier|researcher|critic|ui-smoke|planner|ui-designer|ui-scout) ;;
       *) exit 0 ;;
     esac ;;
   *)
     case "$(field agent_type)" in
-      crew-chief:scanner|crew-chief:deep-reader|crew-chief:reviewer|crew-chief:security-reviewer|crew-chief:verifier|crew-chief:critic|crew-chief:ui-smoke|crew-chief:planner|crew-chief:ui-designer|crew-chief:ui-scout) ;;
+      crew-chief:scanner|crew-chief:deep-reader|crew-chief:reviewer|crew-chief:security-reviewer|crew-chief:verifier|crew-chief:researcher|crew-chief:critic|crew-chief:ui-smoke|crew-chief:planner|crew-chief:ui-designer|crew-chief:ui-scout) ;;
       *) exit 0 ;;
     esac ;;
 esac

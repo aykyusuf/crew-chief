@@ -90,12 +90,14 @@ def file_tool_cases(failures):
             failures.append(f"file tool: expected {code}, got {got}: {label}")
 
     try:
-        for agent in ("crew-chief:deep-reader", "crew-chief:reviewer", "crew-chief:security-reviewer", "crew-chief:scanner", "crew-chief:ui-smoke", "crew-chief:planner"):
+        for agent in ("crew-chief:deep-reader", "crew-chief:reviewer", "crew-chief:security-reviewer", "crew-chief:scanner", "crew-chief:ui-smoke", "crew-chief:planner", "crew-chief:researcher"):
             expect(0, f"{agent} report", "Write", {"file_path": rd + "/review.md"}, agent_type=agent)
             expect(0, f"{agent} nested report", "Write", {"file_path": rd + "/sub/dir/r.md"}, agent_type=agent)
             expect(2, f"{agent} elsewhere", "Write", {"file_path": scratch + "/notes.md"}, agent_type=agent)
             expect(2, f"{agent} Edit", "Edit", {"file_path": rd + "/review.md"}, agent_type=agent)
             expect(2, f"{agent} NotebookEdit", "NotebookEdit", {"notebook_path": rd + "/n.ipynb"}, agent_type=agent)
+        expect(0, "researcher: a claims .json into the reports folder", "Write", {"file_path": rd + "/research-g1-101010.json"}, agent_type="crew-chief:researcher")
+        expect(2, "researcher: a .json in the project", "Write", {"file_path": scratch + "/proj/claims.json"}, agent_type="crew-chief:researcher")
         expect(2, "relative path", "Write", {"file_path": "crew-chief-reports/x.md"})
         expect(2, "dot dot out", "Write", {"file_path": rd + "/../x.md"})
         expect(2, "dot dot in the middle", "Write", {"file_path": rd + "/a/../../x.md"})
@@ -322,6 +324,10 @@ def scout_cases(failures):
         expect(2, "critic: ui-shot into /tmp elsewhere", "Bash", {"command": f"node {script} https://example.com/ {scratch}/elsewhere c4"}, agent="crew-chief:critic")
         expect(2, "critic: may not write project files", "Write", {"file_path": proj + "/src/a.ts"}, agent="crew-chief:critic")
         expect(2, "verifier: may not write project files", "Write", {"file_path": proj + "/src/a.ts"}, agent="crew-chief:verifier")
+        expect(2, "researcher: may not write project files", "Write", {"file_path": proj + "/src/a.ts"}, agent="crew-chief:researcher")
+        expect(2, "researcher: no rm", "Bash", {"command": "rm -rf build"}, agent="crew-chief:researcher")
+        expect(2, "researcher: no git commit", "Bash", {"command": "git commit -m x"}, agent="crew-chief:researcher")
+        expect(0, "researcher: date and the progress line", "Bash", {"command": "date +%F"}, agent="crew-chief:researcher")
         expect(2, "verifier: no git commit", "Bash", {"command": "git commit -m x"}, agent="crew-chief:verifier")
         expect(2, "ui-scout: still no file:// urls", "Bash", {"command": f"node {script} file:///{proj}/index.html {refs} s1"})
         expect(2, "screenshot, symlinked .crew-chief", "Bash", {"command": shot(proj2 + "/.crew-chief/refs/x.png")}, cwd=proj2)

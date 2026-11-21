@@ -111,7 +111,7 @@
         ]
       },
       {
-        "matcher": "Bash|Agent|AskUserQuestion",
+        "matcher": "Bash|Agent|AskUserQuestion|Workflow",
         "hooks": [
           {
             "type": "command",

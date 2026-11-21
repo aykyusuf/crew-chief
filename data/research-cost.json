@@ -1,0 +1,19 @@
+{
+  "_note": "Rough per-agent token ranges for the research cost estimate (scripts/research-cost.mjs). These are guesses until a trial group is measured: edit them, or pass --calibrate <tokens of the trial group>. A missing or malformed value falls back to the built-in default.",
+  "roles": {
+    "researcher": { "low": 60000, "high": 250000 },
+    "verifier": { "low": 40000, "high": 150000 },
+    "counter": { "low": 50000, "high": 200000 },
+    "reporter": { "low": 20000, "high": 60000 },
+    "recheck": { "low": 30000, "high": 100000 }
+  },
+  "batchSize": 8,
+  "counterCap": 4,
+  "claimsPerGroup": 6,
+  "recheckShare": 0.1,
+  "recheckCap": 6,
+  "economicMaxGroups": 3,
+  "fullMaxGroups": 8,
+  "warnAgents": 25,
+  "warnTokens": 1500000
+}

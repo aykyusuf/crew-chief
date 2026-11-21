@@ -43,6 +43,7 @@ Multi-agent setups cost several times the tokens of one session, and most coding
 | Multi-module change, algorithms, concurrency, unknown root cause, a task `implementer` stopped on | `crew-chief:implementer-hard` | opus / medium (high after a failed attempt or for risky work) |
 | Quick read-only check that a page or screen is up, shows text X, or logs errors | `crew-chief:ui-smoke` | haiku / low |
 | Multi-step UI flow or regression pass in a browser, emulator, or simulator (screenshots) | `crew-chief:ui-tester` | sonnet / medium |
+| Web research for a question that needs sources: find them, quote them verbatim with URL and access date, or look for counter-evidence to a stated assumption (the brief names the role: research, verify or counter-evidence; the result is a JSON file in the reports folder; `/crew-chief:crew-research` drives it) | `crew-chief:researcher` | sonnet / medium |
 | A task claims to be done: check its `done_when` (or a claim) independently by running the checks, and try to refute it; give the criteria and the location, not the author's conclusion | `crew-chief:verifier` | sonnet / high |
 | Grade a finished visual or quality-sensitive result against a rubric (UI screens, renders, documents), especially when the author called its own work fine | `crew-chief:critic` | opus / medium |
 | Independent check before a commit or PR of a significant or risky change, or when the user asks | `crew-chief:reviewer` | opus / medium (high or xhigh by risk, below) |

@@ -98,6 +98,7 @@ def main():
         cli(["open", "--session", SID], proj, data, fb)
         check("opening: AskUserQuestion passes", guard(data, fb, pre("AskUserQuestion", {"questions": []})) == (0, "", ""))
         check("opening: git push passes (the night is not running yet)", guard(data, fb, bash("git push")) == (0, "", ""))
+        check("opening: Workflow passes (the night is not running yet)", guard(data, fb, pre("Workflow", {})) == (0, "", ""))
         check("opening: a permission request is not touched", guard(data, fb, dict(bash("ls"), hook_event_name="PermissionRequest")) == (0, "", ""))
         check("opening: an Agent call is not counted", guard(data, fb, pre("Agent", {"model": "opus", "prompt": "x"}))[0] == 0 and state(proj)["spawned"] == 0)
 
@@ -188,6 +189,12 @@ def main():
         check("a denied Agent call is not counted", state(proj)["spawned"] == 20)
         check("budget denial logged", "subagent budget of 20 used" in events(proj))
 
+        # Workflow: denied while the night runs, and it does not use up the agent budget
+        spawned_before = state(proj)["spawned"]
+        rc, out, err = guard(data, fb, pre("Workflow", {"name": "research-sweep", "args": {}}))
+        check("armed: Workflow denied with the ekonomik fallback reason", rc == 2 and "Workflow tool is not allowed at night" in err and "ekonomik" in err and "plain agents" in err, (rc, err))
+        check("Workflow denial logged and not counted as an agent", "Workflow denied" in events(proj) and state(proj)["spawned"] == spawned_before)
+
         # parallel Agent calls count exactly
         proj2 = make_repo(base, "par")
         S2 = "pa000002-aaaa"
@@ -212,6 +219,7 @@ def main():
         cli(["phase", "wrapup", "--session", SID], proj, data, fb)
         check("wrapup: push still denied", guard(data, fb, bash("git push"))[0] == 2)
         check("wrapup: AskUserQuestion still denied", guard(data, fb, pre("AskUserQuestion", {}))[0] == 2)
+        check("wrapup: Workflow still denied", guard(data, fb, pre("Workflow", {}))[0] == 2)
 
         # PermissionRequest
         pr = dict(bash("rm -rf build"), hook_event_name="PermissionRequest")
@@ -231,6 +239,7 @@ def main():
 
         # other sessions, broken input, no jq
         check("another session: everything passes", guard(data, fb, bash("git push", sid="zzzzzzzz-other")) == (0, "", ""))
+        check("another session's Workflow passes", guard(data, fb, pre("Workflow", {}, sid="zzzzzzzz-other")) == (0, "", ""))
         check("another session's AskUserQuestion passes", guard(data, fb, pre("AskUserQuestion", {}, sid="zzzzzzzz-other")) == (0, "", ""))
         check("a second session id hidden inside the command is not mistaken", guard(data, fb, raw=json.dumps({"session_id": "zzzzzzzz-other", "tool_name": "Bash", "tool_input": {"command": f'echo "session_id":"{SID}" git push'}})) == (0, "", ""))
         check("garbage input: exit 0", guard(data, fb, raw="{{ nope")[:2] == (0, ""))

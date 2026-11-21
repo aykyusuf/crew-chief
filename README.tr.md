@@ -291,6 +291,16 @@ Asla Sonnet xhigh (yerine Opus high), UI işinde asla high üstü effort, sen is
 
 Profillerin kullandığı UI skill'leri, `THIRD_PARTY_NOTICES.md` içinde sıralanan, pakete gömülü üçüncü taraf kopyalardır.
 
+## Araştırma: `/crew-chief:crew-research`
+
+Güncel kaynak gerektiren bir soru araştırma koşusuna gider. Claude önce modu sorar:
+- **ekonomik:** 1-3 `researcher` ajanı (Sonnet, web erişimli) artı tek doğrulama (alıntı kontrolü ve bir `verifier`), en fazla 4 ajan.
+- **tam:** plugin'in iki workflow'u: `research-sweep` (paralel en fazla 8 araştırmacı grubu), sonra `research-verify` (her 8 iddiaya bir `verifier`, her 2 gruba bir karşı kanıt ajanı, bir raporcu). Öncesinde `scripts/research-cost.mjs` ajan sayısını ve token aralığını gösterir, önce tek gruplu bir deneme önerir. Workflow kapalıysa (ya da gece, Workflow aracı reddedildiği için) aynı adımlar normal ajanlarla çalışır ve Claude bunu söyler.
+
+Her iddia bir URL, erişim tarihi ve birebir alıntı taşır. `scripts/source-check.mjs` her kaynak sayfayı açıp alıntının orada olup olmadığına bakar (`found`, `not_found`, `dead_link`, `unverified`; okuyamadığı sayfa asla çürütme sayılmaz). Alıntı kontrolü ile doğrulayıcı çelişirse iddia bir kez Opus medium'da yeniden kontrol edilir; yine çelişirse doğrulanamadı diye raporlanır. Çekilen sayfalar veridir, asla talimat değildir.
+
+`/crew-chief:crew-lint` iki aracı daha elle çalıştırır: `scripts/stale-scan.mjs` `CLAUDE.md`, memory ve ajan dosyalarında eskimiş talimatları bulur ("her zaman delege et", token bütçesi sayıları, mutlak "asla" satırları) ve düzeltme önerir; `scripts/brief-check.mjs` bir araştırma ya da ajan brief'inde eksik olanları listeler (durma kuralı, doğrulama, çıktı yolu, kapsam sınırı). İkisi de senin onayın olmadan dosya değiştirmez. Henüz canlı görülmedi.
+
 ## Gece modu: `/crew-chief:crew-night`
 
 Sen uyurken Claude belirlediğin saate kadar çalışmaya devam eder; sabah bir rapor bulursun.
@@ -348,7 +358,7 @@ Hareketli resimler çizilirken biraz yük getirir. Desktop uygulamasında band'�
 - **Tema modu yazanlar için.** Oturum başında `~/.claude/perf-mode.readers/<mod adı>.json` = `{"name": "<mod adı>", "theme": true, "at": "<şimdi, iso>"}` dosyasını yaz; böyle bir dosya 14 günden yeniyse crew-chief tema seçeneğini sunar. `~/.claude/perf-mode.json` dosyasını oturum başında ya da bağlanınca ve her turda oku (ya da aralıklarla yokla), `theme` true iken dur.
 
 ## Ne çalıştırır
-Her şey bu repoda okunabilir shell ve küçük bir JavaScript modu (`hooks/register.js`) olarak duruyor. Ağa hiçbir şey göndermez. Tek istisna pakete dahil theSVG skill'i: yalnızca kullanıldığında, ajanın ikonları cdn.jsdelivr.net'ten çekmesini sağlar.
+Her şey bu repoda okunabilir shell ve küçük bir JavaScript modu (`hooks/register.js`) olarak duruyor. Ağa hiçbir şey göndermez. İki istisna var, ikisi de yalnızca kullanıldığında: pakete dahil theSVG skill'i ajanın ikonları cdn.jsdelivr.net'ten çekmesini sağlar; bir araştırma koşusu (`/crew-chief:crew-research`, `/crew-chief:crew-lint`) alıntıları kontrol etmek için araştırmacıların gösterdiği sayfaları açar (`scripts/source-check.mjs`: yalnız okuma, proje verisi göndermez, özel ve loopback adresleri reddeder, sayfa metnini yazdırmaz).
 - `session-policy.sh`: oturum açılırken yaklaşık 2 KB'lık politikayı bağlama ekler. Devir dosyası olmayan bir git reposunda yeni oturumda bir kezlik [devir önerisini](#oturum-devri) de ekler; kendisi dosya yazmaz.
 - `subagent-row.sh`: alt ajanlar çalışırken listedeki her satıra model, efor, token ve geçen süreyi yazar; rapor tazeyken (25 tool çağrısından ve 10 dakikadan eskiyse değil) yaklaşık yüzde, o an yaptığı iş ve gecikme nedenini de ekler; eskiyse yüzdeyi gizler ve `80 calls · report 41m ago` yazar: `implementer-hard  opus-5.5 · high · 232k · 4m12s · ~40%  Reading the auth module ⚠ slow test suite`.
 - `skill-hint.sh`: UserPromptSubmit'te prompt'u `data/skill-catalog.json` ile eşleştirir (iş türü başına Türkçe ve İngilizce anahtar kelimeler); o iş için tercih edilen bir skill kuruluysa tek satır ekler: "önce X skill'ini yükle". Tavsiyedir, zorlama değil. Prompt başına en fazla iki hint, her iş türü session'da bir kez, slash komutlarında hiç. Kendi iş türlerini `~/.claude/crew-chief-skills.json` ile ekleyebilirsin (katalogdaki `categories` ile aynı şekil; aynı `id` yenisini koyar, `"disabled": true` kaldırır). `CREW_CHIEF_SKILL_HINTS=off` kapatır.

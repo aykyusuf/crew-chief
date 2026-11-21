@@ -1,5 +1,5 @@
 #!/bin/sh
-# crew-chief night mode guard (PreToolUse Bash|Agent|AskUserQuestion, and PermissionRequest).
+# crew-chief night mode guard (PreToolUse Bash|Agent|AskUserQuestion|Workflow, and PermissionRequest).
 #
 # Acts only while THIS session's night is armed or in wrap-up; every other session, an opening night, and every
 # error (no jq, garbage JSON, no pointer) exit 0 at once. While the night runs it denies:
@@ -11,6 +11,8 @@
 #     ssh with a remote command that changes something (reading logs passes), uploads with scp/rsync (downloads pass),
 #     sftp, and rm -r outside the repo;
 #   - an Agent call that would be the (maxAgents+1)th of the night, and any Agent call naming a Fable model;
+#   - the Workflow tool (a workflow fans out many agents past the night's agent budget; night research falls back to the
+#     ekonomik mode with plain Agent calls);
 #   - AskUserQuestion (nobody is here: the question goes to QUESTIONS.md with a default);
 #   - any permission prompt (PermissionRequest), so a prompt never parks the night. The one exception is the night's
 #     own night-state.sh script, which the night needs to finish.
@@ -69,6 +71,9 @@ deny() { # <event text> <reason for the model>
 case "$tool" in
   AskUserQuestion)
     deny "AskUserQuestion denied" "night mode: write this question to night/$sid8/QUESTIONS.md with your default, then continue" ;;
+
+  Workflow)
+    deny "Workflow denied" "night mode: the Workflow tool is not allowed at night, because a workflow starts many agents beyond the night's agent budget. Night research falls back to the ekonomik mode with plain agents (a few Agent calls), or park the task in night/$sid8/QUESTIONS.md." ;;
 
   Bash)
     cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty | strings' 2>/dev/null)
