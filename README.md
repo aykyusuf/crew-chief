@@ -17,6 +17,8 @@ you ──▶ main session (your model/effort) ──┬─ does interactive, co
                                            ├─▶ ui-scout         sonnet / medium  design references: live sites + galleries, screenshots
                                            ├─▶ ui-smoke         haiku  / low     quick read-only UI check
                                            ├─▶ ui-tester        sonnet / medium  browser/emulator flows
+                                           ├─▶ verifier         sonnet / high    checks done_when or a claim, tries to refute it
+                                           ├─▶ critic           opus   / medium  strict rubric grade for visual/quality results
                                            └─▶ reviewer         opus   / medium  independent review
 ```
 

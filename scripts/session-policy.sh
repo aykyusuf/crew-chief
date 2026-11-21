@@ -214,6 +214,8 @@ printf '%s\n' \
   '- crew-chief:ui-smoke (haiku/low): quick read-only check that a page or screen is up, shows given text, or logs errors; no screenshots.' \
   '- crew-chief:ui-tester (sonnet/medium): multi-step browser, emulator, or simulator checks with screenshots; reports pass/fail with evidence; never two UI agents on the same device or browser at once.' \
   '- crew-chief:reviewer (opus/medium): independent review before a commit or PR of a significant or risky change; effort high for risky changes, xhigh only for security, data loss, concurrency, money, or shipping code; large diffs go to /code-review.' \
+  '- crew-chief:verifier (sonnet/high, read-only): checks a task'\''s done_when or a claim independently and tries to refute it; give it the criteria and the location, not the author'\''s conclusion. Use before calling a task done.' \
+  '- crew-chief:critic (opus/medium, read-only): strict grader for visual or quality-sensitive results against a rubric (screenshots, renders, documents); one clear defect blocks the top grade. Use when an author agent called its own visual work fine.' \
   '- crew-chief:security-reviewer (opus/high, read-only, security-audit skill preloaded): security review before committing changes to auth, crypto, secrets, payments, migrations or input reaching SQL/shell/path sinks (effort xhigh there; model sonnet, effort high for CI or dependency changes only). /crew-chief:security runs it; a gate holds back the first git commit of such files (the identical retry passes).' \
   '' \
   'Rules:' \

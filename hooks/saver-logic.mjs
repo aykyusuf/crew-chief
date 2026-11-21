@@ -128,7 +128,7 @@ const SECURITY_AGENT = /(^|:)security-reviewer$/
 // crew-chief's own Opus agents. Their model comes from the agent definition, which a tool call does
 // not show, so they are named here; any other agent counts only when the call names an Opus or
 // Fable model itself.
-const HEAVY_AGENT = /(^|:)(implementer-hard|reviewer|security-reviewer|planner|ui-designer)$/
+const HEAVY_AGENT = /(^|:)(implementer-hard|reviewer|security-reviewer|planner|ui-designer|critic)$/
 
 // The effort the saver puts on an Agent tool call, or undefined to leave the call alone. The
 // subagent's own `effort:` in its definition beats a rewrite made later at turn.step (seen with
@@ -162,7 +162,7 @@ export function agentCallEffort(input) {
 // `allowHeavy` is the person's standing "yes" for the session (/saver ultra opus on): nothing is rewritten
 // except effort above high for Sonnet agents. Returns undefined when the call is left alone, otherwise
 // { rewrite: {model?, effort?}, ask: boolean, tier }.
-const SONNET_NAMED = /(^|:)(deep-reader|implementer|ui-implementer|ui-tester|ui-scout)$/
+const SONNET_NAMED = /(^|:)(deep-reader|implementer|ui-implementer|ui-tester|ui-scout|verifier)$/
 const HAIKU_NAMED = /(^|:)(scanner|ui-smoke|mechanic)$/
 // Ultra-saver only: these Opus agents get Sonnet at HIGH (not medium) when they are moved off Opus, to make up for the
 // smaller model, even though their own default is now medium on Opus.

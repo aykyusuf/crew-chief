@@ -3,7 +3,7 @@
 #
 # Blocks Bash commands that modify files, git state, or installed software when
 # they come from one of crew-chief's read-only agents (scanner, deep-reader,
-# reviewer, security-reviewer, planner, ui-smoke, ui-designer, ui-scout). Reading, listing, and running tests stay allowed.
+# reviewer, security-reviewer, verifier, critic, planner, ui-smoke, ui-designer, ui-scout). Reading, listing, and running tests stay allowed.
 #
 # File tools: the only write a read-only agent may make is a Write into the crew-chief
 # reports folder, ${TMPDIR:-/tmp}/crew-chief-reports (a long report goes there, a short
@@ -54,12 +54,12 @@ case "$1" in
   --always) ;;
   --project)
     case "$(field agent_type)" in
-      scanner|deep-reader|reviewer|security-reviewer|ui-smoke|planner|ui-designer|ui-scout) ;;
+      scanner|deep-reader|reviewer|security-reviewer|verifier|critic|ui-smoke|planner|ui-designer|ui-scout) ;;
       *) exit 0 ;;
     esac ;;
   *)
     case "$(field agent_type)" in
-      crew-chief:scanner|crew-chief:deep-reader|crew-chief:reviewer|crew-chief:security-reviewer|crew-chief:ui-smoke|crew-chief:planner|crew-chief:ui-designer|crew-chief:ui-scout) ;;
+      crew-chief:scanner|crew-chief:deep-reader|crew-chief:reviewer|crew-chief:security-reviewer|crew-chief:verifier|crew-chief:critic|crew-chief:ui-smoke|crew-chief:planner|crew-chief:ui-designer|crew-chief:ui-scout) ;;
       *) exit 0 ;;
     esac ;;
 esac
@@ -216,9 +216,30 @@ scout_chrome() {
 # protocol; plain headless Chrome cannot lay a page out below ~500 px). Exactly
 #   node <this plugin>/scripts/ui-shot.mjs <http(s) url> <project>/.crew-chief/refs <slug> [--webgl] [--wait=N]
 # with the script path matching this plugin's own copy, no shell operators, and the out dir inside refs.
+# in_reports_folder <dir>: the dir is the crew-chief reports folder or inside it (physically, no symlinks out).
+in_reports_folder() {
+  scope_why=""
+  _rd=$(printf '%s' "${TMPDIR:-/tmp}" | tr -s '/')
+  _rd="${_rd%/}/crew-chief-reports"
+  case "$1" in /*) ;; *) scope_why="the path must be absolute"; return 1 ;; esac
+  case "$1" in */../*|*/..|*/./*|*/.) scope_why="no dot segments in the path"; return 1 ;; esac
+  mkdir -p "$_rd" 2>/dev/null && chmod 700 "$_rd" 2>/dev/null
+  [ -d "$_rd" ] && [ ! -L "$_rd" ] && [ -O "$_rd" ] || { scope_why="the reports folder is not usable"; return 1; }
+  _phys=$(cd "$_rd" 2>/dev/null && pwd -P) || { scope_why="the reports folder is unavailable"; return 1; }
+  _anc=$1
+  while [ ! -d "$_anc" ]; do
+    [ -L "$_anc" ] && { scope_why="a path component is a dangling symlink"; return 1; }
+    _anc=$(dirname "$_anc")
+  done
+  _real=$(cd "$_anc" 2>/dev/null && pwd -P) || { scope_why="the folder is unavailable"; return 1; }
+  case "$_real" in "$_phys"|"$_phys"/*) return 0 ;; esac
+  scope_why="it must be the reports folder $_rd or a folder in it"
+  return 1
+}
+
 scout_shot() {
   sdeny() {
-    echo "Blocked by crew-chief: ui-scout may run the screenshot script only as: node $shot_script <http(s) url> <project>/.crew-chief/refs <slug> [--webgl] [--wait=N] ($1)." >&2
+    echo "Blocked by crew-chief: the screenshot script runs only as: node $shot_script <url> <out dir> <slug> [--webgl] [--wait=N]; ui-scout: an http(s) url and <project>/.crew-chief/refs; critic: http(s) or file:// and the crew-chief reports folder ($1)." >&2
     exit 2
   }
   c=$1
@@ -228,10 +249,16 @@ scout_shot() {
   set -- $c
   set +f
   [ $# -ge 3 ] && [ $# -le 5 ] || sdeny "url, out dir and slug are required"
-  case "$1" in http://[A-Za-z0-9]*|https://[A-Za-z0-9]*) ;; *) sdeny "the url must be http(s)" ;; esac
   out=$(printf '%s' "$2" | tr -s '/')
   out=${out%/}
-  in_project_folder "$out/x.png" ".crew-chief/refs" || sdeny "out dir: $scope_why"
+  if [ "$agent" = critic ]; then
+    # critic: also local pages (file://), screenshots only into the reports folder.
+    case "$1" in http://[A-Za-z0-9]*|https://[A-Za-z0-9]*|file:///*) ;; *) sdeny "the url must be http(s) or file://" ;; esac
+    in_reports_folder "$out" || sdeny "out dir: $scope_why"
+  else
+    case "$1" in http://[A-Za-z0-9]*|https://[A-Za-z0-9]*) ;; *) sdeny "the url must be http(s)" ;; esac
+    in_project_folder "$out/x.png" ".crew-chief/refs" || sdeny "out dir: $scope_why"
+  fi
   case "$3" in .*|*/*) sdeny "bad slug" ;; esac
   printf '%s' "$3" | grep -qE '^[A-Za-z0-9._-]+$' || sdeny "bad slug"
   shift 3
@@ -286,6 +313,16 @@ if [ "$agent" = "ui-scout" ]; then
     case "$lcmd" in "$lpre"*) scout_shot "$(printf '%s' "$cmd" | sed "s/^.\{${#pre}\}//")" ;; esac
   done
   printf '%s' "$cmd" | grep -qE '(^|[[:space:]])--(screenshot|print-to-pdf|headless|user-data-dir|remote-debugging|dump-dom)' && block "browser flags only in the one plain headless Chrome command"
+fi
+
+# critic may run the same screenshot script, into the reports folder only (see scout_shot).
+if [ "$agent" = "critic" ]; then
+  shot_script="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/ui-shot.mjs"
+  lcmd=$(printf '%s' "$cmd" | tr 'A-Z' 'a-z')
+  for pre in "node $shot_script " "node \"$shot_script\" " "node '$shot_script' "; do
+    lpre=$(printf '%s' "$pre" | tr 'A-Z' 'a-z')
+    case "$lcmd" in "$lpre"*) scout_shot "$(printf '%s' "$cmd" | sed "s/^.\{${#pre}\}//")" ;; esac
+  done
 fi
 # The screenshot script writes files: only ui-scout, only its exact form above.
 printf '%s' "$cmd" | grep -q 'ui-shot\.mjs' && block "the screenshot script is only for ui-scout, in its one exact form"
