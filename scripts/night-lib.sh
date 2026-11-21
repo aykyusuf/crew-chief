@@ -86,9 +86,16 @@ nl_event() {
 }
 
 # nl_caff_start <seconds>: prints the pid of a background caffeinate, nothing when there is no caffeinate.
+# Started in a session of its own (setsid through perl, which macOS ships) with no stdin/stdout/stderr, so the Bash tool
+# that ran `arm` does not wait for it (seen live 2026-11-21: arm hung 120 s and went to the background). The pid stays the
+# caffeinate pid (exec).
 nl_caff_start() {
   command -v caffeinate >/dev/null 2>&1 || return 0
-  ( caffeinate -i -t "$1" >/dev/null 2>&1 & echo $! )
+  if command -v perl >/dev/null 2>&1; then
+    ( perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' caffeinate -i -t "$1" </dev/null >/dev/null 2>&1 & echo $! )
+  else
+    ( caffeinate -i -t "$1" </dev/null >/dev/null 2>&1 & echo $! )
+  fi
 }
 
 # nl_caff_stop <pid>: only kills a pid that is still a caffeinate process.

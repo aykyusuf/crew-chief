@@ -3,6 +3,7 @@
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
 ## Unreleased
+- **Gece modu dry-run düzeltmeleri (ilk canlı provada bulundu).** caffeinate stdin ve stdout olmadan kendi oturumunda başlar, geceyi açan Bash çağrısı artık takılmaz; dry run kendini asla erken kapatmaz (Stop hook bitişte sonlandırana kadar DECISIONS.md'ye tick yazar) ve önceki bir reddetmeden sonra bile test sorusunu sorar.
 - **Compact'in güncelleme isteği projenin kendi handoff dosyalarını yollarıyla adlandırır** (proje kullanıyorsa `durum.md`, `ilerleme.md`); `agents/mechanic.md`'deki tekrarlanan kural kaldırıldı.
 - **Guard: push edilmemiş commit'te `git commit --amend` serbest.** Kendi kuralı var (`git-amend`) ve yalnızca HEAD bir uzak branch'te zaten varsa durur; rebase, filter-branch, force push ve `reset --hard` eskisi gibi durur.
 - **Projeye özel ayarlar: `.claude/crew-chief.json`.** Proje dosyasındaki değerler `/crew-config`'i geçer, ortama yenilir; compact sorusundaki "Bir daha sorma" burada proje başına tutulur (`compact.never`), yeni oturumlarda da geçerli kalır; `/crew-compact` siler.

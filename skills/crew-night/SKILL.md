@@ -13,14 +13,14 @@ Main session only: this skill interviews the user with AskUserQuestion, which a 
 - `status`: run `NS get --session ${CLAUDE_SESSION_ID}` and print phase, deadline, time left, current task; stop.
 - `off`: run `NS stop --session ${CLAUDE_SESSION_ID} --reason off`, write REPORT.md from the template with what was done so far, tell the user; stop.
 - `resume`: run `NS resume --session ${CLAUDE_SESSION_ID}` (same deadline as before, never extended), read the night folder's NIGHT.md, DECISIONS.md and QUESTIONS.md, say in two lines where the night stands, continue the work loop below.
-- `dry-run`: a 20-minute rehearsal (arm with `--dry-run` instead of `--until`/`--hours`): deadline now + 20 min, scope = one small safe task (or a no-op task "read the repo and write a summary into DECISIONS.md" when there is none), skip questions except one test question (to check the 20-minute close), then the normal loop.
+- `dry-run`: a rehearsal of the machinery, about 40 minutes: first ONE test question (always ask it, even if a question was dismissed earlier in this session; tell the user to leave it unanswered so it closes by itself after 20 minutes), then arm with `--dry-run` (deadline now + 20 min, no commits, outward closed). Then the dry-run loop, NOT the work loop: append one line `HH:MM dry-run tick` to DECISIONS.md, end your turn, and when a hook keeps you going, do the same again. Never run `NS done` in a dry run: the Stop hook must end it at the deadline, which is what is being tested. When the hook switches to wrap-up, write REPORT.md from the template (say which parts of the machinery you saw work) and keep ticking until the hook lets you stop.
 - otherwise (`until HH:MM`, `for Nh`, or nothing): the full opening below.
 
 **1. Open.** Run `NS open --session ${CLAUDE_SESSION_ID}`. It prints the night folder (`night/<sid8>/` at the repo root, hidden through `.git/info/exclude`). From now on crew-chief's own questions are silent and your AskUserQuestion questions close by themselves after 20 minutes with a `NO_ANSWER` label.
 
 **2. Analyse** (no questions yet). Read STATUS.md (Constraints are the user's rules: they bind the whole night), tasks.json (todo by priority), BRIEF.md sections on decision rights if present, `git status`, `git log --oneline -15`, and run the project's basic check if one is documented. Then write a short analysis to the user: what is there, what you would do tonight, and what is critical: anything that affects production, cannot be undone, needs a big architecture call, needs a secret or account only the user has, or is already failing.
 
-**3. Ask everything now, in at most two AskUserQuestion calls** (up to 4 questions each), recommended option first, only what you cannot read from the files:
+**3. Ask everything now, in at most two AskUserQuestion calls** (a question dismissed in an earlier run of this command in this session is asked again; a dismissal is not an answer) (up to 4 questions each), recommended option first, only what you cannot read from the files:
 - Scope: which tasks or what work (from tasks.json when possible).
 - Goal and a done condition a command can check.
 - Deadline: "until HH:MM" or hours, unless the argument gave it. Resolve it to an absolute local time and say it back.

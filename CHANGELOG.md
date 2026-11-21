@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- **Night mode dry-run fixes (found in the first live rehearsal).** caffeinate starts in a session of its own with no stdin or stdout, so the Bash call that arms the night no longer hangs; a dry run never closes itself early (it ticks into DECISIONS.md until the Stop hook ends it at the deadline) and always asks its test question, even after an earlier dismissal.
 - **The compaction's update request names the project's own handoff files** (`durum.md`, `ilerleme.md` where a project uses them) with their paths; a duplicated rule in `agents/mechanic.md` is gone.
 - **Guard: `git commit --amend` of an unpushed commit passes.** It has its own rule (`git-amend`) and is held only when HEAD is already on a remote branch; rebase, filter-branch, force push and `reset --hard` are held as before.
 - **Per-project settings: `.claude/crew-chief.json`.** Values in the project's file win over `/crew-config` and lose to the environment; the compaction question's "Don't ask again" is kept there per project (`compact.never`), so it survives new sessions; `/crew-compact` removes it.
