@@ -39,6 +39,8 @@ jobs:
         run: python3 tests/test_security_gate.py
       - name: Verification gate tests
         run: python3 tests/test_verify_gate.py
+      - name: Model switch hook tests
+        run: python3 tests/test_model_switch.py
       - name: Progress hook tests
         run: python3 tests/test_progress_hook.py
       - name: Panel row installer tests

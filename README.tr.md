@@ -314,6 +314,9 @@ Ayrı, salt-okunur bir ajan, **`security-reviewer`** (Opus, high; kimlik doğrul
 
 **Doğrulama kapısı.** Claude'un `git commit`'inden önce crew-chief, bu oturumda son commit'ten beri bir test, build ya da kontrol (ya da `verifier`, `reviewer`, `ui-tester` ajanı) çalışıp çalışmadığına bakar. Varsayılan `observe`: commit çalışır, Claude'a mesajda neyin doğruladığını yazması söylenir (`Verified: npm test (42 passed)` ya da `Verified: not run (docs only)`). `enforce` commit'i oturum başına en fazla iki kez durdurur; `off` kapatır. `CREW_CHIEF_VERIFY_GATE` ya da `.claude/crew-chief.json` içinde `"verify.gate"` ile ayarlanır.
 
+
+**Model değişimi.** Oturumun modelini değiştirmek (`/model`, seçici) yalnızca gerçek bir bedeli varsa önce sorar: Fable'dan çıkış (diğer modeller Fable'ın düşünmesini okuyamaz, işin arkasındaki akıl yürütme kaybolur) ya da yeni modelde yeniden yazılması yaklaşık 1 USD ya da daha fazla tutacak sıcak bir prompt cache (soru token'ları ve fiyatı söyler, önce handoff dosyalarını güncellemeyi ya da `/compact`'i önerir). Geçişten sonra yeni model tek bir not alır: Fable'dan çıkışta planı yeniden kurması, daha pahalı modelde bağlamı yalın tutması. `CREW_CHIEF_MODEL_SWITCH=off` kapatır. Compaction'lar crew-chief'in brief'ini zaten mod üzerinden alıyor, ayrı bir PreCompact hook'u yok.
+
 ## crew-ui: band, sorular ve paneller
 
 **Varsayılan açık ve sessiz.** Prompt'un üstünde, söyleyecek bir şey yokken hiçbir şey çizmeyen bir band (terminal ve Desktop uygulaması; VS Code kendi durum satırında kalır). Güncellemeden sonra bir kez bildirimle söylenir; `/crew-ui off` kalıcı olarak kapatır, `/crew-ui on` geri açar. `settings.json`'a hiç yazmaz. Mod'un küçük bir parçası (`hooks/src/crew-ui.js`, düzeni `hooks/ui-logic.mjs`).

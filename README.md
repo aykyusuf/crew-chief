@@ -367,6 +367,9 @@ A separate read-only agent, **`security-reviewer`** (Opus, high; `effort: "xhigh
 
 **Verification gate.** Before Claude's `git commit`, crew-chief checks whether a test, build or check (or a `verifier`, `reviewer` or `ui-tester` agent) ran in this session since the last commit. Default `observe`: the commit runs and Claude is told to say in the message what verified it (`Verified: npm test (42 passed)` or `Verified: not run (docs only)`). `enforce` holds the commit back, at most twice per session; `off` turns it off. Set it with `CREW_CHIEF_VERIFY_GATE` or `"verify.gate"` in `.claude/crew-chief.json`.
 
+
+**Model switches.** Switching the session's model (`/model`, the picker) asks first only when it costs something real: leaving Fable (other models cannot read Fable's thinking, so the reasoning behind the work is lost), or a warm prompt cache whose re-write on the new model would cost about 1 USD or more (the question names the tokens and the price and suggests updating the handoff files or `/compact` first). After a switch the new model gets one note: restate the plan after leaving Fable, keep the context lean on a more expensive model. `CREW_CHIEF_MODEL_SWITCH=off` turns it off. Compactions already get crew-chief's brief through the mod, so there is no separate PreCompact hook.
+
 ## What it runs
 
 Everything is plain, readable shell in this repo. Nothing is sent over the network.
