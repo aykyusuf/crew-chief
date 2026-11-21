@@ -7,6 +7,7 @@
 #   security-map.sh match [project dir] FILE...  print "category<TAB>file<TAB>reason" for each risky file:
 #                                             the path rules, the content rules on the file's staged added lines
 #                                             (or its text when nothing is staged), and the map's own entries
+#   security-map.sh content                   the content rules on stdin: category<TAB>reason per rule that matches
 #   security-map.sh hook                      PostToolUse on Write/Edit/MultiEdit: a written file that matches
 #                                             a rule is added to the map, only when the project already has one
 #
@@ -160,5 +161,6 @@ case "$1" in
   match) shift; d=$1; shift; cmd_match "$d" "$@" ;;
   hook) cmd_hook ;;
   top) printf '%s\n' "$TOP" ;;
+  content) content_hits ;;
 esac
 exit 0

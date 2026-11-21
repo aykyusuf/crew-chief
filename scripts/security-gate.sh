@@ -78,8 +78,11 @@ case " $cats " in *" migrations "*|*" secrets "*) heavy=yes ;; esac
 list=$(printf '%s\n' "$hits" | awk -F '\t' '{ if (!($2 in c)) { order[++n] = $2; c[$2] = $1; r[$2] = $3 } else { if (index("," c[$2] ",", "," $1 ",") == 0) c[$2] = c[$2] "," $1; if (index(r[$2], $3) == 0) r[$2] = r[$2] "; " $3 } } END { for (i = 1; i <= n; i++) print "- " order[i] " (" c[order[i]] ": " r[order[i]] ")" }' | head -12)
 n=$(printf '%s\n' "$hits" | cut -f2 | sort -u | wc -l | tr -d ' ')
 
+# Small is not the same as harmless: a removed permission check or user input added to a query is two lines. So the
+# changed lines themselves (added and removed) are matched against the content rules; any hit means a real look.
+risky_lines=$(for f in $(printf '%s\n' "$hits" | cut -f2 | sort -u); do git -C "$top" diff HEAD -U0 -- "$f" 2>/dev/null; done | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | sed 's/^[-+]//' | sh "$here/security-map.sh" content 2>/dev/null | cut -f1 | sort -u | tr '\n' ' ')
 # Small and plain: the commit runs; Claude gets one line to weigh (no stop, no review asked for).
-if [ "$lines" -lt 10 ] && [ "$newfiles" -eq 0 ] && [ "$heavy" = no ]; then
+if [ "$lines" -lt 10 ] && [ "$newfiles" -eq 0 ] && [ "$heavy" = no ] && [ -z "$risky_lines" ]; then
   jq -nc --arg t "crew-chief security note: this commit changes $lines line(s) in security-relevant file(s) [${cats% }]. A change this small usually needs no security review; only if it changes who may do something, how money moves, or how input reaches a query or command, look at it once more yourself before the next step." \
     '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: $t}}'
   exit 0
@@ -98,6 +101,7 @@ find "$state" -type f -mmin +240 -delete 2>/dev/null
 
 newnote=""
 [ "$newfiles" -gt 0 ] && newnote=", $newfiles of them new"
+[ -n "$risky_lines" ] && newnote="$newnote; the changed lines themselves touch: ${risky_lines% }"
 cat >&2 <<EOF
 crew-chief security check (held once; retry the identical command to commit): this commit changes about $lines line(s) in $n security-relevant file(s)$newnote [${cats% }]:
 $list
