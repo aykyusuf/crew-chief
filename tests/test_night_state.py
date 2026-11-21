@@ -401,6 +401,12 @@ def main():
                 os.symlink(p, os.path.join(nojq, tool))
         rc, out, err = run(["arm", "--session", "tttttttt-1", "--hours", "1"], proj10, data, fb, path=nojq)
         check("no jq: a clear error, nothing written", rc == 1 and "jq" in err and not os.path.exists(os.path.join(proj10, "night", "tttttttt")), (rc, err))
+        # review fix: without the plugin data folder no hook could see the night, so open and arm refuse
+        nodata = make_repo(base, "nodata")
+        rc, out, err = run(["arm", "--session", "nodata-sess-1", "--hours", "2"], nodata, data, fb, extra={"CLAUDE_PLUGIN_DATA": ""})
+        check("arm without CLAUDE_PLUGIN_DATA fails loudly", rc != 0 and "CLAUDE_PLUGIN_DATA" in err, (rc, out, err))
+        rc, out, err = run(["open", "--session", "nodata-sess-2"], nodata, data, fb, extra={"CLAUDE_PLUGIN_DATA": ""})
+        check("open without CLAUDE_PLUGIN_DATA fails loudly", rc != 0 and "CLAUDE_PLUGIN_DATA" in err, (rc, out, err))
     finally:
         for p in spawned:
             try:

@@ -30,6 +30,7 @@ import {
   nightNudgeAllowed,
   nightNudgeText,
   nightOverStatus,
+  nightQuietState,
   nightQuietStatus,
   nightRecentNudges,
   nightStatusText,
@@ -159,7 +160,7 @@ async function nightScript($, night, args) {
 // The open night (opening|armed|wrapup), or undefined. For the offers that are not made at night.
 export async function nightQuietNow($) {
   const night = await nightRead($)
-  return night && nightQuietStatus(night.state.status) ? night : undefined
+  return night && nightQuietState(night.state, await $.clock.now()) ? night : undefined
 }
 
 // Called first by askWithDeadline. While a night is open the question is never shown: returns the caller's night
@@ -322,8 +323,9 @@ async function nightWatchdog($, night) {
   if (action === 'nudge') return nightNudge($, night, 'idle')
   if (action !== 'fallback') return
   nightFallbackFired.add(night.dir)
-  const r = await nightScript($, night, ['report-fallback'])
-  await nightEvent($, night, 'deadline + 2 min with no report: report-fallback ran' + (r.exitCode === 0 ? '' : ` (failed: ${String(r.stderr || '').trim().slice(0, 120)})`))
+  // `done` past the deadline: status done (reason deadline), the fallback report if Claude wrote none, caffeinate off.
+  const r = await nightScript($, night, ['done'])
+  await nightEvent($, night, 'deadline + 2 min and the night still open: closed it (done)' + (r.exitCode === 0 ? '' : ` (failed: ${String(r.stderr || '').trim().slice(0, 120)})`))
   await nightOver($, night)
 }
 

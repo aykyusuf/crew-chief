@@ -68,6 +68,13 @@ export function nightQuietStatus(status) {
   return QUIET.has(status)
 }
 
+// Quiet and not 10 minutes past the deadline: a night nobody closed must not silence the returning user's session.
+export function nightQuietState(state, nowMs) {
+  if (!state || !QUIET.has(state.status)) return false
+  const deadline = Number(state.deadline) || 0
+  return !(deadline > 0 && nowMs / 1000 > deadline + 600)
+}
+
 export function nightArmedStatus(status) {
   return ARMED.has(status)
 }

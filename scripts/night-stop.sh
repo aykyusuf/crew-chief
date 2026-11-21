@@ -31,7 +31,9 @@ case "$status" in armed|wrapup) ;; *) exit 0 ;; esac
 [ "$owner" = "$sid" ] || exit 0
 case "$deadline$softwrap$started$blocks$noprog$since" in *[!0-9]*) exit 0 ;; esac
 
-pending=$(printf '%s' "$input" | jq -r '((.background_tasks // []) | length) + ((.session_crons // []) | length)' 2>/dev/null)
+# A running subagent or a cron will wake the session by itself: let the turn end, no count. A dev server or another
+# long-running process never ends, so it must not switch the night off.
+pending=$(printf '%s' "$input" | jq -r '(((.background_tasks // []) | map(select(type == "object" and ((.agent_type // "") != "" or (.type // "") == "agent"))) | length) + ((.session_crons // []) | length))' 2>/dev/null)
 case "$pending" in ''|0) ;; *[!0-9]*) ;; *) exit 0 ;; esac
 
 now=$(nl_now)
@@ -59,6 +61,8 @@ fi
 sig=$( {
   GIT_OPTIONAL_LOCKS=0 git -C "$root" rev-parse HEAD 2>/dev/null
   GIT_OPTIONAL_LOCKS=0 git -C "$root" status --porcelain 2>/dev/null
+  GIT_OPTIONAL_LOCKS=0 git -C "$root" diff HEAD 2>/dev/null | cksum
+  GIT_OPTIONAL_LOCKS=0 git -C "$root" ls-files -o --exclude-standard -z 2>/dev/null | xargs -0 ls -ln 2>/dev/null | head -200
   nl_mtime "$root/tasks.json"; nl_mtime "$dir/DECISIONS.md"; nl_mtime "$dir/QUESTIONS.md"; nl_mtime "$dir/REPORT.md"
   printf '%s\n' "$cur"
 } | cksum 2>/dev/null | tr ' ' '-')

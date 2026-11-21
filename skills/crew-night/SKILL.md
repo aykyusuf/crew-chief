@@ -5,7 +5,7 @@ argument-hint: "[until 07:00 | for 8h | dry-run | resume | status | off]"
 disable-model-invocation: true
 ---
 
-Night mode. Arguments: `$ARGUMENTS`. This session's id: `${CLAUDE_SESSION_ID}`. State script: `"${CLAUDE_PLUGIN_ROOT}/scripts/night-state.sh"` (below: `NS`). Always pass `--session ${CLAUDE_SESSION_ID}` to it: several sessions can run nights in the same repo. Policy: `${CLAUDE_SKILL_DIR}/assets/night-policy.md`. Templates: `${CLAUDE_SKILL_DIR}/assets/night-contract.md`, `${CLAUDE_SKILL_DIR}/assets/night-report.md`.
+Night mode. Arguments: `$ARGUMENTS`. This session's id: `${CLAUDE_SESSION_ID}`. State script (below: `NS`), always called exactly like this, because the Bash tool does not carry the plugin's data folder: `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" "${CLAUDE_PLUGIN_ROOT}/scripts/night-state.sh"`. Always pass `--session ${CLAUDE_SESSION_ID}` to it: several sessions can run nights in the same repo. Policy: `${CLAUDE_SKILL_DIR}/assets/night-policy.md`. Templates: `${CLAUDE_SKILL_DIR}/assets/night-contract.md`, `${CLAUDE_SKILL_DIR}/assets/night-report.md`.
 
 Main session only: this skill interviews the user with AskUserQuestion, which a subagent cannot do. If you are a subagent, stop and tell the caller.
 

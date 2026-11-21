@@ -242,9 +242,11 @@ def main():
         proj6 = make_repo(base, "p6")
         S6 = "cafe0006-aaaa"
         arm(proj6, data, fb, sid=S6)
-        check("background tasks pending: exit 0, silent", stop(data, fb, NOW + 60, payload={"background_tasks": [{"id": "b1"}]}, sid=S6) == (0, "", ""))
+        check("a running subagent: exit 0, silent (its notification wakes the session)", stop(data, fb, NOW + 60, payload={"background_tasks": [{"id": "b1", "agent_type": "crew-chief:implementer"}]}, sid=S6) == (0, "", ""))
+        check("a cron: exit 0, silent", stop(data, fb, NOW + 60, payload={"session_crons": [{"id": "c1"}]}, sid=S6) == (0, "", ""))
         check("session crons pending: exit 0, silent", stop(data, fb, NOW + 60, payload={"session_crons": [{"id": "c1"}]}, sid=S6) == (0, "", ""))
         check("pending work is not counted as a block", sj_of(proj6, "cafe0006")["blocks"] == 0)
+        check("a dev server (a plain background process) does not switch the night off", reason_of(stop(data, fb, NOW + 60, payload={"background_tasks": [{"id": "b2", "command": "npm run dev"}]}, sid=S6)[1]) is not None)
         check("empty background lists still block", reason_of(stop(data, fb, NOW + 60, payload={"background_tasks": [], "session_crons": []}, sid=S6)[1]) is not None)
         hold = os.path.join(proj6, "night", "cafe0006", "hold")
         with open(hold, "w") as f:
@@ -307,6 +309,25 @@ def main():
         r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, env=dict(os.environ))
         lines = r.stdout.splitlines()
         check("stop-lib: counter, parse and emit_block", lines[:5] == ["0", "2", "0", "x1 true", "garbage"] and json.loads("\n".join(lines[5:])) == {"decision": "block", "reason": 'why "q"'}, r.stdout + r.stderr)
+        # review fix: editing a file that is already modified is progress (no stall)
+        S8 = "edit0008-0000-0000-0000-000000000008"
+        proj8 = make_repo(base, "edits")
+        with open(os.path.join(proj8, "app.py"), "w") as f:
+            f.write("a = 1\n")
+        git(proj8, "add", "-A")
+        git(proj8, "commit", "-q", "-m", "app")
+        arm(proj8, data, fb, sid=S8)
+        ended = False
+        for i in range(5):
+            with open(os.path.join(proj8, "app.py"), "w") as f:
+                f.write(f"a = {i + 2}\n")
+            rc, out, err = stop(data, fb, NOW + 60 + i, sid=S8)
+            if reason_of(out) is None:
+                ended = True
+        check("edits to an already-modified file keep the night going", not ended and sj_of(proj8, S8[:8])["status"] == "armed", sj_of(proj8, S8[:8]))
+        with open(os.path.join(proj8, "new_untracked.txt"), "w") as f:
+            f.write("x")
+        check("stop still blocks after a new untracked file", reason_of(stop(data, fb, NOW + 70, sid=S8)[1]) is not None)
     finally:
         for p in pids:
             try:

@@ -122,12 +122,18 @@ def main():
                    "gh api -X DELETE repos/x/y", "vercel --prod", "vercel deploy", "netlify deploy --prod", "fly deploy", "firebase deploy",
                    "kubectl apply -f k.yaml", "helm upgrade app ./chart", "terraform apply -auto-approve", "npm publish", "pnpm publish", "docker push img:1",
                    "wrangler deploy", "supabase db push", "aws s3 rm s3://b --recursive", "gcloud run deploy", "ssh prod 'systemctl restart app'",
-                   "scp a.sql user@db:/tmp/", "rsync -av dist/ user@host:/var/www/", "cd x && eas submit -p ios", "sudo ssh root@h", "FOO=1 vercel --prod"]
+                   "scp a.sql user@db:/tmp/", "rsync -av dist/ user@host:/var/www/", "cd x && eas submit -p ios", "FOO=1 vercel --prod",
+                   "ssh prod 'rm -rf /var/www/old'", "ssh prod sudo reboot", "ssh db 'psql -c \"drop table x\"'", "ssh prod 'echo x > /etc/app.conf'",
+                   "aws ec2 terminate-instances --instance-ids i-1", "aws s3 cp build/ s3://bucket/ --recursive", "aws lambda update-function-code --function-name f",
+                   "az vm delete -n x", "gcloud compute instances stop vm1", "sftp user@host"]
         for c in outward:
             rc, out, err = guard(data, fb, bash(c))
             check(f"armed: outward denied: {c}", rc == 2 and ("outside this machine" in err or "the user forbade" in err), (rc, err))
         quiet_ok = ["gh pr view 12", "gh pr list", "gh api repos/x/y", "gh run list", "kubectl get pods", "terraform plan", "helm template ./chart",
-                    "npm run build", "docker build -t x .", "rsync -av src/ dist/", "echo ssh is a word", "vercel dev", "git commit -m 'deploy note'"]
+                    "npm run build", "docker build -t x .", "rsync -av src/ dist/", "echo ssh is a word", "vercel dev", "git commit -m 'deploy note'",
+                    "ssh prod 'tail -n 200 /var/log/app.log'", "ssh prod journalctl -u app --since today", "ssh prod 'df -h; free -m'", "sudo ssh root@h uptime",
+                    "scp user@host:/var/log/app.log ./logs/", "rsync -av user@host:/logs/ ./logs/", "aws s3 ls s3://bucket", "aws s3 cp s3://bucket/x.log .",
+                    "aws logs tail /aws/lambda/f", "aws ec2 describe-instances", "gcloud run services list", "gcloud logging read 'x' --limit 10", "az vm list"]
         for c in quiet_ok:
             check(f"armed: still allowed: {c}", guard(data, fb, bash(c))[0] == 0, guard(data, fb, bash(c)))
         root = state(proj)["root"]
@@ -252,6 +258,18 @@ def main():
         check("done: permission requests pass again", guard(data, fb, dict(bash("ls"), hook_event_name="PermissionRequest")) == (0, "", ""))
         check("no stray lock or temp files", not [f for f in os.listdir(os.path.join(proj, "night", SID8)) if f == ".lock" or f.startswith("state.json.")])
         check("the guard never writes outside night/<sid8>/", sorted(os.listdir(proj)) == [".git", "README.md", "night"], os.listdir(proj))
+        # review fix: ten minutes past the deadline the guard lets everything through (a night nobody closed)
+        SL = "late0009-0000-0000-0000-000000000009"
+        projl = make_repo(base, "late")
+        r = cli(["arm", "--session", SL, "--hours", "2"], projl, data, fb)
+        check("late: armed", r.returncode == 0, r.stderr)
+        dl = state(projl, SL[:8])["deadline"]
+        def at(t, payload):
+            env = dict(env_for(data, fb), CREW_CHIEF_NOW=str(t))
+            return subprocess.run(["sh", GUARD], input=json.dumps(payload), capture_output=True, text=True, env=env).returncode
+        check("5 min past the deadline: push still denied", at(dl + 300, bash("git push origin main", sid=SL)) == 2)
+        check("past deadline + 10 min: git push no longer denied", at(dl + 601, bash("git push origin main", sid=SL)) == 0)
+        check("past deadline + 10 min: questions allowed again", at(dl + 601, pre("AskUserQuestion", {"questions": []}, sid=SL)) == 0)
     finally:
         for p in pids:
             try:

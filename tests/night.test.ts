@@ -390,7 +390,7 @@ test('watchdog: nothing outside a night', async ($, on) => {
   expect(n.ran.filter((r: any) => r.argv[0] === 'sh').length).toBe(0)
 })
 
-test('the deadline 2 minutes past with no report: report-fallback runs once and a toast says where the report is', async ($, on) => {
+test('the deadline 2 minutes past with no report: the mod closes the night with done (fallback report, caffeinate off) once and toasts', async ($, on) => {
   const s = harness(on, { night: { deadline: SEC + 5 * 60 } })
   await start($)
   await $.prompt.submit({ text: 'go', origin: { kind: 'composer' } }) // busy until the deadline
@@ -399,10 +399,10 @@ test('the deadline 2 minutes past with no report: report-fallback runs once and 
   await runClock(s, 60_000, 60_000)
   expect(scripts(s).length).toBe(0)
   await runClock(s, 2 * 60_000, 60_000)
-  expect(scripts(s)).toEqual(['report-fallback'])
+  expect(scripts(s)).toEqual(['done'])
   expect(s.toasts).toContain(`Night over: report at ${DIR}/REPORT.md`)
   await runClock(s, 5 * 60_000, 60_000)
-  expect(scripts(s)).toEqual(['report-fallback'])
+  expect(scripts(s)).toEqual(['done'])
 })
 
 test('a night the Stop hook ends: one toast, and the watchdog stops', async ($, on) => {

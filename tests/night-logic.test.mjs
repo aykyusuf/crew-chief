@@ -134,3 +134,14 @@ test('toasts in English and Turkish, with the window named', () => {
   assert.equal(nightText('tr', 'limit', { window: 'five_hour', percent: 96 }), 'Gece: 5 saatlik limiti %96, toparlama başladı.')
   assert.equal(nightText('xx', 'off'), 'Night mode is off.')
 })
+
+test('nightQuietState: quiet while open, not 10 minutes past the deadline', async () => {
+  const { nightQuietState } = await import('../hooks/night-logic.mjs')
+  const dl = 1_800_000_000
+  assert.equal(nightQuietState({ status: 'armed', deadline: dl }, (dl - 60) * 1000), true)
+  assert.equal(nightQuietState({ status: 'armed', deadline: dl }, (dl + 300) * 1000), true)
+  assert.equal(nightQuietState({ status: 'armed', deadline: dl }, (dl + 601) * 1000), false)
+  assert.equal(nightQuietState({ status: 'opening', deadline: 0 }, dl * 1000), true)
+  assert.equal(nightQuietState({ status: 'done', deadline: dl }, (dl - 60) * 1000), false)
+  assert.equal(nightQuietState(undefined, 0), false)
+})

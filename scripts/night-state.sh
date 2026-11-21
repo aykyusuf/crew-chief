@@ -77,10 +77,11 @@ need_dir() {
   [ -n "$DIR" ] || die "no night found for this session; run open or arm first (pass --session <id>)"
 }
 
+# Without the pointer no hook sees the night (it would only look armed): a missing data folder or a failed write is fatal.
 ns_pointer() { # <session id> <dir>
-  [ -n "${CLAUDE_PLUGIN_DATA:-}" ] || return 0
-  mkdir -p "$CLAUDE_PLUGIN_DATA/night" 2>/dev/null || return 0
-  printf '%s\n' "$2" > "$CLAUDE_PLUGIN_DATA/night/$1.$$" 2>/dev/null && mv "$CLAUDE_PLUGIN_DATA/night/$1.$$" "$CLAUDE_PLUGIN_DATA/night/$1"
+  [ -n "${CLAUDE_PLUGIN_DATA:-}" ] || die "CLAUDE_PLUGIN_DATA is not set: the hooks could not see this night. Run it as CLAUDE_PLUGIN_DATA=<plugin data folder> night-state.sh ... (the crew-night skill does)."
+  mkdir -p "$CLAUDE_PLUGIN_DATA/night" 2>/dev/null || die "cannot create $CLAUDE_PLUGIN_DATA/night"
+  { printf '%s\n' "$2" > "$CLAUDE_PLUGIN_DATA/night/$1.$$" && mv "$CLAUDE_PLUGIN_DATA/night/$1.$$" "$CLAUDE_PLUGIN_DATA/night/$1"; } 2>/dev/null || die "cannot write the night pointer in $CLAUDE_PLUGIN_DATA/night"
 }
 
 # ns_open_state: create the folder, pointer, exclude line and a state in status opening.
