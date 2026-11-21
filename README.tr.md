@@ -311,6 +311,9 @@ Ayrı, salt-okunur bir ajan, **`security-reviewer`** (Opus, high; kimlik doğrul
 - **Commit kapısı.** `scripts/security-gate.sh` (Bash üzerinde PreToolUse), commit'e girecek dosyalar (staged, `-a` ya da aynı komuttaki bir `git add`) güvenlikle ilgiliyse Claude'un ilk `git commit`'ini durdurur, dosyaları ve yapılacak incelemeyi listeler; aynı komutun 4 saat içinde tekrarı geçer, yani incelenmiş ya da bilerek atlanmış bir commit iki kez engellenmez. Yalnızca Claude'un commit'lerini görür, terminalde senin yazdıklarını görmez. `CREW_CHIEF_SECURITY_GATE=off` kapatır.
 - **Saver.** Normal saver onu high'da tutar (yalnızca xhigh ve max high'a iner); ultra saver Opus'ta çalıştırmadan önce sana sorar (cevap yoksa: Sonnet high).
 
+
+**Doğrulama kapısı.** Claude'un `git commit`'inden önce crew-chief, bu oturumda son commit'ten beri bir test, build ya da kontrol (ya da `verifier`, `reviewer`, `ui-tester` ajanı) çalışıp çalışmadığına bakar. Varsayılan `observe`: commit çalışır, Claude'a mesajda neyin doğruladığını yazması söylenir (`Verified: npm test (42 passed)` ya da `Verified: not run (docs only)`). `enforce` commit'i oturum başına en fazla iki kez durdurur; `off` kapatır. `CREW_CHIEF_VERIFY_GATE` ya da `.claude/crew-chief.json` içinde `"verify.gate"` ile ayarlanır.
+
 ## crew-ui: band, sorular ve paneller
 
 **Varsayılan açık ve sessiz.** Prompt'un üstünde, söyleyecek bir şey yokken hiçbir şey çizmeyen bir band (terminal ve Desktop uygulaması; VS Code kendi durum satırında kalır). Güncellemeden sonra bir kez bildirimle söylenir; `/crew-ui off` kalıcı olarak kapatır, `/crew-ui on` geri açar. `settings.json`'a hiç yazmaz. Mod'un küçük bir parçası (`hooks/src/crew-ui.js`, düzeni `hooks/ui-logic.mjs`).

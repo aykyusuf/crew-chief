@@ -364,6 +364,9 @@ A separate read-only agent, **`security-reviewer`** (Opus, high; `effort: "xhigh
 - **Commit gate.** `scripts/security-gate.sh` (PreToolUse on Bash) holds back Claude's first `git commit` when the files going in (staged, `-a`, or a `git add` in the same command) are security-relevant, and lists them with the review to run; the identical command retried within 4 hours passes, so a reviewed or deliberately skipped commit is never blocked twice. It only sees Claude's commits, not the ones you type in a terminal. `CREW_CHIEF_SECURITY_GATE=off` turns it off.
 - **Saver.** The plain saver keeps it at high (only xhigh and max come down to high); ultra-saver asks you before it runs on Opus (no answer: Sonnet at high).
 
+
+**Verification gate.** Before Claude's `git commit`, crew-chief checks whether a test, build or check (or a `verifier`, `reviewer` or `ui-tester` agent) ran in this session since the last commit. Default `observe`: the commit runs and Claude is told to say in the message what verified it (`Verified: npm test (42 passed)` or `Verified: not run (docs only)`). `enforce` holds the commit back, at most twice per session; `off` turns it off. Set it with `CREW_CHIEF_VERIFY_GATE` or `"verify.gate"` in `.claude/crew-chief.json`.
+
 ## What it runs
 
 Everything is plain, readable shell in this repo. Nothing is sent over the network.
