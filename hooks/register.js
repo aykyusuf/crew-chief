@@ -3476,6 +3476,18 @@ async function guardReadOnlyAgent($, agentId) {
   }
 }
 
+// True when the session's HEAD is on no remote branch (no upstream, or ahead of it): amending it changes nothing
+// anyone else has. Any error counts as pushed (the confirmation stays).
+async function guardHeadUnpushed($) {
+  try {
+    const cwd = await $.session.cwd()
+    const r = await $.process.run(['git', '-C', cwd, 'branch', '-r', '--contains', 'HEAD'])
+    return r.exitCode === 0 && String(r.stdout).trim() === ''
+  } catch (err) {
+    return false
+  }
+}
+
 // undefined = let the call run untouched; { deny } = refuse it; { contexts, notes } = run it, then warn.
 async function guardCheck($, e) {
   await guardEnsure($)
@@ -3487,6 +3499,11 @@ async function guardCheck($, e) {
     await guardToast($, 'guard_toast_deny', { text: clipText(v.text) })
     await guardLogPush($, 'deny', v.text + ' [' + v.rule + ']')
     return { deny: ruleDenyMessage(v) }
+  }
+  // --amend of a commit no remote has yet is a local edit: no confirmation (ONERILER-26 item 2).
+  if (v !== null && v.rule === 'git-amend' && (await guardHeadUnpushed($))) {
+    $.ui.log('crew-chief guard: --amend allowed, HEAD is not on any remote', { to: 'debug' })
+    return undefined
   }
   const ssh = st.config.ssh
   const touches = e.tool === 'Bash' && ssh.mode !== 'off' && typeof e.command === 'string' ? sshAssess(e.command, ssh) : []

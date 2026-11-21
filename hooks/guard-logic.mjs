@@ -36,6 +36,7 @@ export const BUILTIN_RULES = [
   'git-clean',
   'git-discard',
   'git-rewrite',
+  'git-amend',
   'key-write',
   'key-read',
   'key-access',
@@ -234,10 +235,12 @@ function builtinMatches(tool, input) {
   }
   if (
     (/\bgit\s+rebase\b/.test(git) && !/\bgit\s+rebase\s+--(abort|continue|skip|quit)\b/.test(git)) ||
-    /\bgit\s+commit\b[^;&|\n]*--amend\b/.test(git) ||
     /\bgit\s+(filter-branch|filter-repo)\b|\bgit\s+reflog\s+expire\b|\bgit\s+gc\b[^;&|\n]*--prune|\bgit\s+update-ref\s+-d\b/.test(git)
   ) {
-    out.push({ level: 'confirm', rule: 'git-rewrite', text: 'rewrites git history (rebase, --amend, filter-branch, reflog expire, gc --prune)' })
+    out.push({ level: 'confirm', rule: 'git-rewrite', text: 'rewrites git history (rebase, filter-branch, reflog expire, gc --prune)' })
+  } else if (/\bgit\s+commit\b[^;&|\n]*--amend\b/.test(git)) {
+    // Its own rule: the mod lets it through when HEAD is not on any remote yet (a local rewrite nobody else has).
+    out.push({ level: 'confirm', rule: 'git-amend', text: 'git commit --amend on a commit that is already pushed' })
   }
   if (namesKeyFile(cmd) && /\b(cat|less|more|head|tail|cp|mv|scp|rsync|base64|xxd|curl|git\s+add|git\s+commit\s+-a)\b/.test(cmd)) {
     out.push({ level: 'confirm', rule: 'key-access', text: 'command reads, copies or stages a private key file' })

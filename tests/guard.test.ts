@@ -287,6 +287,22 @@ test('confirm: the first attempt is held with the checklist, the identical retry
   expect(s.ran).toEqual(['git reset --hard HEAD~1'])
 })
 
+test('--amend: passes when HEAD is on no remote; held when a remote has it (ONERILER-26 item 2)', async ($, on) => {
+  let remote = ''
+  on('process.run', ($: any, e: any) => {
+    if (e.argv[0] === 'git' && e.argv.includes('--contains')) return { value: { exitCode: 0, stdout: remote, stderr: '' } }
+    return { value: { exitCode: 0, stdout: '', stderr: '' } }
+  })
+  harness(on, { file: CONFIG })
+  await start($)
+  expect((await bash($, 'git commit --amend --no-edit')).deny).toBeUndefined()
+  remote = '  origin/main\n'
+  expect((await bash($, 'git commit --amend -m x')).deny).toContain('first attempt')
+  // rebase is never let through by this check
+  remote = ''
+  expect((await bash($, 'git rebase main')).deny).toContain('first attempt')
+})
+
 test('a plugin reload between the first attempt and the identical retry does not hold it again', async ($, on) => {
   const s = harness(on, { file: CONFIG })
   await start($)
