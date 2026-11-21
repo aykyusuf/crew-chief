@@ -48,6 +48,7 @@ def gate(proj, command, data, env_extra=None):
     env = dict(os.environ, CLAUDE_PLUGIN_DATA=data, **(env_extra or {}))
     payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": proj}
     r = subprocess.run(["sh", GATE], input=json.dumps(payload), capture_output=True, text=True, env=env)
+    gate.stdout = r.stdout
     return r.returncode, r.stderr
 
 
@@ -122,7 +123,8 @@ def main():
         # gate
         data = tempfile.mkdtemp(dir=base)
         code, err = gate(proj, 'git commit -m "x"', data)
-        check("gate holds back the first commit of risky files", code == 2 and "security gate" in err and "src/users.py" in err and "xhigh" in err, err)
+        check("new risky files: held once with the decision guide", code == 2 and "security check" in err and "src/users.py" in err and "Decide first whether a security review is worth it" in err and "Most commits do not need one" in err, err)
+        check("the guide never makes xhigh the default", "never use it by default" in err and "opus, effort medium: a real logic change in one area. The usual choice." in err, err)
         check("gate names the categories once per file", err.count("src/auth/login.ts") == 1, err)
         code, _ = gate(proj, 'git commit -m "x"', data)
         check("the identical retry passes", code == 0)
@@ -146,7 +148,7 @@ def main():
         git(proj, "reset", "-q")
         git(proj, "add", ".github/workflows/ci.yml", "package.json")
         code, err = gate(proj, 'git commit -m "ci only"', data)
-        check("CI and deps only: Sonnet high is suggested", code == 2 and "model sonnet, effort high" in err and "xhigh" not in err, err)
+        check("new CI and dependency files: held once (new files are never 'small')", code == 2 and "2 of them new" in err, err)
 
         tracked = make_repo(base, "tracked")
         write(tracked, "src/payments/charge.ts", "export const a = 1\n")
@@ -154,7 +156,17 @@ def main():
         git(tracked, "commit", "-q", "-m", "p")
         write(tracked, "src/payments/charge.ts", "export const a = 2\n")
         code, err = gate(tracked, 'git commit -am "edit"', data)
-        check("commit -a counts unstaged tracked changes", code == 2 and "src/payments/charge.ts" in err, err)
+        check("a 2-line edit of a tracked payment file (commit -a): not held, one note", code == 0 and "security note" in gate.stdout and "2 line(s)" in gate.stdout, (code, err, gate.stdout))
+        write(tracked, "src/payments/charge.ts", "".join(f"export const a{i} = {i}\n" for i in range(30)))
+        code, err = gate(tracked, 'git commit -am "bigger"', data)
+        check("a 30-line edit of a tracked payment file: held once", code == 2 and "src/payments/charge.ts" in err and "payments" in err, err)
+        check("the identical retry passes", gate(tracked, 'git commit -am "bigger"', data)[0] == 0)
+        write(tracked, "db/migrations/002.sql", "alter table x drop column y;\n")
+        git(tracked, "add", "-A")
+        git(tracked, "commit", "-q", "-m", "m")
+        write(tracked, "db/migrations/002.sql", "alter table x drop column z;\n")
+        code, err = gate(tracked, 'git commit -am "migration tweak"', data)
+        check("a small migration change is still held (migrations are never 'small')", code == 2 and "migrations" in err, err)
         check("outside a git repo: nothing", gate(base, "git commit -m x", data)[0] == 0)
     finally:
         shutil.rmtree(base, ignore_errors=True)

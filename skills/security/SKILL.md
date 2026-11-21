@@ -12,10 +12,11 @@ Security review of a change. Arguments: `$ARGUMENTS` (optional). Main session on
 
 3. **Which files matter.** Run `"${CLAUDE_PLUGIN_ROOT}/scripts/security-map.sh" match "<project root>" <files in scope>`: each line is `category<TAB>file<TAB>reason`. No line means nothing security-relevant in scope: say so in one line and stop, unless the user asked for the review anyway (then review the whole scope).
 
-4. **Model and effort** (the routing rules; never Fable unless the user asked for Fable):
-   - any of auth, crypto, secrets, payments, migrations, injection: `crew-chief:security-reviewer` with `effort: "xhigh"` (Opus);
-   - only ci or deps: `model: "sonnet"`, `effort: "high"`;
-   - a very small diff (under about 30 changed lines) with one risky file: the agent's default (Opus, high).
+4. **Is a review worth it, and at what setting** (never Fable unless the user asked for Fable). Most changes need none: mechanical or local edits (renames, formatting, comments, log or UI text, tests, a behaviour-keeping refactor) do not. Review when behaviour changes at a trust boundary: who may access or change what, how money, prices, balances or rates are calculated or moved, how outside input reaches SQL, a shell, a file path or HTML, secrets or crypto, a migration that changes or drops data. The user asked for this run, so review what they asked; pick the smallest setting that fits:
+   - `model: "sonnet"`, `effort: "medium"`: one focused question on a small change;
+   - `model: "opus"`, `effort: "medium"`: a real logic change in one area (the usual choice);
+   - `model: "opus"`, `effort: "high"`: several risky files, a new endpoint or permission, money calculations, a data-moving migration;
+   - `effort: "xhigh"`: only for a large change spanning auth, money and data right before it ships, or when the user asks (about 2.5 times the cost of high for a small gain).
    The saver may lower this (plain saver keeps high; ultra-saver asks the user before Opus): follow what it says.
 
 5. **Brief the agent** (it does not see this conversation): the scope and the exact git command for the diff, the risky files with their categories and reasons from step 3, the project's stack in one line, any security rule the user gave in this conversation, and "read-only: report, do not fix". One agent, not several in parallel on the same diff.

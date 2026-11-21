@@ -55,6 +55,36 @@ here=$(dirname "$0")
 hits=$(printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 sh "$here/security-map.sh" match "$top" 2>/dev/null)
 [ -n "$hits" ] || exit 0
 
+# How much changed in the risky files: lines added + removed against HEAD (staged and unstaged), a file not in HEAD
+# counts as new with all its lines. Small, plain edits (most commits) are not stopped: a review there rarely finds
+# anything (Anthropic's code review numbers: under 50 changed lines about a third of reviews find something, 0.5
+# issues on average), and the cost is real.
+lines=0
+newfiles=0
+for f in $(printf '%s\n' "$hits" | cut -f2 | sort -u); do
+  if git -C "$top" cat-file -e "HEAD:$f" 2>/dev/null; then
+    c=$(git -C "$top" diff HEAD --numstat -- "$f" 2>/dev/null | awk '{ a += ($1 ~ /^[0-9]+$/ ? $1 : 0) + ($2 ~ /^[0-9]+$/ ? $2 : 0) } END { print a + 0 }')
+  else
+    newfiles=$((newfiles + 1))
+    c=$(wc -l < "$top/$f" 2>/dev/null | tr -d ' ')
+  fi
+  case "$c" in ''|*[!0-9]*) c=0 ;; esac
+  lines=$((lines + c))
+done
+cats=$(printf '%s\n' "$hits" | cut -f1 | sort -u | tr '\n' ' ')
+heavy=no
+case " $cats " in *" migrations "*|*" secrets "*) heavy=yes ;; esac
+# One line per file: its categories and reasons together.
+list=$(printf '%s\n' "$hits" | awk -F '\t' '{ if (!($2 in c)) { order[++n] = $2; c[$2] = $1; r[$2] = $3 } else { if (index("," c[$2] ",", "," $1 ",") == 0) c[$2] = c[$2] "," $1; if (index(r[$2], $3) == 0) r[$2] = r[$2] "; " $3 } } END { for (i = 1; i <= n; i++) print "- " order[i] " (" c[order[i]] ": " r[order[i]] ")" }' | head -12)
+n=$(printf '%s\n' "$hits" | cut -f2 | sort -u | wc -l | tr -d ' ')
+
+# Small and plain: the commit runs; Claude gets one line to weigh (no stop, no review asked for).
+if [ "$lines" -lt 10 ] && [ "$newfiles" -eq 0 ] && [ "$heavy" = no ]; then
+  jq -nc --arg t "crew-chief security note: this commit changes $lines line(s) in security-relevant file(s) [${cats% }]. A change this small usually needs no security review; only if it changes who may do something, how money moves, or how input reaches a query or command, look at it once more yourself before the next step." \
+    '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: $t}}'
+  exit 0
+fi
+
 state="$CLAUDE_PLUGIN_DATA/security-gate"
 # Keyed on the command only: after a review and its fixes the staged diff changes, and the identical retry must still pass.
 key=$(printf '%s\n%s' "$top" "$cmd" | cksum 2>/dev/null | tr ' ' '-')
@@ -66,23 +96,19 @@ mkdir -p "$state" 2>/dev/null || exit 0
 : > "$state/$key" 2>/dev/null || exit 0
 find "$state" -type f -mmin +240 -delete 2>/dev/null
 
-cats=$(printf '%s\n' "$hits" | cut -f1 | sort -u | tr '\n' ' ')
-top_hit=no
-for c in $cats; do
-  case " $(sh "$here/security-map.sh" top) " in *" $c "*) top_hit=yes ;; esac
-done
-if [ "$top_hit" = yes ]; then
-  how="crew-chief:security-reviewer at effort xhigh (Opus)"
-else
-  how="crew-chief:security-reviewer with model sonnet, effort high (CI and dependency changes only)"
-fi
-# One line per file: its categories and reasons together.
-list=$(printf '%s\n' "$hits" | awk -F '\t' '{ if (!($2 in c)) { order[++n] = $2; c[$2] = $1; r[$2] = $3 } else { if (index("," c[$2] ",", "," $1 ",") == 0) c[$2] = c[$2] "," $1; if (index(r[$2], $3) == 0) r[$2] = r[$2] "; " $3 } } END { for (i = 1; i <= n; i++) print "- " order[i] " (" c[order[i]] ": " r[order[i]] ")" }' | head -12)
-n=$(printf '%s\n' "$hits" | cut -f2 | sort -u | wc -l | tr -d ' ')
-
+newnote=""
+[ "$newfiles" -gt 0 ] && newnote=", $newfiles of them new"
 cat >&2 <<EOF
-crew-chief security gate: this commit touches $n security-relevant file(s) [${cats% }]:
+crew-chief security check (held once; retry the identical command to commit): this commit changes about $lines line(s) in $n security-relevant file(s)$newnote [${cats% }]:
 $list
-Before committing, run $how on the staged diff, name these categories in its brief, and fix what it reports (tell the user what it found). Then retry the identical commit command. If this exact change was already security-reviewed in this conversation, or the user said to skip the review, retry the identical command now: it passes. Do not ask the user just because of this message.
+Decide first whether a security review is worth it. Most commits do not need one.
+- No review (say so in one line, then retry the commit): the change in these files is mechanical or local (renames, formatting, comments, log or UI text, tests, a refactor that keeps behaviour), or this exact change was already reviewed in this conversation, or the user said to skip it.
+- Review when the change alters behaviour at a trust boundary: who may access or change what (auth, permissions, sessions, tokens), how money, prices, balances or rates are calculated or moved, how outside input reaches SQL, a shell, a file path or HTML, secrets or crypto, or a migration that changes or drops data.
+If you review, use crew-chief:security-reviewer at the smallest setting that fits (pass model and effort on the Agent call):
+- model sonnet, effort medium: one focused question on a small change (is this new query parameterised, is this check still applied).
+- model opus, effort medium: a real logic change in one area. The usual choice.
+- model opus, effort high: several risky files at once, a new endpoint or permission, money calculations, or a migration that moves or deletes data.
+- effort xhigh: only for a large change that spans auth, money and data together right before it ships, or when the user asks. xhigh costs about 2.5 times high for a small gain; never use it by default.
+Name the categories above in the brief, fix what it finds and tell the user, then retry the identical commit command. Do not ask the user because of this message.
 EOF
 exit 2

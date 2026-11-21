@@ -47,7 +47,7 @@ Multi-agent setups cost several times the tokens of one session, and most coding
 | A task claims to be done: check its `done_when` (or a claim) independently by running the checks, and try to refute it; give the criteria and the location, not the author's conclusion | `crew-chief:verifier` | sonnet / high |
 | Grade a finished visual or quality-sensitive result against a rubric (UI screens, renders, documents), especially when the author called its own work fine | `crew-chief:critic` | opus / medium |
 | Independent check before a commit or PR of a significant or risky change, or when the user asks | `crew-chief:reviewer` | opus / medium (high or xhigh by risk, below) |
-| Security review of a change to auth, crypto, secrets, payments, migrations, or input reaching SQL/shell/path sinks (and CI or dependency changes), or when the security gate holds back a commit; `/crew-chief:security` runs it | `crew-chief:security-reviewer` | opus / xhigh for that list; sonnet / high for CI or dependencies only |
+| Security review of a change to auth, crypto, secrets, payments, migrations, or input reaching SQL/shell/path sinks (and CI or dependency changes), or when the security gate holds back a commit; `/crew-chief:security` runs it | `crew-chief:security-reviewer` | only when behaviour changes at a trust boundary (most commits need none); sonnet / medium for one focused question, opus / medium usually, opus / high for broad, money, permission or migration changes; xhigh only for a large cross-cutting change before it ships or when the user asks |
 
 If the plugin is not installed but the project has `.claude/agents/` copies from `/crew-chief:crew-setup`, use the bare names (`scanner`, `implementer`, ...).
 

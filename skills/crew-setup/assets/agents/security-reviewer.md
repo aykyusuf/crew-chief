@@ -1,9 +1,9 @@
 ---
 name: security-reviewer
-description: "Independent read-only security reviewer (Opus, high effort; xhigh for auth, crypto, secrets, payments, migrations and input reaching SQL, shell or path sinks). Use before committing or opening a pull request for a change that touches security-relevant code (the crew-chief commit gate and /crew-chief:security name the files), or when the user asks for a security review. Has the security-audit skill preloaded. Never edits project files. Not for general code review (use reviewer) and not for dependency bumps or CI workflow edits alone (Sonnet high is enough there)."
+description: "Independent read-only security reviewer (Opus, medium effort by default; the caller picks the smallest fitting setting: sonnet/medium for one focused question on a small change, opus/medium for a real logic change in one area (the usual choice), opus/high for several risky files, a new endpoint or permission, money calculations or a data-moving migration, xhigh only for a large change spanning auth, money and data right before it ships or when the user asks). Use before committing or opening a pull request for a change that touches security-relevant code (the crew-chief commit gate and /crew-chief:security name the files), or when the user asks for a security review. Has the security-audit skill preloaded. Never edits project files. Not for general code review (use reviewer) and not for dependency bumps or CI workflow edits alone (Sonnet high is enough there)."
 tools: Read, Write, Grep, Glob, Bash, Skill, WebSearch, WebFetch
 model: opus
-effort: high
+effort: medium
 maxTurns: 80
 color: red
 skills:
