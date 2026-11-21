@@ -39,11 +39,11 @@ Multi-agent setups cost several times the tokens of one session, and most coding
 | Design spec for big UI work (3+ screens, a new site, a redesign): direction, palette, type, layout, components, motion, per-screen notes, acceptance checks, written to `.crew-chief/design/<slug>.md` (read-only, no code) | `crew-chief:ui-designer` | opus / high |
 | Design references for a UI project (the user picked "find some" at the reference step): domain notes, 3-4 live sites and open galleries, desktop and mobile screenshots and a ranked `REFS.md`, written to `.crew-chief/refs/` (no code; inspiration only; see "UI code" below) | `crew-chief:ui-scout` | sonnet / medium |
 | Rote edits in named files with a verify command (renames, the same line in many files, applying a diff you wrote) | `crew-chief:mechanic` | haiku / low |
-| A change across several modules or with real design choices, before building it: files, order, risks, a testable done condition (read-only) | `crew-chief:planner` | opus / high |
-| Multi-module change, algorithms, concurrency, unknown root cause, a task `implementer` stopped on | `crew-chief:implementer-hard` | opus / high |
+| A change across several modules or with real design choices, before building it: files, order, risks, a testable done condition (read-only) | `crew-chief:planner` | opus / medium (high for a large or risky change) |
+| Multi-module change, algorithms, concurrency, unknown root cause, a task `implementer` stopped on | `crew-chief:implementer-hard` | opus / medium (high after a failed attempt or for risky work) |
 | Quick read-only check that a page or screen is up, shows text X, or logs errors | `crew-chief:ui-smoke` | haiku / low |
 | Multi-step UI flow or regression pass in a browser, emulator, or simulator (screenshots) | `crew-chief:ui-tester` | sonnet / medium |
-| Independent check before a commit or PR of a significant or risky change, or when the user asks | `crew-chief:reviewer` | opus / high |
+| Independent check before a commit or PR of a significant or risky change, or when the user asks | `crew-chief:reviewer` | opus / medium (high or xhigh by risk, below) |
 | Security review of a change to auth, crypto, secrets, payments, migrations, or input reaching SQL/shell/path sinks (and CI or dependency changes), or when the security gate holds back a commit; `/crew-chief:security` runs it | `crew-chief:security-reviewer` | opus / xhigh for that list; sonnet / high for CI or dependencies only |
 
 If the plugin is not installed but the project has `.claude/agents/` copies from `/crew-chief:crew-setup`, use the bare names (`scanner`, `implementer`, ...).
@@ -60,6 +60,8 @@ The first two decide the tier; the last decides how carefully the result is chec
 
 **Haiku at low effort** skips searches and checks on long briefs (Anthropic's effort guide): keep `scanner`, `mechanic` and `ui-smoke` briefs short and specific, and if one misses things try haiku at medium before moving to Sonnet.
 
+**Start at medium, climb only when needed** (Anthropic's Claude 5.5 model guide: most work starts on Opus 5.5 at medium; medium scores about 2.5 points below high at about 70 percent of the cost, xhigh about 1.4 points above high at 2.5 times the cost). When a piece fails, climb in this order: (1) can the agent check its own work (a test, a build, a script)? give it that check first; (2) raise effort one step; (3) only then a bigger model, at a lower effort. With an automatic check, run a batch at low or medium and re-run only the failures at high: in the guide's numbers that passed more tasks than running everything at high, for less. Fable is never a tier: pass `model` per call, only when Opus at high was not enough and the user asked for Fable. For wide file searches use `crew-chief:scanner` (Haiku) rather than the built-in Explore, which runs on the session's own (often expensive) model.
+
 **Adjust per call.** The Agent tool takes `model` and `effort` (Claude Code 2.1.292+). They override the tier's defaults for that call only:
 - Easier than the tier assumes: lower effort before lowering the model.
 - The agent was careless (skipped files, did not run the check): raise **effort**.
@@ -67,7 +69,8 @@ The first two decide the tier; the last decides how carefully the result is chec
 - The user named a model or effort ("give this to Sonnet at medium"): pass exactly that.
 
 **Review depth by risk.** Spend review tokens where a missed bug is expensive:
-- Ordinary change: `reviewer` at its default (high).
+- Ordinary change: `reviewer` at its default (medium).
+- A significant or risky change (a public API, a schema, many callers): `reviewer` with `effort: "high"`.
 - Security-relevant files (the list in the table above): `security-reviewer` (it has the security-audit skill), not `reviewer`. Data loss, concurrency, or code about to ship: `reviewer` with `effort: "xhigh"`. On Opus 5.5, xhigh scores slightly higher than high at about 2.5 times the cost, so use it only on this list.
 - A large diff across many files: the built-in `/code-review` (it runs several finders plus a verification pass), or a workflow with adversarial verification. Not one reviewer at max effort.
 - Small or mechanical edits: no review agent. Run the checks yourself.

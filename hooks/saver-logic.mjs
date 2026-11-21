@@ -164,6 +164,8 @@ export function agentCallEffort(input) {
 // { rewrite: {model?, effort?}, ask: boolean, tier }.
 const SONNET_NAMED = /(^|:)(deep-reader|implementer|ui-implementer|ui-tester|ui-scout)$/
 const HAIKU_NAMED = /(^|:)(scanner|ui-smoke|mechanic)$/
+// Ultra-saver only: these Opus agents get Sonnet at HIGH (not medium) when they are moved off Opus, to make up for the
+// smaller model, even though their own default is now medium on Opus.
 const HIGH_FIRST = /(^|:)(implementer-hard|reviewer|security-reviewer|planner|ui-designer)$/
 
 export function ultraAgentCall(input, allowHeavy = false, mainModel = undefined) {

@@ -10,14 +10,14 @@ you ──▶ main session (your model/effort) ──┬─ does interactive, co
                                            ├─▶ deep-reader      sonnet / medium  multi-file analysis, web research
                                            ├─▶ mechanic         haiku  / low     rote edits with a verify command
                                            ├─▶ implementer      sonnet / medium  well-specified edits
-                                           ├─▶ planner          opus   / high    read-only plan before a big change
-                                           ├─▶ implementer-hard opus   / high    hard, multi-module work
+                                           ├─▶ planner          opus   / medium  read-only plan before a big change
+                                           ├─▶ implementer-hard opus   / medium  hard, multi-module work
                                            ├─▶ ui-designer      opus   / high    read-only design spec for big UI work
                                            ├─▶ ui-implementer   sonnet / medium  UI code, design skills preloaded (model/effort per call)
                                            ├─▶ ui-scout         sonnet / medium  design references: live sites + galleries, screenshots
                                            ├─▶ ui-smoke         haiku  / low     quick read-only UI check
                                            ├─▶ ui-tester        sonnet / medium  browser/emulator flows
-                                           └─▶ reviewer         opus   / high    independent review
+                                           └─▶ reviewer         opus   / medium  independent review
 ```
 
 ## Why

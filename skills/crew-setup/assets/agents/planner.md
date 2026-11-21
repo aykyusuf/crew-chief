@@ -1,9 +1,9 @@
 ---
 name: planner
-description: "Read-only planner (Opus, high effort). Use before implementer-hard on a change that spans several modules or has real design choices: it returns the files to touch, the steps in order, the risks, and a testable done condition, so the build can start in a fresh context. Never edits project files. Do not use for small or well-specified tasks (brief an implementer directly), for pure analysis (use deep-reader) or when the user wants to iterate on the plan with you (stay in the main session)."
+description: "Read-only planner (Opus, medium effort; high for a large or risky change). Use before implementer-hard on a change that spans several modules or has real design choices: it returns the files to touch, the steps in order, the risks, and a testable done condition, so the build can start in a fresh context. Never edits project files. Do not use for small or well-specified tasks (brief an implementer directly), for pure analysis (use deep-reader) or when the user wants to iterate on the plan with you (stay in the main session)."
 tools: Read, Write, Grep, Glob, Bash, Skill, WebSearch, WebFetch
 model: opus
-effort: high
+effort: medium
 maxTurns: 40
 color: orange
 ---

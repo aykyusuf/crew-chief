@@ -1,9 +1,9 @@
 ---
 name: reviewer
-description: "Independent read-only reviewer (Opus, high effort). Use before a commit or pull request of a significant or risky change, when the user asks for a review, or when a claim or test suite needs an independent check. Not after every small edit. Because it does not share the author's context, it catches blind spots. Never edits project files."
+description: "Independent read-only reviewer (Opus, medium effort; the caller passes high or xhigh for risky changes). Use before a commit or pull request of a significant or risky change, when the user asks for a review, or when a claim or test suite needs an independent check. Not after every small edit. Because it does not share the author's context, it catches blind spots. Never edits project files."
 tools: Read, Write, Grep, Glob, Bash, Skill
 model: opus
-effort: high
+effort: medium
 maxTurns: 80
 color: red
 ---

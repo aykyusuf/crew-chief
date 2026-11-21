@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- **Hard agents start at medium.** `implementer-hard`, `planner` and `reviewer` now default to Opus at medium effort (Anthropic's Claude 5.5 model guide: most work starts on Opus medium, about 2.5 points below high at about 70 percent of the cost); the routing raises them to high or xhigh by risk or after a failed attempt, and adds the guide's ladder (self-check, then effort, then a bigger model) and "run cheap, re-run only failures high". Ultra-saver still moves them to Sonnet at high.
 - **Night mode dry-run fixes (found in the first live rehearsal).** caffeinate starts in a session of its own with no stdin or stdout, so the Bash call that arms the night no longer hangs; a dry run never closes itself early (it ticks into DECISIONS.md until the Stop hook ends it at the deadline) and always asks its test question, even after an earlier dismissal.
 - **The compaction's update request names the project's own handoff files** (`durum.md`, `ilerleme.md` where a project uses them) with their paths; a duplicated rule in `agents/mechanic.md` is gone.
 - **Guard: `git commit --amend` of an unpushed commit passes.** It has its own rule (`git-amend`) and is held only when HEAD is already on a remote branch; rebase, filter-branch, force push and `reset --hard` are held as before.

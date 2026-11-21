@@ -1,9 +1,9 @@
 ---
 name: implementer-hard
-description: "Implements hard code changes end to end (Opus, high effort). Use for scoped but difficult work that can run without back-and-forth with the user: changes spanning several modules, algorithms, geometry, concurrency, debugging with an unknown root cause, or a task the implementer agent stopped on. Do not use for easy edits (use implementer) or for work that needs frequent user feedback or product decisions (keep it in the main session)."
+description: "Implements hard code changes end to end (Opus, medium effort; the caller raises it to high or xhigh for risky work or after a failed attempt). Use for scoped but difficult work that can run without back-and-forth with the user: changes spanning several modules, algorithms, geometry, concurrency, debugging with an unknown root cause, or a task the implementer agent stopped on. Do not use for easy edits (use implementer) or for work that needs frequent user feedback or product decisions (keep it in the main session)."
 tools: Read, Edit, Write, Grep, Glob, Bash, Skill
 model: opus
-effort: high
+effort: medium
 maxTurns: 120
 color: purple
 ---

@@ -15,13 +15,13 @@ Tiers (agents in .claude/agents, default model/effort):
 - implementer (sonnet/medium): changes where files, change, and check are all specified.
 - ui-implementer (sonnet/medium): UI code (components, styles, pages, screens, Flutter widgets, SwiftUI views) with the design skills preloaded; UI code goes here, not to implementer. Pass model and effort on every UI call (the UI hint carries the table, data/ui-policy.json; sonnet/medium is only the default, never Fable unless the user asks). The brief names the project UI profile (.crew-chief/ui-profile.json), the extra skills to load and the reference image paths; a UI brief without them, or sent to another writing agent, is held back once.
 - mechanic (haiku/low): rote edits in named files with a verify command (renames, same line in many files, applying a given diff); anything needing judgement goes to implementer.
-- implementer-hard (opus/high): multi-module, algorithmic, or unknown-root-cause work.
-- planner (opus/high): read-only plan for a multi-module change before implementer-hard: files, order, risks, a testable done condition; no edits.
+- implementer-hard (opus/medium; high after a failed attempt or for risky work): multi-module, algorithmic, or unknown-root-cause work.
+- planner (opus/medium; high for a large or risky change): read-only plan for a multi-module change before implementer-hard: files, order, risks, a testable done condition; no edits.
 - ui-designer (opus/high): read-only design spec for big UI work (3+ screens, a new site, a redesign), written to .crew-chief/design/<slug>.md; no code. ui-implementer then builds from the spec (sonnet/high).
 - ui-scout (sonnet/medium): design reference scout, used when the user picks "find some" at the reference step: it researches what matters in this kind of project, finds 3-4 live sites and open galleries, looks at them in a browser, and writes screenshots and REFS.md to .crew-chief/refs/ (no code; inspiration only). Never run it and ui-tester on the same browser at the same time.
 - ui-smoke (haiku/low): quick read-only check that a page or screen is up, shows given text, or logs errors; no screenshots.
 - ui-tester (sonnet/medium): multi-step browser, emulator, or simulator checks with screenshots; reports pass/fail with evidence; never two UI agents on the same device or browser at once.
-- reviewer (opus/high): independent review before a commit or PR of a significant or risky change; effort xhigh only for security, data loss, concurrency, money, or shipping code; large diffs go to /code-review.
+- reviewer (opus/medium): independent review before a commit or PR of a significant or risky change; effort high for risky changes, xhigh only for security, data loss, concurrency, money, or shipping code; large diffs go to /code-review.
 - security-reviewer (opus/high, read-only, security-audit skill preloaded): security review before committing changes to auth, crypto, secrets, payments, migrations or input reaching SQL/shell/path sinks (effort xhigh there; model sonnet, effort high for CI or dependency changes only). /security runs it; a gate holds back the first git commit of such files (the identical retry passes).
 
 Rules:
