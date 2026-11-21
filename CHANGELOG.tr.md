@@ -2,6 +2,10 @@
 
 Türkçe notlar 0.3.0'dan başlar; öncesi için [CHANGELOG.md](CHANGELOG.md) (İngilizce). Bildirim Türkçe olduğunda "ne yeni" maddeleri buradan okunur; bu dosyada o sürümün bölümü yoksa İngilizce olanı gösterilir.
 
+## 0.13.1 (2026-11-21)
+- **Yeni ajanlar için panel kedileri.** `panel.style cat` açıkken security-reviewer, ui-designer, ui-implementer, ui-scout, critic, researcher, verifier ve ui-smoke düz kedi yerine kendi görünümüyle çıkar (hap gözlük ve yağan kodlu ceket, bere ve palet, boyacı şapkası ve fırça, safari şapkası ve dürbün, silindir şapka, monokl ve puan kartı, kep ve kitaplar, tik rozeti ve pano, duman bulutu ve fener), her birinin kendi hareketi var; capsule stili de aynı şapkaları takar. İlk sekiz görünüm değişmedi.
+- **Gece modu kilidi yük altında güvenli.** Kilit sahibini gösteren atomik bir symlink; sahibi yaşarken asla kırılmaz, gece guard'ı da boş bir okumayı fail-open'dan önce yeniden dener (CI'da bekleyen bir yazıcı zaman aşımında kilidi kırınca bir güncelleme kaybolmuştu).
+
 ## 0.13.0 (2026-11-21)
 - **Desktop durum satırı: saver bir buton, compact sorusu bir çip.** Desktop durum satırının sonundaki saver kelimesine basınca kapalı -> saver -> ultra saver -> kapalı arasında döner ve durumunu net gösterir (dolu nokta, parlak ve kalın / boş nokta, soluk); `/saver on` ultra'dan bir kademe iner. Desktop'ta compact sorusu kart yerine satırın sonunda küçük bir çiptir (`⇣ compact 395k`, basmak = evet, ✕ = şimdi değil); toast'u soru açılınca gönderilir.
 - **Doğrudan çağrının reddedildiği yerde de compact çalışır.** `$.session.compact`'i reddeden headless ya da Desktop oturumu aynı compact'i crew-chief'in brief'iyle bir `/compact` komutu olarak alır; Desktop'ta compact'ten önceki bağlam sayısı artık sonrasında gösterilmez.

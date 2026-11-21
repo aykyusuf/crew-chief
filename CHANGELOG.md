@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.1 (2026-11-21)
+- **Panel cats for the newer agents.** With `panel.style cat`, security-reviewer, ui-designer, ui-implementer, ui-scout, critic, researcher, verifier and ui-smoke get a look of their own instead of the plain cat (pill glasses and a coat with falling code, a beret and palette, a painter cap and brush, a safari hat and binoculars, a top hat, monocle and score card, a mortarboard with books, a check badge and a clipboard, a smoke puff and flashlight), each with its own motion; the capsule style wears the same hats. The first eight looks are unchanged.
+- **Night mode state lock is safe under load.** The lock is an atomic symlink naming its owner and is never broken while the owner lives, and the night guard retries an empty read before failing open (CI lost an update when a waiting writer broke the lock after a timeout).
+
 ## 0.13.0 (2026-11-21)
 - **Desktop status line: the saver is a button, the compaction question is a chip.** The saver word at the end of the Desktop status line cycles off -> saver -> ultra-saver -> off on a press and shows its state clearly (filled dot, bright and bold / empty dot, faint); `/saver on` steps down from ultra. On Desktop the compaction question is a small chip at the line's end (`⇣ compact 395k`, press = yes, ✕ = not now) instead of a card; its toast is sent when the question opens.
 - **Compaction works where the direct call is refused.** A headless or Desktop session that refuses `$.session.compact` gets the same compaction as a `/compact` command with crew-chief's brief, and the context figure from before a compaction is no longer shown afterwards on Desktop.
