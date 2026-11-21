@@ -81,11 +81,12 @@ n=$(printf '%s\n' "$hits" | cut -f2 | sort -u | wc -l | tr -d ' ')
 # Small is not the same as harmless: a removed permission check or user input added to a query is two lines. So the
 # changed lines themselves (added and removed) are matched against the content rules; any hit means a real look.
 risky_lines=$(for f in $(printf '%s\n' "$hits" | cut -f2 | sort -u); do git -C "$top" diff HEAD -U0 -- "$f" 2>/dev/null; done | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | sed 's/^[-+]//' | sh "$here/security-map.sh" content 2>/dev/null | cut -f1 | sort -u | tr '\n' ' ')
-# Small and plain: the commit runs; Claude gets one line to weigh (no stop, no review asked for).
+# Every commit that touches these files is held once (user, 2026-11-21: the hold is cheap, the review is Claude's
+# call). Size and the risky patterns in the changed lines only shape the hint in the message.
 if [ "$lines" -lt 10 ] && [ "$newfiles" -eq 0 ] && [ "$heavy" = no ] && [ -z "$risky_lines" ]; then
-  jq -nc --arg t "crew-chief security note: this commit changes $lines line(s) in security-relevant file(s) [${cats% }]. A change this small usually needs no security review; only if it changes who may do something, how money moves, or how input reaches a query or command, look at it once more yourself before the next step." \
-    '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: $t}}'
-  exit 0
+  hint="It looks small and plain (no risky pattern in the changed lines): most likely no review is needed; say so in one line and retry."
+else
+  hint=""
 fi
 
 state="$CLAUDE_PLUGIN_DATA/security-gate"
@@ -105,7 +106,7 @@ newnote=""
 cat >&2 <<EOF
 crew-chief security check (held once; retry the identical command to commit): this commit changes about $lines line(s) in $n security-relevant file(s)$newnote [${cats% }]:
 $list
-Decide first whether a security review is worth it. Most commits do not need one.
+Decide first whether a security review is worth it. Most commits do not need one.${hint:+ $hint}
 - No review (say so in one line, then retry the commit): the change in these files is mechanical or local (renames, formatting, comments, log or UI text, tests, a refactor that keeps behaviour), or this exact change was already reviewed in this conversation, or the user said to skip it.
 - Review when the change alters behaviour at a trust boundary: who may access or change what (auth, permissions, sessions, tokens), how money, prices, balances or rates are calculated or moved, how outside input reaches SQL, a shell, a file path or HTML, secrets or crypto, or a migration that changes or drops data.
 If you review, use crew-chief:security-reviewer at the smallest setting that fits (pass model and effort on the Agent call):

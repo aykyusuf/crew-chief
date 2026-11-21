@@ -15,10 +15,10 @@
 # match works without it (the map's own entries are then skipped). Never blocks: exit 0 always.
 
 # Path rules: category<TAB>extended regex on the lower-cased repo path<TAB>reason.
-PATH_RULES='auth	(^|/)(auth|authn|authz|authentication|authorization|login|logout|signin|signup|session|sessions|oauth|sso|passport|permissions?|acl|rbac|middleware|guards?)(/|\.|_|-|$)|jwt|password	authentication or access control
+PATH_RULES='auth	(^|/)(auth|authn|authz|authentication|authorization|login|logout|signin|signup|session|sessions|oauth|sso|passport|permissions?|acl|rbac|middleware|guards?|giris|oturum|yetki|yetkilendirme)(/|\.|_|-|$)|jwt|password|sifre|şifre|parola|yetki	authentication or access control
 crypto	(^|/)[^/]*(crypto|encrypt|decrypt|cipher|signing|signature|hmac)[^/]*$	cryptography
 secrets	(^|/)\.env($|\.)|secret|credential|\.pem$|\.key$|\.p12$|keystore|vault	secrets or keys
-payments	payment|billing|checkout|invoice|stripe|iyzico|paytr|wallet|refund|payout|subscription	payments or money
+payments	payment|billing|checkout|invoice|stripe|iyzico|paytr|wallet|refund|payout|subscription|odeme|ödeme|tahsilat|fatura|makbuz|bakiye|doviz|döviz|altin|altın|fiyat|tutar|(^|/|_|-|\.)(kur|kurlar|gram|kasa|cari|parite)(/|_|-|\.|$)	payments or money
 migrations	(^|/)(migrations?|migrate|alembic|db/schema)(/|\.)|\.sql$|schema\.prisma$	database schema or data migration
 ci	^\.github/workflows/|\.gitlab-ci|(^|/)jenkinsfile$|(^|/)dockerfile|docker-compose|(^|/)\.circleci/	CI or deployment
 deps	(^|/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|pyproject\.toml|poetry\.lock|pipfile(\.lock)?|go\.mod|go\.sum|cargo\.toml|cargo\.lock|gemfile(\.lock)?|composer\.(json|lock)|pubspec\.(yaml|lock)|podfile(\.lock)?)$	dependencies'
@@ -27,8 +27,8 @@ deps	(^|/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|requireme
 CONTENT_RULES='injection	(select|insert|update|delete)[[:space:]].*(\+[[:space:]]*[a-z_]|\$\{|%s|" *%|f["'"'"'][^"'"'"']*\{)|\.(query|execute|raw|exec)\([[:space:]]*[`"'"'"'f].*(\+|\$\{)|child_process|subprocess\.|os\.system|shell[[:space:]]*=[[:space:]]*true|[^a-z_.]eval\(|runtime\.getruntime|dangerouslysetinnerhtml|innerhtml[[:space:]]*=	input may reach a SQL, shell or HTML sink
 secrets	(api[_-]?key|secret|token|passw(or)?d|private[_-]?key)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"'[:space:]]{8,}|-----begin [a-z ]*private key	a secret written in code
 crypto	md5\(|sha1\(|createcipher\(|des-|ecb|math\.random\(\)	weak or misused crypto
-auth	jsonwebtoken|jwt\.(sign|verify|decode)|bcrypt|argon2|verify_?password|is_?admin|has_?role|@login_required|authorize\(	authentication or access checks
-payments	stripe\.|iyzico|paytr|charge\(|refund\(|amount[[:space:]]*[-+*/]=?	money handling'
+auth	jsonwebtoken|jwt\.(sign|verify|decode)|bcrypt|argon2|verify_?password|is_?admin|has_?role|@login_required|authorize\(|is_?authori[sz]ed|can_?(edit|delete|access|manage)|yetki|sifre|şifre|parola	authentication or access checks
+payments	stripe\.|iyzico|paytr|charge\(|refund\(|(amount|price|total|balance|rate|tutar|bakiye|fiyat|toplam|kur|doviz|altin|gram)[a-z_]*[[:space:]]*[-+*/]=?[[:space:]]*[a-z0-9_(]	money handling'
 
 TOP='auth crypto secrets payments migrations injection'
 

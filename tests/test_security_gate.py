@@ -156,7 +156,7 @@ def main():
         git(tracked, "commit", "-q", "-m", "p")
         write(tracked, "src/payments/charge.ts", "export const a = 2\n")
         code, err = gate(tracked, 'git commit -am "edit"', data)
-        check("a 2-line edit of a tracked payment file (commit -a): not held, one note", code == 0 and "security note" in gate.stdout and "2 line(s)" in gate.stdout, (code, err, gate.stdout))
+        check("a 2-line plain edit of a tracked payment file (commit -a): held once with the 'small and plain' hint", code == 2 and "looks small and plain" in err and "src/payments/charge.ts" in err, (code, err))
         write(tracked, "src/payments/charge.ts", "".join(f"export const a{i} = {i}\n" for i in range(30)))
         code, err = gate(tracked, 'git commit -am "bigger"', data)
         check("a 30-line edit of a tracked payment file: held once", code == 2 and "src/payments/charge.ts" in err and "payments" in err, err)
@@ -168,6 +168,22 @@ def main():
         code, err = gate(tracked, 'git commit -am "migration tweak"', data)
         check("a small migration change is still held (migrations are never 'small')", code == 2 and "migrations" in err, err)
         check("outside a git repo: nothing", gate(base, "git commit -m x", data)[0] == 0)
+        # Turkish domain words (the user's projects): paths and changed lines
+        hits = {f: {h[0] for h in match(proj, f)} for f in []}
+        tr = make_repo(base, "tr")
+        for f, text in [("src/odeme/tahsilat.ts", "x"), ("lib/kur/guncelle.dart", "x"), ("app/bakiye_servisi.py", "x"), ("src/kasa.ts", "x"),
+                        ("src/yetki/kontrol.ts", "x"), ("src/program.ts", "x"), ("docs/kurulum.md", "x"), ("src/diagram.ts", "x")]:
+            write(tr, f, text)
+        found = {}
+        for cat, f, _ in match(tr, "src/odeme/tahsilat.ts", "lib/kur/guncelle.dart", "app/bakiye_servisi.py", "src/kasa.ts", "src/yetki/kontrol.ts", "src/program.ts", "docs/kurulum.md", "src/diagram.ts"):
+            found.setdefault(f, set()).add(cat)
+        check("TR: odeme, kur, bakiye and kasa paths are payments", all("payments" in found.get(f, set()) for f in ["src/odeme/tahsilat.ts", "lib/kur/guncelle.dart", "app/bakiye_servisi.py", "src/kasa.ts"]), found)
+        check("TR: a yetki path is auth", "auth" in found.get("src/yetki/kontrol.ts", set()), found)
+        check("TR: program, kurulum and diagram are not money", not any(f in found for f in ["src/program.ts", "docs/kurulum.md", "src/diagram.ts"]), found)
+        r = subprocess.run(["sh", MAP, "content"], input="  yeniBakiye = bakiye - tutar\n", capture_output=True, text=True)
+        check("TR: balance arithmetic in the changed lines is money handling", "payments" in r.stdout, r.stdout)
+        r = subprocess.run(["sh", MAP, "content"], input="  if (!kullanici.yetkili) return\n", capture_output=True, text=True)
+        check("TR: a yetki check in the changed lines is an access check", "auth" in r.stdout, r.stdout)
         # small but dangerous: the changed lines themselves are checked (a removed check, input added to a query)
         small = make_repo(base, "small")
         write(small, "src/auth/guard.ts", "export function canEdit(u) {\n  if (!isAdmin(u)) return false\n  return true\n}\n")
@@ -175,7 +191,7 @@ def main():
         git(small, "add", "-A"); git(small, "commit", "-q", "-m", "base")
         write(small, "src/auth/guard.ts", "export function canEdit(u) {\n  return true\n}\n")
         code, err = gate(small, 'git commit -am "simplify"', data)
-        check("a 1-line removal of an isAdmin check is held despite its size", code == 2 and "the changed lines themselves touch: auth" in err, (code, err, gate.stdout))
+        check("a 1-line removal of an isAdmin check is held and named, without the 'plain' hint", code == 2 and "the changed lines themselves touch: auth" in err and "looks small and plain" not in err, (code, err))
         git(small, "checkout", "-q", "--", "src/auth/guard.ts")
         write(small, "src/db/users.py", "def find(db, name):\n    return db.execute(\"SELECT * FROM users WHERE name = '\" + name + \"'\")\n")
         code, err = gate(small, 'git commit -am "inline the name"', data)
@@ -183,7 +199,7 @@ def main():
         git(small, "checkout", "-q", "--", "src/db/users.py")
         write(small, "src/auth/guard.ts", "// who may edit\nexport function canEdit(u) {\n  if (!isAdmin(u)) return false\n  return true\n}\n")
         code, err = gate(small, 'git commit -am "comment"', data)
-        check("a 1-line comment in an auth file: not held, one note", code == 0 and "security note" in gate.stdout, (code, err, gate.stdout))
+        check("a 1-line comment in an auth file: held once, hinted as small and plain", code == 2 and "looks small and plain" in err, (code, err))
     finally:
         shutil.rmtree(base, ignore_errors=True)
 
