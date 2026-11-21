@@ -141,6 +141,9 @@ The numbers crew-chief uses are yours to change, without environment variables. 
 
 If a question comes too early for you: `/crew-config set compact.arm 400k`, `/crew-config set compact.ask 600k`, or `/crew-config set compact.fallback off`.
 
+
+**Per project: `.claude/crew-chief.json`.** A project can carry its own values in this file, as flat keys (`{"compact.ask": "300k", "compact.arm": "200k"}`); they win over `/crew-config`'s saved values and lose to environment variables, and `/crew-config` marks them `[this project]`. The compaction question's "Don't ask again" is written there as `"compact.never": true`, so it holds for that project in later sessions too; `/crew-compact` removes it, `/crew-compact never` sets it.
+
 ## Compact flow
 
 A long conversation costs more with every request and answers worse. `/compact` helps, but it replaces the conversation with a summary, and details, especially rules you stated early, can fall out of it. This flow makes compaction a decision you take at a good moment, with safeguards.

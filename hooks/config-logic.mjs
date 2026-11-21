@@ -129,11 +129,14 @@ export function parseSetting(key, text) {
 }
 
 // One key: the value in force and where it came from. A bad value at a level is skipped.
-export function resolveSetting(key, envRaw, storedRaw) {
+// Order: the environment, then the project's .claude/crew-chief.json, then the value saved with /crew-config, then the default.
+export function resolveSetting(key, envRaw, storedRaw, projectRaw) {
   const def = SETTINGS[key]
   if (!def) return undefined
   const fromEnv = envRaw === undefined || envRaw === null ? undefined : def.parse(envRaw)
   if (fromEnv !== undefined) return { value: fromEnv, source: 'env' }
+  const fromProject = projectRaw === undefined || projectRaw === null ? undefined : def.parse(String(projectRaw))
+  if (fromProject !== undefined) return { value: fromProject, source: 'project' }
   const fromStore = storedRaw === undefined || storedRaw === null ? undefined : def.parse(storedRaw)
   if (fromStore !== undefined) return { value: fromStore, source: 'saved' }
   return { value: def.def, source: 'default' }

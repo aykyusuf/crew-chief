@@ -84,6 +84,7 @@ function harness(on: any, opts: Opts = {}) {
   on('fs.list', () => ({ value: [] }))
   on('fs.write', ($: any, e: any) => {
     state.written.push(e.path)
+    if (typeof e.text === 'string') state.files[e.path] = e.text
     return { value: undefined }
   })
   on('process.run', ($: any, e: any) => {
@@ -417,6 +418,35 @@ test('a project without handoff files is not asked about them, only told the com
   await finishTurn($, s)
   await runClock(s, 1500)
   expect(s.compactCalls.length).toBe(1)
+})
+
+test('"don\'t ask again" is kept for the project in .claude/crew-chief.json and read at the next start', async ($, on) => {
+  const s = harness(on, { answers: [NEVER] })
+  await start($)
+  await approvedPlan($, s)
+  const path = '/work/.claude/crew-chief.json'
+  expect(JSON.parse(s.files[path])['compact.never']).toBe(true)
+  // A new session in the same project: never asked, the tool says not needed.
+  await start($)
+  await setTokens($, s, 450_000)
+  const r = await $.tool.call({ tool: TOOL, phase: 'x' })
+  expect(JSON.stringify(r)).toContain('Not needed yet')
+  await askAtTurnEnd($, s)
+  expect(s.questions.length).toBe(1)
+})
+
+test('/crew-compact undoes the project\'s "don\'t ask again"; /crew-compact never sets it', async ($, on) => {
+  const path = '/work/.claude/crew-chief.json'
+  const s = harness(on, { answers: [LATER], files: { [path]: JSON.stringify({ 'compact.never': true, 'compact.ask': '300k' }) } })
+  await start($)
+  await $.command.run({ command: 'crew-compact', args: '' })
+  await runClock(s, 1000)
+  const after = JSON.parse(s.files[path])
+  expect(after['compact.never']).toBeUndefined()
+  expect(after['compact.ask']).toBe('300k') // the other keys stay
+  await $.command.run({ command: 'crew-compact', args: 'never' })
+  await settle()
+  expect(JSON.parse(s.files[path])['compact.never']).toBe(true)
 })
 
 test('"not now" arms again only after 100k more tokens', async ($, on) => {

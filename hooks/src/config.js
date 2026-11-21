@@ -1,7 +1,8 @@
 // /crew-config: one place to see and change the numbers the mod uses (when the compact flow speaks up, how
 // the saver asks, how long a question waits). A value is kept in the plugin's store, so it survives the
 // session; the environment variable of the same name, when set, still wins (kept for scripts).
-// Nothing is written to settings.json or any project file.
+// Nothing is written to settings.json. A project can carry its own values in .claude/crew-chief.json (read below the
+// environment); the only thing the mod writes there is the compaction question's "don't ask again" (compact.never).
 import { perfFileWrite, perfReaderKnown, perfReaderRefresh } from './crew-ui.mjs'
 import { SETTINGS, SETTING_KEYS, checkSettings, envName, formatSetting, parseSetting, resolveSetting, storeText } from './config-logic.mjs'
 
@@ -59,9 +60,61 @@ async function storedRaw($, key) {
   }
 }
 
-// The value in force and where it came from: { value, source: 'env' | 'saved' | 'default' }.
+// ---- the project file: <project root>/.claude/crew-chief.json -----------------------------------------------------
+// Per-project values (flat keys: { "compact.ask": "300k", "compact.never": true }). Read for every setting below the
+// environment and above /crew-config's saved value; written only for the compaction "don't ask again" answer.
+const PROJECT_TTL_MS = 5000
+let projectCache = { at: -Infinity, root: undefined, data: undefined }
+
+async function projectPath($) {
+  try {
+    const root = await $.session.root()
+    return typeof root === 'string' && root !== '' ? `${root.replace(/\/+$/, '')}/.claude/crew-chief.json` : undefined
+  } catch (err) {
+    return undefined
+  }
+}
+
+export async function projectConfig($) {
+  const now = await $.clock.now()
+  const path = await projectPath($)
+  if (projectCache.root === path && now - projectCache.at < PROJECT_TTL_MS) return projectCache.data
+  let data = {}
+  if (path) {
+    try {
+      if (await $.fs.exists(path)) {
+        const parsed = JSON.parse(await $.fs.read(path))
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) data = parsed
+      }
+    } catch (err) {
+      data = {}
+    }
+  }
+  projectCache = { at: now, root: path, data }
+  return data
+}
+
+// Sets (or, with undefined, removes) one key in the project file, keeping the rest. true when written.
+export async function projectConfigSet($, key, value) {
+  const path = await projectPath($)
+  if (!path) return false
+  try {
+    projectCache.at = -Infinity
+    const data = { ...(await projectConfig($)) }
+    if (value === undefined) delete data[key]
+    else data[key] = value
+    await $.fs.write(path, JSON.stringify(data, null, 2) + '\n')
+    projectCache = { at: -Infinity, root: undefined, data: undefined }
+    return true
+  } catch (err) {
+    return false
+  }
+}
+
+// The value in force and where it came from: { value, source: 'env' | 'project' | 'saved' | 'default' }.
 export async function cfgState($, key) {
-  return resolveSetting(key, await envRaw($, key), await storedRaw($, key))
+  const project = await projectConfig($)
+  return resolveSetting(key, await envRaw($, key), await storedRaw($, key), project ? project[key] : undefined)
 }
 
 export async function cfgGet($, key) {
@@ -105,7 +158,7 @@ async function listText($) {
       lines.push(group + ':')
     }
     const st = await cfgState($, key)
-    const mark = st.source === 'default' ? '' : st.source === 'env' ? ` [${envName(key)} in the environment wins]` : ' [saved]'
+    const mark = st.source === 'default' ? '' : st.source === 'env' ? ` [${envName(key)} in the environment wins]` : st.source === 'project' ? ' [this project: .claude/crew-chief.json]' : ' [saved]'
     lines.push(`  ${key} = ${formatSetting(key, st.value)}${mark}${perfNote(key, st.value)}  ${def.what}`)
   }
   const problems = checkSettings(await allValues($))

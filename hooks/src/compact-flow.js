@@ -24,7 +24,7 @@ import { open } from './coord.mjs'
 import { findHandoff } from './handoff.mjs'
 import { statsNoteBoundary } from './stats-flow.mjs'
 import { resolveLang } from './lang.mjs'
-import { cfgGet, cfgState } from './config.mjs'
+import { cfgGet, cfgState, projectConfig, projectConfigSet } from './config.mjs'
 import { askWithDeadline } from './ask.mjs'
 import { nightAfterCompaction } from './night.mjs'
 import { uiAnswerOpen } from './crew-ui.mjs'
@@ -364,6 +364,8 @@ async function askAndPlan($, why) {
     }
     if (answer === answers[2]) {
       ck.never = true
+      // Kept for this project (.claude/crew-chief.json), not only for this session; /crew-compact undoes it.
+      await projectConfigSet($, 'compact.never', true)
       return 'never'
     }
     ck.armed = false
@@ -485,6 +487,7 @@ async function advancePlan($) {
 // The question the person asked for (/crew-compact, or the band's compact key): clears "never", asks when the
 // loop is free (a command or a key must not hold the turn while the person answers).
 function compactAskLater($) {
+  if (ck.never) projectConfigSet($, 'compact.never', undefined).catch(() => false)
   ck.never = false
   $.clock.after(300, async () => {
     const outcome = await askAndPlan($, {})
@@ -746,6 +749,8 @@ export async function compactSessionStart($) {
   ck.toolReady = false
   ck.directRefused = false
   if (await disabled($)) return
+  // "Don't ask again" given in an earlier session of this project.
+  if ((await safe(() => projectConfig($), {}))?.['compact.never'] === true) ck.never = true
   try {
     await $.tool.register({
       name: TOOL_NAME,
@@ -840,6 +845,7 @@ export function registerCompact(on) {
     // answered with it, so the chip leaves at once.
     if (String(e?.args || '').trim().toLowerCase() === 'never') {
       ck.never = true
+      await projectConfigSet($, 'compact.never', true)
       cancelAskTimer()
       ck.wantAsk = null
       uiAnswerOpen($, t(lang, 'ck_never'))

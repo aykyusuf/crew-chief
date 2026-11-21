@@ -113,6 +113,9 @@ crew-chief'in kullandığı sayılar ortam değişkeni gerektirmeden senin elind
 
 Bir soru sana erken geliyorsa: `/crew-config set compact.arm 400k`, `/crew-config set compact.ask 600k` ya da `/crew-config set compact.fallback off`.
 
+
+**Projeye özel: `.claude/crew-chief.json`.** Bir proje kendi değerlerini bu dosyada düz anahtarlarla taşıyabilir (`{"compact.ask": "300k", "compact.arm": "200k"}`); `/crew-config`'in kayıtlı değerlerini geçer, ortam değişkenlerine yenilir ve `/crew-config` onları `[this project]` diye işaretler. Compact sorusundaki "Bir daha sorma" buraya `"compact.never": true` olarak yazılır, böylece o projede sonraki oturumlarda da geçerli olur; `/crew-compact` bunu siler, `/crew-compact never` yazar.
+
 ## Compact akışı
 
 Uzun bir konuşma her istekte daha pahalıya gelir ve daha kötü cevap verir. `/compact` yardımcı olur ama konuşmayı bir özetle değiştirir; ayrıntılar, özellikle başta söylediğin kurallar, özetten düşebilir. Bu akış compact'i iyi bir anda, güvencelerle aldığın bir karara çevirir.

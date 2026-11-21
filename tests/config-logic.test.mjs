@@ -79,3 +79,10 @@ test('panel.perf: a scope, off by default; off|agents|theme|all round-trip, on i
   assert.deepEqual(resolveSetting('panel.perf', 'theme', 'agents'), { value: 'theme', source: 'env' })
   assert.deepEqual(resolveSetting('panel.perf', 'bogus', 'agents'), { value: 'agents', source: 'saved' })
 })
+
+test('resolveSetting: the project file sits between the environment and the saved value', () => {
+  assert.deepEqual(resolveSetting('compact.ask', undefined, '500k', '300k'), { value: 300_000, source: 'project' })
+  assert.deepEqual(resolveSetting('compact.ask', '450k', '500k', '300k'), { value: 450_000, source: 'env' })
+  assert.deepEqual(resolveSetting('compact.ask', undefined, '500k', 'nonsense'), { value: 500_000, source: 'saved' })
+  assert.equal(resolveSetting('compact.ask', undefined, undefined, undefined).source, 'default')
+})
