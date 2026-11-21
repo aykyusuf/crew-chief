@@ -25,4 +25,4 @@ Reading anything in the repo; running tests, linters, builds and local servers; 
 ## Wrap-up and report
 Start wrapping up 30 minutes before the deadline (the Stop hook says so). Early finish: tests, `crew-chief:reviewer` on the night's own diff, docs and handoff files, then the report. REPORT.md follows the template; the first thing in it is what needs the user.
 
-Honest note: the 3 attempts and the 40 percent rule are yours to keep (the Stop hook reminds you); the subagent cap, the bans and the deadline are enforced by code.
+Honest note: the 3 attempts and the 40 percent rule are yours to keep (the Stop hook reminds you); the subagent cap, the deadline and these bans are enforced by code: git push, GitHub writes, deploys and publishes, cloud CLIs, ssh/scp/rsync to a host, rm -r outside the repo, and the user's forbidden list. Anything else outward that the code does not know is still on you: rule 1 above.

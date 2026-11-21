@@ -117,6 +117,25 @@ def main():
                    "git remote -v", "git fetch origin", "kubectl get pods", "terraform plan"]
         for c in allowed:
             check(f"armed: allowed: {c}", guard(data, fb, bash(c)) == (0, "", ""), guard(data, fb, bash(c)))
+        # built-in outward commands (bypass mode: the hook is the only gate)
+        outward = ["gh pr merge 12 --squash", "gh pr create --fill", "gh release create v1", "gh repo delete x/y --yes", "gh workflow run deploy.yml",
+                   "gh api -X DELETE repos/x/y", "vercel --prod", "vercel deploy", "netlify deploy --prod", "fly deploy", "firebase deploy",
+                   "kubectl apply -f k.yaml", "helm upgrade app ./chart", "terraform apply -auto-approve", "npm publish", "pnpm publish", "docker push img:1",
+                   "wrangler deploy", "supabase db push", "aws s3 rm s3://b --recursive", "gcloud run deploy", "ssh prod 'systemctl restart app'",
+                   "scp a.sql user@db:/tmp/", "rsync -av dist/ user@host:/var/www/", "cd x && eas submit -p ios", "sudo ssh root@h", "FOO=1 vercel --prod"]
+        for c in outward:
+            rc, out, err = guard(data, fb, bash(c))
+            check(f"armed: outward denied: {c}", rc == 2 and ("outside this machine" in err or "the user forbade" in err), (rc, err))
+        quiet_ok = ["gh pr view 12", "gh pr list", "gh api repos/x/y", "gh run list", "kubectl get pods", "terraform plan", "helm template ./chart",
+                    "npm run build", "docker build -t x .", "rsync -av src/ dist/", "echo ssh is a word", "vercel dev", "git commit -m 'deploy note'"]
+        for c in quiet_ok:
+            check(f"armed: still allowed: {c}", guard(data, fb, bash(c))[0] == 0, guard(data, fb, bash(c)))
+        root = state(proj)["root"]
+        for c in ["rm -rf /tmp/x", "rm -rf ~/Documents", "rm -r ../other", "cd a && rm -fr /etc/x", "rm -Rf '/Users/x/y'"]:
+            rc, out, err = guard(data, fb, bash(c))
+            check(f"armed: rm -r outside the repo denied: {c}", rc == 2 and "recursive deletes" in err, (rc, err))
+        for c in [f"rm -rf {root}/build", "rm -rf build dist", "rm -f /tmp/one-file", "rm -rf node_modules"]:
+            check(f"armed: rm allowed: {c}", guard(data, fb, bash(c))[0] == 0, guard(data, fb, bash(c)))
         ev = events(proj)
         check("a denied push is logged in events.log", " guard git push denied: git push" in ev, ev)
         check("events.log lines are '<ISO time> <source> <text>'", all(len(l.split(" ", 2)) == 3 and l.startswith("2027-01-15T08:00:00Z ") for l in ev.splitlines()), ev[:200])

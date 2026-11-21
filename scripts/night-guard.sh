@@ -5,6 +5,9 @@
 # error (no jq, garbage JSON, no pointer) exit 0 at once. While the night runs it denies:
 #   - git push, in any form (git -C x push, git -c k=v push, /usr/bin/git push ...), and the user's forbidden list
 #     (state.json "forbidden", substring match);
+#   - outward commands built in: GitHub writes (gh pr merge/create/comment, gh release ...), deploys and publishes
+#     (vercel, netlify, fly, firebase, kubectl apply, helm, terraform apply, npm publish, docker push ...), cloud CLIs
+#     (aws, gcloud, az), remote shells and copies (ssh, scp, sftp, rsync to a host), and rm -r outside the repo;
 #   - an Agent call that would be the (maxAgents+1)th of the night, and any Agent call naming a Fable model;
 #   - AskUserQuestion (nobody is here: the question goes to QUESTIONS.md with a default);
 #   - any permission prompt (PermissionRequest), so a prompt never parks the night. The one exception is the night's
@@ -80,6 +83,38 @@ case "$tool" in
         esac
       done
       IFS=$oldifs
+    fi
+    # Built-in outward actions (in bypass mode this hook is the only gate; the policy text alone is not enough):
+    # GitHub writes, deploys and publishes, remote shells and copies.
+    # Command position only: the start, or after ; & | ( `, optionally behind sudo, env, exec, command or VAR=value.
+    B='(^|[;&|(`])[[:space:]]*((sudo|env|exec|command|nohup|time)[[:space:]]+|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
+    outward="${B}gh[[:space:]]+(pr[[:space:]]+(merge|create|comment|close|review|edit|ready|reopen)|release|repo[[:space:]]+(create|delete|edit|rename|archive|sync)|workflow[[:space:]]+(run|enable|disable)|run[[:space:]]+(rerun|cancel)|issue[[:space:]]+(create|comment|close|edit|delete|reopen)|secret|variable|api[[:space:]].*(-X|--method)[[:space:]]*(POST|PUT|PATCH|DELETE))"
+    outward="$outward|${B}(vercel([[:space:]]+(deploy|promote|rollback|remove|env)|[^;&|]*--prod)|netlify[[:space:]]+deploy|fly(ctl)?[[:space:]]+(deploy|scale|secrets)|firebase[[:space:]]+deploy|heroku[[:space:]]|kubectl[[:space:]]+(apply|delete|rollout|scale|patch|edit|replace|create|set|drain)|helm[[:space:]]+(install|upgrade|uninstall|rollback)|terraform[[:space:]]+(apply|destroy|import)|tofu[[:space:]]+(apply|destroy)|pulumi[[:space:]]+(up|destroy)|eas[[:space:]]+(submit|update|build)|fastlane[[:space:]]|(npm|pnpm|yarn|bun)[[:space:]]+publish|cargo[[:space:]]+publish|twine[[:space:]]+upload|gem[[:space:]]+push|docker[[:space:]]+push|(serverless|sls)[[:space:]]+deploy|wrangler[[:space:]]+(deploy|publish|secret)|supabase[[:space:]]+(db[[:space:]]+push|functions[[:space:]]+deploy|secrets)|aws[[:space:]]|gcloud[[:space:]]|az[[:space:]])"
+    outward="$outward|${B}(ssh|scp|sftp|mosh)[[:space:]]|${B}rsync[[:space:]][^;&|]*[[:space:]][A-Za-z0-9_.@-]+:"
+    if printf '%s\n' "$cmd" | grep -qE "$outward"; then
+      deny "outward command denied: $(short "$cmd")" "night mode: commands that act outside this machine or on shared systems (GitHub writes, deploys, publishes, cloud CLIs, ssh/scp/rsync to a host) are not allowed at night. Prepare it and park it in night/$sid8/QUESTIONS.md as \"ready to run: <command>\"."
+    fi
+    # rm -r of a path outside the repo (absolute, ~ or ..), checked token by token.
+    if printf '%s\n' "$cmd" | grep -qE "${B}rm[[:space:]]+([^;&|]*[[:space:]])?-[A-Za-z]*[rR]"; then
+      root=$(jq -r '.root // empty' "$dir/state.json" 2>/dev/null)
+      set -f
+      for tok in $(printf '%s' "$cmd" | sed -nE 's/.*(^|[;&|(`[:space:]])rm[[:space:]]+([^;&|]*).*/\2/p'); do
+        tok=$(printf '%s' "$tok" | tr -d "\"'")
+        case "$tok" in -*|'') continue ;; esac
+        case "$tok" in
+          *..*|'~'*|/*)
+            case "$tok" in
+              *..*) bad=yes ;;
+              "$root"/?*) bad=no ;;
+              *) bad=yes ;;
+            esac
+            if [ "$bad" = yes ]; then
+              set +f
+              deny "rm -r outside the repo denied: $(short "$cmd")" "night mode: recursive deletes are allowed only inside the repo ($root). Park it in night/$sid8/QUESTIONS.md if it is really needed."
+            fi ;;
+        esac
+      done
+      set +f
     fi
     exit 0 ;;
 
