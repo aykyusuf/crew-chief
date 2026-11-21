@@ -30,7 +30,13 @@ export function artElapsed(ms) {
 export const ART_WIDTH = 500
 export const ART_HEIGHT = 48
 export const ART_STYLES = ['capsule', 'cat', 'text']
-export const ART_KINDS = ['scanner', 'deep-reader', 'implementer', 'implementer-hard', 'reviewer', 'planner', 'mechanic', 'ui-tester']
+export const ART_KINDS = [
+  'scanner', 'deep-reader', 'implementer', 'implementer-hard', 'reviewer', 'planner', 'mechanic', 'ui-tester',
+  // The newer agents (their looks follow the office cats of the Adalmon app, 2026-11-21).
+  'security-reviewer', 'ui-designer', 'ui-implementer', 'ui-scout', 'critic', 'researcher', 'verifier', 'ui-smoke',
+]
+// The newer kinds draw their hat once for both styles: at the cat's head, and moved up onto the capsule's.
+const NEW_KINDS = new Set(ART_KINDS.slice(8))
 
 const MODEL_COLOR = { haiku: '#5fe0b0', sonnet: '#7ab8ff', opus: '#ff9a5a', fable: '#d98aff', other: '#9aa3b5' }
 const SPEED = [1, 1.7, 1.35, 1.0, 0.78, 0.6] // by effort step; no effort -> 1
@@ -220,6 +226,9 @@ const CAP_HAT = {
 }
 
 function capsuleAccessory(kind, mo, k) {
+  // The verifier wears no hat: its check badge goes on the overall's bib.
+  if (kind === 'verifier') return checkBadge(15, 25.6)
+  if (NEW_KINDS.has(kind)) return `<g transform="translate(0 -4.2)">${catAccessory(kind, mo, k)}</g>`
   switch (kind) {
     case 'scanner':
       return `<line x1="15" y1="5" x2="15" y2="2.8" stroke="#c9d0e4" stroke-width="1"/><g ${mo.anim('ant', 'from{transform:rotate(-16deg)}to{transform:rotate(16deg)}', 2.2 * k, { origin: '15px 2.8px' })}><path d="M11 1.2Q15 6 19 1.2Z" fill="#e6ebf7" stroke="#9aa3c4" stroke-width=".6"/></g>`
@@ -260,8 +269,33 @@ function capsule(kind, C, step, mo, k, eyesAttr) {
   )
 }
 
-function catAccessory(kind) {
+// A round green badge with a white tick, centred at (x, y).
+function checkBadge(x, y) {
+  return `<circle cx="${x}" cy="${y}" r="2.3" fill="#34c759" stroke="#1e7a36" stroke-width=".5"/><path d="M${r2(x - 1.1)} ${r2(y + 0.1)}l.8.9 1.5-1.8" stroke="#fff" stroke-width=".7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`
+}
+
+// mo and k: the newer kinds' hats may move (the researcher's tassel, the smoke puff); the motion is the
+// character's own, so in performance mode it is the still one.
+function catAccessory(kind, mo = STILL, k = 1) {
   switch (kind) {
+    case 'security-reviewer':
+      // Narrow dark pill glasses with one soft green glint (the coat is drawn on the body).
+      return '<g stroke="#5b6170" stroke-width=".6" fill="#0b0d10" fill-opacity=".93"><rect x="5.9" y="18.9" width="8.6" height="4.6" rx="2.3"/><rect x="15.5" y="18.9" width="8.6" height="4.6" rx="2.3"/></g><path d="M14.5 20q.5-.7 1 0M5.9 20.2L3.4 19.4M24.1 20.2L26.6 19.4" stroke="#5b6170" stroke-width=".7" fill="none" stroke-linecap="round"/><path d="M7.6 22.4L9.6 19.6M17.2 22.4L19.2 19.6" stroke="#7fb896" stroke-width=".7"/>'
+    case 'ui-designer':
+      return '<g transform="rotate(-12 15 9)"><ellipse cx="14" cy="9.4" rx="8.8" ry="3.3" fill="#c8304f" stroke="#7a1a2e" stroke-width=".7"/><path d="M8 9.6q6 1.6 12.4-.2" stroke="#e0566f" stroke-width=".6" fill="none" opacity=".7"/><path d="M14.4 6.2l.3-2" stroke="#7a1a2e" stroke-width="1.1" stroke-linecap="round"/></g>'
+    case 'ui-implementer':
+      return '<path d="M7.5 11.6Q7.5 4.6 15 4.6Q22.5 4.6 22.5 11.6Z" fill="#f7f5ee" stroke="#a39c86" stroke-width=".6"/><rect x="7.5" y="9.4" width="15" height="2" fill="#ff7a45"/><path d="M15 11.4H24.6Q25 12.6 23.8 12.8H15Z" fill="#e7e2d4" stroke="#a39c86" stroke-width=".5"/><circle cx="11.6" cy="7.4" r=".9" fill="#2f6fde"/><circle cx="17.8" cy="6.6" r=".75" fill="#e0569b"/>'
+    case 'ui-scout':
+      return '<ellipse cx="15" cy="10.6" rx="10.6" ry="2.2" fill="#c9a86a" stroke="#7e6534" stroke-width=".6"/><path d="M9.6 10.4Q9.4 4 15 4Q20.6 4 20.4 10.4Z" fill="#d6b77a" stroke="#7e6534" stroke-width=".6"/><rect x="9.6" y="8.2" width="10.8" height="1.6" fill="#5a4424"/>'
+    case 'critic':
+      // A top hat and a gold monocle on the right eye.
+      return '<g transform="rotate(8 15 9)"><ellipse cx="15" cy="10.4" rx="7.6" ry="1.8" fill="#1f1c24" stroke="#4a4552" stroke-width=".6"/><rect x="10.4" y="2.4" width="9.2" height="8" rx=".8" fill="#1f1c24" stroke="#4a4552" stroke-width=".6"/><rect x="10.4" y="7.6" width="9.2" height="1.6" fill="#8c2f45"/></g><circle cx="19.8" cy="21" r="4.4" fill="#e8f4ff" fill-opacity=".12" stroke="#e5b53a" stroke-width=".9"/><path d="M23.4 23.6q1.8 2.4.6 5" stroke="#e5b53a" stroke-width=".6" fill="none"/>'
+    case 'researcher':
+      // A mortarboard whose tassel swings.
+      return `<path d="M10.6 9.6V6.8H19.4V9.6Q15 11 10.6 9.6Z" fill="#1e2230"/><path d="M4.6 6L15 2.6L25.4 6L15 9.2Z" fill="#2b3145" stroke="#4d5672" stroke-width=".6" stroke-linejoin="round"/><path d="M15 5.9L23.6 6.6" stroke="#ffc400" stroke-width=".8"/><circle cx="15" cy="5.9" r=".8" fill="#ffc400"/><g ${mo.anim('tas', 'from{transform:rotate(-12deg)}to{transform:rotate(12deg)}', 1.8 * k, { origin: '23.6px 6.6px' })}><path d="M23.6 6.6V11.2" stroke="#ffc400" stroke-width=".8"/><ellipse cx="23.6" cy="12" rx=".9" ry="1.3" fill="#ffc400"/></g>`
+    case 'ui-smoke':
+      // A small smoke cloud over the head, drifting up.
+      return `<g ${mo.anim('puff', 'from{transform:translateY(1px);opacity:.55}to{transform:translateY(-2px);opacity:1}', 1.6 * k)}><g fill="#d8dce4"><circle cx="19.4" cy="6.4" r="2.2"/><circle cx="22" cy="5.4" r="2.6"/><circle cx="24.6" cy="6.6" r="2"/><circle cx="22" cy="7.6" r="2"/><circle cx="26.8" cy="2.8" r="1"/></g><g fill="#fff" opacity=".7"><circle cx="21.2" cy="4.6" r="1"/><circle cx="18.8" cy="5.8" r=".7"/></g></g>`
     case 'scanner':
       return '<line x1="15" y1="10" x2="15" y2="5.5" stroke="#c9d0e4" stroke-width="1"/><path d="M11 2.5Q15 8 19 2.5Z" fill="#e6ebf7" stroke="#9aa3c4" stroke-width=".6"/>'
     case 'deep-reader':
@@ -289,7 +323,11 @@ function cat(kind, C, step, mo, k, eyesAttr) {
   const P = '#8592ad'
   return (
     `<g ${mo.anim('tail', 'from{transform:rotate(-12deg)}to{transform:rotate(10deg)}', 1.5 * k, { origin: '9px 39px' })}><path d="M9.5 39.5C3 40 1 33 3.6 28.5" stroke="${P}" stroke-width="3.4" fill="none" stroke-linecap="round"/><path d="M3.2 31C2.9 30 3.1 29.2 3.6 28.5" stroke="#6f7c98" stroke-width="3.4" fill="none" stroke-linecap="round"/></g>` +
-    `<ellipse cx="15" cy="34.8" rx="9.3" ry="7.3" fill="#f8f2e7"/><ellipse cx="15" cy="34" rx="4.8" ry="4.8" fill="#fffaf3"/><ellipse cx="11.3" cy="41" rx="2.9" ry="1.9" fill="${P}"/><ellipse cx="18.7" cy="41" rx="2.9" ry="1.9" fill="${P}"/>` +
+    (kind === 'security-reviewer'
+      ? // A long charcoal coat over a dark green shirt, two green buttons; a lighter rim keeps it on a dark band.
+        '<ellipse cx="15" cy="34.8" rx="9.3" ry="7.3" fill="#2c3039" stroke="#545b6b" stroke-width=".6"/><path d="M11.6 28.6H18.4L15 35.6Z" fill="#163a25"/><path d="M11.6 28.6L14.6 37M18.4 28.6L15.4 37" stroke="#545b6b" stroke-width=".7"/><g fill="#39ff7a"><circle cx="15" cy="38.4" r=".7"/><circle cx="15" cy="40.4" r=".7"/></g>'
+      : '<ellipse cx="15" cy="34.8" rx="9.3" ry="7.3" fill="#f8f2e7"/><ellipse cx="15" cy="34" rx="4.8" ry="4.8" fill="#fffaf3"/>') +
+    `<ellipse cx="11.3" cy="41" rx="2.9" ry="1.9" fill="${P}"/><ellipse cx="18.7" cy="41" rx="2.9" ry="1.9" fill="${P}"/>` +
     `<g ${mo.anim('head', 'from{transform:rotate(-3deg)}to{transform:rotate(3deg)}', 3.4 * k, { origin: '15px 29px' })}>` +
     `<path d="M4.9 15L5.6 5L12.8 10.2ZM25.1 15L24.4 5L17.2 10.2Z" fill="${P}" stroke="${P}" stroke-width="1.8" stroke-linejoin="round"/><path d="M6.7 12.2L7.1 7.4L10.6 10.3ZM23.3 12.2L22.9 7.4L19.4 10.3Z" fill="#f7b6c7"/>` +
     `<ellipse cx="15" cy="19.8" rx="12.3" ry="10.2" fill="#f8f2e7"/><ellipse cx="15" cy="23" rx="8.4" ry="6" fill="${P}" opacity=".2"/><ellipse cx="15" cy="23.8" rx="6" ry="4.6" fill="${P}" opacity=".26"/><ellipse cx="15" cy="24.8" rx="3.4" ry="2.8" fill="${P}" opacity=".32"/>` +
@@ -299,11 +337,12 @@ function cat(kind, C, step, mo, k, eyesAttr) {
     `<circle cx="19.8" cy="21" r="3.7" fill="#5fa8e8" stroke="#3e5579" stroke-width=".45"/><ellipse cx="20.05" cy="21.3" rx="2.05" ry="2.55" fill="#1c2740"/><circle cx="18.65" cy="19.6" r="1.25" fill="#fff"/><circle cx="21" cy="22.7" r=".6" fill="#fff" opacity=".85"/></g>` +
     `<path d="M14.4 24.9h1.2l-.6.7z" fill="#f29ab0" stroke="#f29ab0" stroke-width=".6" stroke-linejoin="round"/><path d="M13.8 26.1q.6.65 1.2 0q.6.65 1.2 0" stroke="#55607c" stroke-width=".5" fill="none" stroke-linecap="round"/>` +
     `<path d="M5.6 24l-3.8-.6M5.6 25.5l-3.8.5M24.4 24l3.8-.6M24.4 25.5l3.8.5" stroke="#fff" stroke-width=".4" opacity=".5" stroke-linecap="round"/>` +
-    catAccessory(kind) +
+    catAccessory(kind, mo, k) +
     `</g>` +
     `<path d="M8.5 28.8Q15 31.8 21.5 28.8" stroke="#2a3150" stroke-width="2.3" fill="none" stroke-linecap="round"/>` +
     marks([9.8, 12.4, 15, 17.6, 20.2], [29.04, 29.76, 30, 29.76, 29.04], step, C, 0.95, 0.7, 0.5) +
-    `<circle cx="15" cy="32.5" r="1.5" fill="${C}"/><circle cx="14.5" cy="32" r=".45" fill="#fff" opacity=".8"/>`
+    `<circle cx="15" cy="32.5" r="1.5" fill="${C}"/><circle cx="14.5" cy="32" r=".45" fill="#fff" opacity=".8"/>` +
+    (kind === 'verifier' ? checkBadge(21.2, 33) : '')
   )
 }
 
@@ -325,6 +364,33 @@ function tool(kind, C, mo, k) {
       return `<polygon points="39,18 42.5,20 42.5,24 39,26 35.5,24 35.5,20" fill="#8a93b8" stroke="#5d6688" stroke-width=".7"/><circle cx="39" cy="22" r="1.4" fill="#3a4466"/><g ${mo.anim('wr', 'from{transform:rotate(-16deg)}to{transform:rotate(16deg)}', 1.3 * k, { origin: '39px 22px' })}><path d="M39 15.6A6.4 6.4 0 1 0 39 28.4A6.4 6.4 0 1 0 39 15.6ZM39 17.6A4.4 4.4 0 1 1 39 26.4A4.4 4.4 0 1 1 39 17.6Z" fill="#c9d0e4" fill-rule="evenodd"/><rect x="37.7" y="27.5" width="2.6" height="12" rx="1.3" fill="#c9d0e4"/></g>`
     case 'ui-tester':
       return `<rect x="29.5" y="8" width="17.5" height="26" rx="2" fill="#12172b" stroke="${C}" stroke-width=".8"/><path d="M29.5 10a2 2 0 0 1 2-2h13.5a2 2 0 0 1 2 2v2h-17.5Z" fill="${C}" opacity=".3"/><rect x="32" y="15" width="12.5" height="5" rx="1.2" fill="none" stroke="${C}" stroke-width=".8"/><rect x="32" y="23" width="12.5" height="5" rx="1.2" fill="none" stroke="${C}" stroke-width=".8"/><g ${mo.anim('cur', 'from{transform:translate(0,0)}to{transform:translate(6px,-8px)}', 1.6 * k)}><circle cx="35.5" cy="25.5" r="2.4" fill="none" stroke="${C}" stroke-width=".9"/><path d="M35.5 25.5L35.5 32L37.3 30.5L38.7 33.3L40 32.7L38.6 30L41 30Z" fill="#fff" stroke="#10142a" stroke-width=".4"/></g>`
+    case 'security-reviewer':
+      // A monitor of green code falling: dashed columns slide one dash period down in a loop, the bezel hides the ends.
+      return `<rect x="29" y="9" width="18" height="25" rx="2" fill="#0c1410"/><path ${mo.anim('code', 'from{transform:translateY(0)}to{transform:translateY(3px)}', 1.2 * k, { alt: false, ease: 'linear' })} d="M33 9V30.5M37.5 11V30.5M42 10V30.5" stroke="#39ff7a" stroke-width="1.1" stroke-dasharray="1.6 1.4"/><g fill="#1a1f24"><rect x="29.4" y="9.4" width="17.2" height="3" rx="1.6"/><rect x="29.4" y="29" width="17.2" height="4.6" rx="1.6"/></g><rect x="29" y="9" width="18" height="25" rx="2" fill="none" stroke="${C}" stroke-width=".8"/>`
+    case 'ui-designer':
+      // A palette; the brush dabs at the colours.
+      return `<path d="M31 22c0-6 5-9 10-8.4c5 .6 6.4 4.6 4.6 7.2c-1.2 1.8-3.6.6-4.4 2.4c-.8 1.8 1.6 3.2-.4 4.6c-3 2-9.8.6-9.8-5.8Z" fill="#e9c79a" stroke="#8a6234" stroke-width=".7"/><circle cx="34.5" cy="19.6" r="1.3" fill="#e0262b"/><circle cx="38.4" cy="17.4" r="1.3" fill="#2f6fde"/><circle cx="42.4" cy="17.8" r="1.3" fill="#ffc400"/><circle cx="34.8" cy="24" r="1.3" fill="#34c759"/><circle cx="39.4" cy="23.4" r="1.1" fill="#0c0f1a" opacity=".55"/><g ${mo.anim('dab', 'from{transform:rotate(-14deg)}to{transform:rotate(6deg)}', 1.3 * k, { origin: '46px 34px' })}><path d="M46 34L40.6 22.2" stroke="#b5793e" stroke-width="1.3" stroke-linecap="round"/><path d="M40.6 22.2L39.9 20.7" stroke="#c9d0e4" stroke-width="1.5"/><ellipse cx="39.5" cy="19.6" rx=".9" ry="1.2" fill="#e0569b"/></g>`
+    case 'ui-implementer':
+      // A screen of blocks; the brush paints the bottom bar as it goes.
+      return `<rect x="29" y="9" width="18" height="25" rx="2" fill="#12172b" stroke="${C}" stroke-width=".8"/><rect x="31.5" y="12" width="13" height="3" rx="1" fill="${C}" opacity=".35"/><rect x="31.5" y="17.5" width="6" height="6" rx="1" fill="#ff7a45" opacity=".8"/><rect x="39" y="17.5" width="5.5" height="2" rx="1" fill="#c9d0e4" opacity=".5"/><rect x="31.5" y="26.5" width="13" height="3.4" rx="1.2" fill="#ff7a45" ${mo.anim('paint', 'from{transform:scaleX(.08)}to{transform:scaleX(1)}', 1.8 * k, { box: 'fill-box', origin: '0 50%' })}/><g ${mo.anim('brush', 'from{transform:translateX(0)}to{transform:translateX(12px)}', 1.8 * k)}><path d="M32.6 26L34.8 20.4" stroke="#b5793e" stroke-width="1.1" stroke-linecap="round"/><rect x="31.4" y="25.6" width="2.4" height="2.6" rx=".6" fill="#ff7a45" stroke="#c2502a" stroke-width=".4"/></g>`
+    case 'ui-scout':
+      // Binoculars sweeping the view; a star blinks where something turned up.
+      return `<g transform="matrix(1.3 0 0 1.3 -11.55 -4.5)"><g ${mo.anim('scan', 'from{transform:rotate(-10deg)}to{transform:rotate(10deg)}', 2.4 * k, { origin: '38.5px 30px' })}><g fill="#2c3242" stroke="${C}" stroke-width=".7"><rect x="33.6" y="16" width="4.6" height="9" rx="2"/><rect x="38.8" y="16" width="4.6" height="9" rx="2"/></g><rect x="37.6" y="18.5" width="1.8" height="3" fill="#59607a"/><g fill="#9fd8ff" stroke="#2c3242" stroke-width=".6"><circle cx="35.9" cy="16.6" r="2"/><circle cx="41.1" cy="16.6" r="2"/></g><circle cx="35.3" cy="16" r=".6" fill="#fff"/><circle cx="40.5" cy="16" r=".6" fill="#fff"/></g></g><path ${mo.anim('spot', 'from{opacity:.15}to{opacity:1}', 1.2 * k)} d="M44 7.6l.7 1.7 1.7.7-1.7.7-.7 1.7-.7-1.7-1.7-.7 1.7-.7Z" fill="#ffd27a"/>`
+    case 'critic':
+      // A score card held up and wagged.
+      return `<g ${mo.anim('score', 'from{transform:translateY(2px) rotate(-4deg)}to{transform:translateY(-2px) rotate(4deg)}', 1.6 * k, { origin: '38px 34px' })}><rect x="37.2" y="24" width="1.6" height="12" rx=".8" fill="#b58a55"/><rect x="31" y="9" width="14" height="16" rx="1.6" fill="#fffdf5" stroke="#8c2f45" stroke-width=".8"/><path d="M34.6 12.6H41.4L37 22" stroke="#d7263d" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>`
+    case 'researcher':
+      // A stack of books and a magnifier moving over them.
+      return `<rect x="30" y="30" width="16" height="3.4" rx=".6" fill="#5fafbe" stroke="#2f6f7a" stroke-width=".5"/><rect x="31" y="26.6" width="14" height="3.4" rx=".6" fill="#e98a78" stroke="#9a4a3c" stroke-width=".5"/><rect x="30.6" y="23.2" width="13" height="3.4" rx=".6" fill="#7a8cc9" stroke="#45518a" stroke-width=".5"/><path d="M32 31.7H44M33 28.3H43M32.6 24.9H41.6" stroke="#f6ebd0" stroke-width=".5" opacity=".7"/><g ${mo.anim('mag', 'from{transform:translate(0,0)}to{transform:translate(5px,-3px)}', 2.2 * k)}><circle cx="35" cy="16" r="3.6" fill="#fff" fill-opacity=".18" stroke="${INK}" stroke-width="1.2"/><line x1="37.6" y1="18.6" x2="40" y2="21.4" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/></g>`
+    case 'verifier': {
+      // A clipboard whose ticks appear one by one, then clear for the next round.
+      const tick = (name, y, from) =>
+        `<path ${mo.anim(name, `0%,${from}%{opacity:0}${from + 8}%,88%{opacity:1}96%,100%{opacity:0}`, 3.2 * k, { alt: false })} d="M33.4 ${y}l1.1 1.1 2-2.2" stroke="#1fa34a" stroke-width="1.1" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`
+      return `<rect x="30" y="9" width="15" height="25" rx="2" fill="#6b5538" stroke="#3e3020" stroke-width=".7"/><rect x="32" y="12" width="11" height="20" rx="1" fill="#fafaf6"/><rect x="34.5" y="7.6" width="6" height="3" rx="1" fill="#aeb6c6"/><path d="M38 16.4H41.6M38 22.4H41.6M38 28.4H41" stroke="#8892a6" stroke-width=".8"/>` + tick('ck1', 16.4, 8) + tick('ck2', 22.4, 30) + tick('ck3', 28.4, 52)
+    }
+    case 'ui-smoke':
+      // A flashlight whose beam pulses.
+      return `<path ${mo.anim('beam', 'from{opacity:.25}to{opacity:.75}', 1.1 * k)} d="M36 25.4L44.1 17.1L47.3 23.3Z" fill="#fff6c0"/><g transform="rotate(-28 33 27)"><rect x="28.4" y="25.6" width="6.4" height="2.8" rx=".9" fill="#3b7bff" stroke="#1e3f8a" stroke-width=".5"/><rect x="34.4" y="25" width="2" height="4" rx=".6" fill="#c9ced8" stroke="#6b6f7a" stroke-width=".5"/></g>`
     default:
       // An agent type the art does not know: a speech bubble with three calm dots.
       return `<path d="M31 14h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-8l-4 4v-4h-2a2 2 0 0 1-2-2V16a2 2 0 0 1 2-2Z" fill="#12172b" stroke="${C}" stroke-width=".9"/><g ${mo.anim('dots', 'to{opacity:.25}', 1.2 * k)}><circle cx="34" cy="21" r="1.3" fill="${C}"/><circle cx="38" cy="21" r="1.3" fill="${C}"/><circle cx="42" cy="21" r="1.3" fill="${C}"/></g>`

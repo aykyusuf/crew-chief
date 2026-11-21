@@ -100,7 +100,7 @@ test('colours, kinds, tokens, escaping and prefixes', () => {
   assert.match(artPrefix('x'), /^c[0-9a-z]+$/)
 })
 
-test('8 kinds x 4 models x 5 efforts x 2 styles: valid, safe, small', () => {
+test('16 kinds x 4 models x 5 efforts x 2 styles: valid, safe, small', () => {
   let max = 0
   for (const name of ART_KINDS) {
     for (const model of MODELS) {
@@ -250,7 +250,7 @@ const names = (src) => {
 }
 
 test('the face by default moves fully: its tool and body motions, a phase from the id, no clock', () => {
-  const tools = { scanner: 'spin', 'deep-reader': 'read', implementer: 'ham', 'implementer-hard': 'rev', reviewer: 'lens', planner: 'pen', mechanic: 'wr', 'ui-tester': 'cur' }
+  const tools = { scanner: 'spin', 'deep-reader': 'read', implementer: 'ham', 'implementer-hard': 'rev', reviewer: 'lens', planner: 'pen', mechanic: 'wr', 'ui-tester': 'cur', 'security-reviewer': 'code', 'ui-designer': 'dab', 'ui-implementer': 'brush', 'ui-scout': 'scan', critic: 'score', researcher: 'mag', verifier: 'ck1', 'ui-smoke': 'beam' }
   const face = (id, name, style) => agentFace({ id, name: 'crew-chief:' + name, model: 'claude-sonnet-5-5', effort: 'medium' }, { style }).source
   for (const [name, motion] of Object.entries(tools)) {
     for (const style of ['capsule', 'cat']) {
