@@ -373,6 +373,17 @@ test('/crew-compact while the update request is stuck compacts now', async ($, o
   expect(s.compactCalls.length).toBe(1)
 })
 
+test('a project with durum.md and ilerleme.md is asked to update those files, not STATUS.md', async ($, on) => {
+  const s = harness(on, { answers: [YES], files: { '/work/durum.md': STATUS, '/work/tasks.json': TASKS, '/work/ilerleme.md': '# i\n' }, mtimes: { '/work/durum.md': 1_000 } })
+  await start($)
+  await approvedPlan($, s)
+  expect(s.submitted.length).toBe(1)
+  expect(s.submitted[0]).toContain('durum.md')
+  expect(s.submitted[0]).toContain('ilerleme.md')
+  expect(s.submitted[0]).not.toContain('STATUS.md')
+  expect(s.submitted[0]).toContain('/work/durum.md')
+})
+
 test('the gate: STATUS.md not updated asks again; "compact anyway" goes on', async ($, on) => {
   const s = harness(on, { answers: [YES, ANYWAY], files: FILES, mtimes: { '/work/STATUS.md': 1_000 } })
   await start($)

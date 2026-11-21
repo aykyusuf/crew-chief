@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- **The compaction's update request names the project's own handoff files** (`durum.md`, `ilerleme.md` where a project uses them) with their paths; a duplicated rule in `agents/mechanic.md` is gone.
 - **Guard: `git commit --amend` of an unpushed commit passes.** It has its own rule (`git-amend`) and is held only when HEAD is already on a remote branch; rebase, filter-branch, force push and `reset --hard` are held as before.
 - **Per-project settings: `.claude/crew-chief.json`.** Values in the project's file win over `/crew-config` and lose to the environment; the compaction question's "Don't ask again" is kept there per project (`compact.never`), so it survives new sessions; `/crew-compact` removes it.
 - **Night mode: outward actions can be opened for a night.** The opening asks whether tonight may push, deploy, run CI and change servers (`--outward open`); then the night guard lets them through and logs each in `events.log` for the report, while crew-chief's command guard still stops risky ones once (force push, deploy, database over ssh). Closed stays the default. The forbidden list, `rm -r` outside the repo and the no-questions rule hold either way.

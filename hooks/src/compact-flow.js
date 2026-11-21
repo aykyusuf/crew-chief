@@ -81,8 +81,17 @@ const UPDATE_TEXT =
 const SETUP_TEXT =
   'This project has no handoff files (STATUS.md, tasks.json, PROGRESS.md). Do not ask the user about them (no AskUserQuestion, no dialog) and do not create anything; carry on with the compaction exactly as if they had declined. Do not start any new work. Finish with one short line that also mentions, once, that handoff files were not set up and that /crew-chief:crew-handoff sets them up; the conversation is compacted right after your turn ends.'
 
+// The update request names the project's own handoff files (STATUS.md or durum.md, PROGRESS.md or ilerleme.md), with
+// their paths, so a project that uses the Turkish names is not sent looking for files it does not have.
 async function updateText($) {
-  return (await findHandoff($)) ? UPDATE_TEXT : SETUP_TEXT
+  const h = await findHandoff($)
+  if (!h) return SETUP_TEXT
+  const base = (p) => String(p).split('/').pop()
+  const status = h.status ? base(h.status) : 'STATUS.md'
+  const tasks = h.tasks ? base(h.tasks) : 'tasks.json'
+  const progress = h.progress ? base(h.progress) : 'PROGRESS.md'
+  const where = [h.status, h.tasks, h.progress].filter(Boolean).join(', ')
+  return UPDATE_TEXT.replaceAll('STATUS.md', status).replaceAll('tasks.json', tasks).replaceAll('PROGRESS.md', progress) + (where ? ` The files: ${where}.` : '')
 }
 
 const RESULTS = {
