@@ -49,7 +49,7 @@
     }
   },
   "infer": {
-    "_comment": "Dependencies that make a profile likely. The main session infers the profile from these (and from DESIGN.md), says so, and asks only when the project is not clear.",
+    "_comment": "Dependencies that make a profile likely. Not used to pick the profile (the user is always asked, 2026-11-20: \"ne seçersem o\"); kept as context the agents may mention.",
     "immersive": [
       "three",
       "@react-three/fiber",

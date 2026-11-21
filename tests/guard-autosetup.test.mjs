@@ -14,7 +14,7 @@ import {
 } from '../hooks/guard-logic.mjs'
 
 const EXPECTED = {
-  $comment: "Written once by crew-chief on first run. Edit freely, or run /crew-guard off. Delete this file and crew-chief will NOT recreate it. Docs: README, 'Command guard'.",
+  $comment: "Written once by crew-chief on first run. Edit freely, or run /crew-guard off. Delete this file and crew-chief will NOT recreate it. Docs: docs/guide/guard.md.",
   enabled: true,
   confirmTtlMinutes: 360,
   rules: [],

@@ -387,7 +387,7 @@ test('toasts clip the command', async ($, on) => {
 
 const DEFAULT_OBJ = {
   $comment:
-    "Written once by crew-chief on first run. Edit freely, or run /crew-guard off. Delete this file and crew-chief will NOT recreate it. Docs: README, 'Command guard'.",
+    "Written once by crew-chief on first run. Edit freely, or run /crew-guard off. Delete this file and crew-chief will NOT recreate it. Docs: docs/guide/guard.md.",
   enabled: true,
   confirmTtlMinutes: 360,
   rules: [],

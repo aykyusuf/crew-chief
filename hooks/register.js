@@ -497,7 +497,7 @@ async function allValues($) {
 // panel.perf theme|all with no theme mod reading ~/.claude/perf-mode.json (perfReaderKnown): it works as agents.
 function perfNote(key, value) {
   if (key !== 'panel.perf' || perfReaderKnown() || (value !== 'theme' && value !== 'all')) return ''
-  return ' (works as agents: no theme mod reads ~/.claude/perf-mode.json, see the README)'
+  return ' (works as agents: no theme mod reads ~/.claude/perf-mode.json, see docs/guide/performance.md)'
 }
 
 async function listText($) {

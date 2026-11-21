@@ -9,7 +9,7 @@
 //   sshAssess / gateDecide / gateRecord   the "first contact" gate for production hosts
 //
 // This is a speed bump, not a security boundary: a regex and a small tokenizer cannot see through
-// scripts, variables, ssh config aliases or other tools. The README says so and lists the server-side
+// scripts, variables, ssh config aliases or other tools. docs/guide/guard.md says so and lists the server-side
 // controls that do protect a server.
 
 // Read-only agents. ui-designer (its spec under .crew-chief/design/) and ui-scout (REFS.md and screenshots under
@@ -1243,7 +1243,7 @@ export const GUARD_NOTE =
 // never recreated and a failed write is not retried every session.
 export const SETUP_KEY = 'guard_setup'
 export const DEFAULT_COMMENT =
-  "Written once by crew-chief on first run. Edit freely, or run /crew-guard off. Delete this file and crew-chief will NOT recreate it. Docs: README, 'Command guard'."
+  "Written once by crew-chief on first run. Edit freely, or run /crew-guard off. Delete this file and crew-chief will NOT recreate it. Docs: docs/guide/guard.md."
 
 export function defaultConfigObject() {
   return {

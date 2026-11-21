@@ -1,0 +1,27 @@
+# Oturum devri
+
+Yeni oturum öncekinin bıraktığı yerden devam etsin diye üç küçük dosya (STATUS.md, tasks.json, PROGRESS.md).
+
+[← README](../../README.tr.md) · [English](../guide/handoff.md)
+
+**Güncel tutmak.** Dosyalar ancak yazılırsa işe yarar. Bunlara sahip bir projede crew-chief olanları sayar ve Claude'a hatırlatır (dosyaları kendisi yazmaz, sana soru sormaz, hiçbir çağrıyı durdurmaz): `handoff.files` kadar farklı proje dosyası düzenlendikten sonra (üretilmiş dosyalar, `node_modules`, kilit dosyaları ve başka klasörler sayılmaz; alt ajan düzenlemeleri sayılır) ya da `handoff.minutes` boyunca bunun üçte biri kadar dosyadan sonra; hatırlatma bir Edit/Write çağrısının sonucuyla gelir, yani uzun gözetimsiz bir koşuya da ulaşır, ve bir sonraki prompt'unla da. Ayrı, tek seferlik hatırlatmalar: mesajın kalıcı bir kural içerebilir (kelimesi kelimesine Constraints'e kopyalanır), Claude'un sorularından birini cevapladın (bir karar), bir commit atıldı (görevin durumu ve kanıtı güncellenir) ya da kullanım limiti dolmak üzere (limit durması oturumu uyarısız bitirir). Dosyalara yazılan her şey, bir kabuktan bile olsa, sayacı sıfırlar; hatırlatmalar aralıklıdır, bir kez sertleşir ve cevapsız üçüncüden sonra durur. Compact sürerken yapılmaz (o akış zaten güncelletir). `handoff.mode turn` ile, hatırlatmalar cevapsız kalırsa ve yığın tetik eşiğinin iki katıysa, bir cevabın sonunda güncelleme isteyen fazladan bir tur gelir; her dönemde bir kez ve yalnızca başka bir şey çalışmıyorken. Bir ipucudur, garanti değil: iki hatırlatma arasında ani bir bitiş dosyaları geride bırakabilir.
+
+Yeni oturum öncekini hatırlamaz; projeyi baştan keşfeder: ne çalışıyor, ne denendi, sırada ne var. Crew Chief bunu taşıyan üç küçük dosya kurabilir. Bu, Anthropic'in mühendislik yazısı [Effective harnesses for long-running agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) (Kasım 2025) ile aynı düzen: bir ilerleme dosyası, yalnız durum alanı değişen bir JSON iş listesi (model JSON'u Markdown'a göre daha az bozar) ve her oturum başında `git log` ile ilerleme dosyasını okumak.
+
+| Dosya | Ne tutar | Nasıl değişir |
+|---|---|---|
+| `STATUS.md` | Şu an, ortam komutları, sıradaki, açık sorular, başarısız denemeler, kararlar | Bugünü anlatacak şekilde güncellenir |
+| `tasks.json` | `id`, `title`, `priority`, ölçülebilir `done_when`, `status`, `evidence` | Yalnız `status` ve `evidence` değişir: `todo` → `in_progress` → `done` (`done_when`'in tamamı, onaylar dahil) ya da `blocked` (sebebi `evidence`'ta) |
+| `PROGRESS.md` | Tarihli günlük, en yeni üstte | Her oturum bir paragraf |
+| `CLAUDE.md` | `<!-- crew-chief:handoff:start -->` / `:end` işaretleri arasında oturum başı/sonu rutini | Bir kez eklenir; dosyanın geri kalanına dokunulmaz |
+
+**Mod yüklüyse soru olarak sorulur.** Yeni açılan bir oturumda (başında biri var, henüz prompt gönderilmemiş: devam, fork ya da `/clear` değil) mod kendisi *Kur / Sonra / Hiçbir zaman* diye sorar; git reposu olmayan gerçek bir proje klasöründe (ev dizini, geçici klasör ya da boş klasör değil) *git init yap, sonra kur / Git olmadan kur / Sonra / Hiçbir zaman*. Cevap gelmezse soru süresi dolunca *Sonra* sayılır. *Sonra* ve *Hiçbir zaman* aşağıdaki `handoff-offers.tsv` dosyasına aynı satırları yazar, sessiz kalma kuralları da aynıdır. *Kur* `crew-handoff` skill'ini çalıştırır; skill evet dediğini bilir: planı ve önizlemeyi gösterir ve dosyaları aynı turda yazar (yalnızca eşdeğer dosyalar zaten varsa bekler). Mod yüklüyken eklenti veri klasörüne `mod-offer-active` (unix zamanı) bırakır ve aşağıdaki oturum hook'unun metin satırı ondan sonra 14 gün sessiz kalır; mod yoksa teklifi o satır yapar.
+
+**Haftalık tutarlılık kontrolü.** `STATUS.md` ya da `tasks.json` olan bir projede, yeni açılan oturumda, proje başına en fazla 7 günde bir (kaydı hook yazar: `handoff-checks.tsv`), hook Claude'dan zaten okuduğu `STATUS.md` *Now*/*Next* kısmını `git log` ve `tasks.json` durumlarıyla karşılaştırmasını ve ilk cevabının sonunda en fazla üç satırla bildirmesini ister. 6 KB'ı aşan `STATUS.md`, 200 satırı aşan `CLAUDE.md`, 60 günden eski `PROGRESS.md` girdileri ve 60 KB'ı aşan `tasks.json` da anılır (`/crew-tidy` ayrıntı verir, `/crew-tidy archive` eski ilerlemeyi taşır). Sadece uyarıdır; devam, `/clear` ve sıkıştırmada çalışmaz.
+
+**Nasıl önerilir.** Yeni açılan bir oturumda (devam, `/clear` ya da sıkıştırmada değil), bu dosyaların hiçbiri olmayan bir git reposunda açılış hook'u Claude'dan sana bir kez sormasını ister; neyin değişeceğini ve nedenini söyler. Cevaplar: *Kur*, *Şimdi değil* (7 gün sonra tekrar sorar), *Bu projede bir daha sorma*. Şu durumlarda sessiz kalır:
+- kökte ya da bir alt klasörde benzer bir dosya varsa (`tasks.json`, `STATUS.md`, `PROGRESS.md`, `HANDOFF.md`, `claude-progress.txt`, `feature_list.json`, `durum.md`, `ilerleme.md`) ya da `CLAUDE.md`'de `crew-chief:handoff` bloğu varsa;
+- git reposu dışında, ev dizininde ve geçici klasörlerde;
+- ortamda `CREW_CHIEF_HANDOFF_OFFER=off` varsa.
+
+**Kurulum ne yapar** (`/crew-chief:crew-handoff` ya da sadece "devir dosyalarını kur"): önce benzer dosyaları arar, varsa yanına ikinci bir set kurmak yerine onları kullanmayı önerir; dosyaları ve depodan doğrulanabilen bilgilerle doldurulmuş önizlemeyi gösterir (doğrulanamayanı "doğrulanmadı" diye işaretler); sadece eksik dosyaları oluşturur, `CLAUDE.md` bloğunu ekler; hiçbir şeyin üzerine yazmaz, adını değiştirmez, commit atmaz. `/crew-chief:crew-setup --handoff` proje kurulumundan sonra aynı adımları çalıştırır.

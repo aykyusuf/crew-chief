@@ -1794,7 +1794,7 @@ test('no theme mod reads perf-mode.json: /crew-perf theme|all is refused, on mea
   for (const args of ['theme', 'all']) {
     const r = await $.command.run({ command: 'crew-perf', args })
     expect(JSON.stringify(r)).toContain('No theme mod reads ~/.claude/perf-mode.json here')
-    expect(JSON.stringify(r)).toContain('README')
+    expect(JSON.stringify(r)).toContain('docs/guide/performance.md')
     expect(s.stored.cfg_panel_perf).toBeUndefined()
   }
   expect(perfToasts(s)).toEqual([])
