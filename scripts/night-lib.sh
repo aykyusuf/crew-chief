@@ -54,15 +54,29 @@ nl_dir_of() {
 
 nl_get() { jq -r "$2 // empty" "$1/state.json" 2>/dev/null; }
 
+# A mkdir lock that records its owner. It is broken only when the owner is gone (a crashed hook), or after about
+# 10 s as a last resort; breaking it on a short timeout let two writers in under load (seen in CI: 26 parallel Agent
+# calls counted 21). Unlock removes it only when we own it.
 nl_lock() {
   _i=0
   while ! mkdir "$1/.lock" 2>/dev/null; do
     _i=$((_i + 1))
-    if [ "$_i" -gt 30 ]; then rmdir "$1/.lock" 2>/dev/null; mkdir "$1/.lock" 2>/dev/null; break; fi
-    sleep 0.1
+    _owner=$(cat "$1/.lock/pid" 2>/dev/null)
+    if [ -n "$_owner" ] && ! kill -0 "$_owner" 2>/dev/null; then
+      rm -f "$1/.lock/pid" 2>/dev/null; rmdir "$1/.lock" 2>/dev/null; continue
+    fi
+    if [ "$_i" -gt 200 ]; then
+      rm -f "$1/.lock/pid" 2>/dev/null; rmdir "$1/.lock" 2>/dev/null; mkdir "$1/.lock" 2>/dev/null; break
+    fi
+    sleep 0.05 2>/dev/null || sleep 1
   done
+  printf '%s\n' "$$" > "$1/.lock/pid" 2>/dev/null
 }
-nl_unlock() { rmdir "$1/.lock" 2>/dev/null; }
+nl_unlock() {
+  [ "$(cat "$1/.lock/pid" 2>/dev/null)" = "$$" ] || return 0
+  rm -f "$1/.lock/pid" 2>/dev/null
+  rmdir "$1/.lock" 2>/dev/null
+}
 
 # nl_update <dir> <jq filter> [jq args...]: read-modify-write state.json under a lock, atomic mv.
 nl_update() {
