@@ -17,6 +17,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 type Opts = {
   night?: Record<string, unknown> | null // state.json; null: no pointer (no night)
+  list?: Record<string, { name: string; kind: string }[]> // fs.list answers by path
   env?: Record<string, string>
   answers?: string[]
   files?: Record<string, string>
@@ -74,7 +75,7 @@ function harness(on: any, opts: Opts = {}) {
     if (e.path === STATE && STATE in state.files) return { value: { kind: 'file', size: 1, mtimeMs: state.stateMtime, isLink: false } }
     return e.path in state.mtimes ? { value: { kind: 'file', size: 1, mtimeMs: state.mtimes[e.path], isLink: false } } : { deny: 'no such file' }
   })
-  on('fs.list', () => ({ value: [] }))
+  on('fs.list', ($: any, e: any) => ({ value: (opts.list && opts.list[e.path]) || [] }))
   on('fs.write', ($: any, e: any) => {
     state.writes.push({ path: e.path, text: e.text ?? e.content ?? e.data })
     return { value: undefined }
@@ -206,6 +207,21 @@ test('opening phase: a batch of four questions closes after 20 minutes, each ans
   expect(q.result.result.answers).toEqual(Object.fromEntries(qs.map((x) => [x, NO_ANSWER])))
   expect(s.toasts).toContain('Night: no answer for 20 min. Claude parks the question and goes on.')
   expect(events(s).some((l) => /mod opening questions unanswered for 20 min \(4\)/.test(l))).toBe(true)
+})
+
+test('a plugin read from a local marketplace folder: the pointer is found in plugins/data/<name>-<marketplace> without CLAUDE_PLUGIN_DATA', async ($, on) => {
+  const DEV = '/home/me/.claude/plugins/data/crew-chief-crew-chief-dev'
+  const list = { '/home/me/.claude/plugins/data': [{ name: 'crew-chief-crew-chief', kind: 'dir' }, { name: 'crew-chief-crew-chief-dev', kind: 'dir' }, { name: 'other-plugin-x', kind: 'dir' }] }
+  const s = harness(on, { night: { status: 'opening' }, env: { CLAUDE_PLUGIN_DATA: '' }, list })
+  s.files[DEV + '/night/' + SID] = s.files[POINTER]
+  delete s.files[POINTER]
+  await start($)
+  const q = claudeAsks($, ['Scope?'])
+  await settle()
+  await s.clock.advance(20 * 60_000)
+  await settle()
+  expect(q.settled).toBe(true)
+  expect(q.result.result.answers).toEqual({ 'Scope?': NO_ANSWER })
 })
 
 test('opening phase: an answered question passes through unchanged', async ($, on) => {

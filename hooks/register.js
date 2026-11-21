@@ -1980,6 +1980,7 @@ function nightReset() {
     // Already fired.
   }
   nightDataDir = undefined
+  nightPointerHit = undefined
   nightCache = null
   nightInFlight = false
   nightLastActivity = 0
@@ -1992,15 +1993,32 @@ function nightReset() {
   nightSeenActive = new Set()
 }
 
-async function nightDataDirOf($) {
+// The plugin data folders the hooks may have written the pointer into. The mod cannot always derive the hooks'
+// CLAUDE_PLUGIN_DATA: a plugin read straight from a local marketplace folder has no /plugins/cache/ path, so the
+// derived guess falls back to "<name>-inline" while the hooks use "<name>-<marketplace>" (seen live 2026-11-21: the
+// opening question never closed). So every <config>/plugins/data/<name>-* folder is a candidate; the pointer file is
+// named by the session id, so only this session's pointer can match.
+async function nightDataDirsOf($) {
   if (nightDataDir !== undefined) return nightDataDir
   const env = await nightTry(() => $.env.get('CLAUDE_PLUGIN_DATA'), undefined)
   const home = await nightTry(() => $.env.get('HOME'), undefined)
   const configDir = await nightTry(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined)
   const found = resolveDataDir({ env, pluginRoot: $.plugin.root, pluginName: $.plugin.name, home, configDir })
-  nightDataDir = found === undefined ? '' : found.dir
+  const dirs = found === undefined ? [] : [found.dir]
+  const base = configDir ? String(configDir).replace(/\/+$/, '') : home ? `${String(home).replace(/\/+$/, '')}/.claude` : undefined
+  const prefix = String($.plugin.name || '').replace(/[^A-Za-z0-9_-]/g, '-') + '-'
+  if (base && prefix !== '-') {
+    const entries = await nightTry(() => $.fs.list(`${base}/plugins/data`), [])
+    for (const e of entries || []) {
+      const dir = `${base}/plugins/data/${e.name}`
+      if (e.kind === 'dir' && e.name.startsWith(prefix) && !dirs.includes(dir)) dirs.push(dir)
+    }
+  }
+  nightDataDir = dirs
   return nightDataDir
 }
+
+let nightPointerHit // { sid, data } once this session's pointer was found
 
 // This session's night: { sid, dir, state } or undefined. One fs.exists when there is none. state.json is read
 // again only when its mtime moved.
@@ -2008,10 +2026,20 @@ async function nightRead($) {
   try {
     const sid = await $.session.id()
     if (typeof sid !== 'string' || sid === '') return undefined
-    const data = await nightDataDirOf($)
-    if (data === '') return undefined
+    let data
+    if (nightPointerHit && nightPointerHit.sid === sid && (await $.fs.exists(`${nightPointerHit.data}/night/${sid}`))) {
+      data = nightPointerHit.data
+    } else {
+      for (const d of await nightDataDirsOf($)) {
+        if (await $.fs.exists(`${d}/night/${sid}`)) {
+          data = d
+          break
+        }
+      }
+      if (data === undefined) return undefined
+      nightPointerHit = { sid, data }
+    }
     const pointer = `${data}/night/${sid}`
-    if (!(await $.fs.exists(pointer))) return undefined
     const dir = String(await $.fs.read(pointer))
       .trim()
       .replace(/\/+$/, '')
