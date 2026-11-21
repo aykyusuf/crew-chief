@@ -138,6 +138,25 @@ import {
   subdirsToSearch,
 } from './handoff-offer-logic.mjs'
 import {
+  NIGHT_DEFAULTS,
+  NIGHT_IDLE_MS,
+  nightArmedStatus,
+  nightDefaults,
+  nightEventLine,
+  nightHoldText,
+  nightLimitHit,
+  nightNoAnswerLabel,
+  nightNudgeAllowed,
+  nightNudgeText,
+  nightOverStatus,
+  nightQuietStatus,
+  nightRecentNudges,
+  nightStatusText,
+  nightText,
+  nightWatchdogAction,
+  parseNightState,
+} from './night-logic.mjs'
+import {
   briefPaths,
   isWriterType,
   overlapping,
@@ -358,6 +377,8 @@ async function envRaw($, key) {
         return await $.env.get('CREW_CHIEF_SAVER_SEVEN_DAY')
       case 'ask.timeout':
         return await $.env.get('CREW_CHIEF_ASK_TIMEOUT_MIN')
+      case 'night.ask':
+        return await $.env.get('CREW_CHIEF_NIGHT_ASK_MIN')
       case 'handoff.mode':
         return await $.env.get('CREW_CHIEF_HANDOFF')
       case 'notify.agent':
@@ -502,7 +523,8 @@ function registerConfig(on) {
 // races that call against a timer, and when the timer wins it returns the flow's safe default as the
 // answer: the engine closes the dialog and $.ui.ask resolves to that label, exactly as if it was clicked.
 // (That hook is only reached while the asking hook still runs; see askWithDeadline for the other case.)
-// Only questions noted here are raced: an AskUserQuestion that Claude raises itself passes through.
+// Only questions noted here are raced: an AskUserQuestion that Claude raises itself passes through, except in a
+// night's opening phase (hooks/src/night.js), where it is closed with a NO_ANSWER label after night.ask minutes.
 // CREW_CHIEF_ASK_TIMEOUT_MIN sets the minutes (default 20, at most 30; "off" or "0" = no deadline).
 // question text -> { fallback, ms, lang, announced }
 const deadlines = new Map()
@@ -515,7 +537,16 @@ const EXPIRED = Symbol('expired')
 //   - the race below, so the flow moves on with the default in every case, even when the dialog could
 //     not be closed (then a late click on it changes nothing).
 // `look` (optional) only changes how the band draws the question outside the terminal (see uiAskStart).
-async function askWithDeadline($, question, answers, fallback, look) {
+// `night` (optional): while a night is open (hooks/src/night.js) the question is never shown; it is answered at once
+// with `night.answer` when given (it may be the yes), else with `fallback`. `night.hold`: that answer starts a compaction.
+async function askWithDeadline($, question, answers, fallback, look, night) {
+  let quiet
+  try {
+    quiet = await nightQuietAnswer($, question, answers, fallback, night)
+  } catch (err) {
+    quiet = undefined
+  }
+  if (quiet !== undefined) return quiet
   let entry
   try {
     const ms = (await cfgGet($, 'ask.timeout')) * 60_000
@@ -592,6 +623,13 @@ function registerAsk(on) {
     } catch (err) {
       d = undefined
     }
+    if (d === undefined) {
+      try {
+        d = await nightOpeningDeadline($)
+      } catch (err) {
+        d = undefined
+      }
+    }
     if (d === undefined) return next(e)
     let timer
     let answered
@@ -603,6 +641,12 @@ function registerAsk(on) {
       answered.catch(() => {})
       const first = await Promise.race([answered.then((r) => ({ r })), expired])
       if (first === EXPIRED) {
+        if (d.night !== undefined) {
+          // The night's opening interview: every question of the batch is answered with the NO_ANSWER label.
+          const qs = (Array.isArray(e.questions) ? e.questions : []).filter((q) => q && typeof q.question === 'string')
+          await nightAnnounceExpiry($, d, qs.length)
+          return { result: { questions: e.questions, answers: Object.fromEntries(qs.map((q) => [q.question, d.fallback])), afkTimeoutMs: d.ms } }
+        }
         announceExpiry($, d)
         return { result: { questions: e.questions, answers: { [d.question]: d.fallback }, afkTimeoutMs: d.ms } }
       }
@@ -1131,6 +1175,15 @@ function compactBusy() {
   return Boolean(ck.plan || ck.compacting || ck.asking)
 }
 
+// True when a compaction question is due but waits for a turn to end: Claude called the checkpoint tool, or the
+// context passed the ask size. At night the Stop hook blocks every turn end, so the night mod puts up the hold file
+// on this, the turn ends, and the usual flow (question auto-answered, handoff update, compaction) can run.
+function compactWanted() {
+  if (ck.never || ck.plan || ck.compacting || ck.asking) return false
+  if (ck.wantAsk) return true
+  return ck.armed && !ck.askedFallback && typeof ck.lastTokens === 'number' && typeof ck.askAt === 'number' && ck.lastTokens >= ck.askAt
+}
+
 // Counts prompts and model requests; unchanged between two moments means the session stayed quiet.
 function compactActivity() {
   return ck.activity
@@ -1194,6 +1247,8 @@ async function compactUpdate($, usage) {
   const tokens = usage?.context?.tokens
   if (typeof tokens !== 'number' || compactCtxStale(tokens) || ck.never || ck.plan || ck.compacting) return
   const lim = await limits($, usage)
+  ck.lastTokens = tokens
+  ck.askAt = lim.ask
   if (!ck.armed && tokens >= Math.max(lim.arm, ck.rearmAt)) {
     ck.armed = true
     ck.nudged = false
@@ -1297,8 +1352,8 @@ async function askAndPlan($, why) {
     }
     let answer
     try {
-      // Unanswered: "not now", the same as clicking it.
-      answer = await askWithDeadline($, t(lang, 'ck_ask', { tokens: tokensLabel(tokens), phase, state: state.line }), answers, answers[1], card)
+      // Unanswered: "not now", the same as clicking it. At night: yes, nobody is there to ask (hooks/src/night.js).
+      answer = await askWithDeadline($, t(lang, 'ck_ask', { tokens: tokensLabel(tokens), phase, state: state.line }), answers, answers[1], card, { answer: answers[0], hold: true })
     } catch (err) {
       return 'unavailable'
     }
@@ -1404,8 +1459,8 @@ async function advancePlan($) {
   open.compact = true
   let answer
   try {
-    // Unanswered: "cancel", the same as clicking it.
-    answer = await askWithDeadline($, t(lang, 'ck_gate_ask'), answers, answers[2])
+    // Unanswered: "cancel", the same as clicking it. At night: compact anyway (the update turn already ran).
+    answer = await askWithDeadline($, t(lang, 'ck_gate_ask'), answers, answers[2], undefined, { answer: answers[0], hold: true })
   } catch (err) {
     answer = answers[2]
   } finally {
@@ -1679,6 +1734,7 @@ async function afterCompaction($, result, linesBefore) {
   } catch (err) {
     // The compaction itself succeeded; the extras are best effort.
   }
+  await safe(() => nightAfterCompaction($), undefined)
 }
 
 // ---- registration ---------------------------------------------------------------------------
@@ -1797,6 +1853,393 @@ function registerCompact(on) {
     if (ck.plan || ck.compacting || ck.asking) return { text: t(lang, 'cmd_compact_busy') }
     compactAskLater($)
     return { text: t(lang, 'cmd_compact_ok') }
+  })
+}
+
+// ===== night =================================================================
+// Night mode, the mod's side. Part of the mod in hooks/register.js (rules in hooks/night-logic.mjs).
+//
+// A night is opened by the crew-night skill and run by the shell: scripts/night-state.sh alone writes
+// <git root>/night/<sid8>/state.json, and the pointer ${CLAUDE_PLUGIN_DATA}/night/<session id> names that folder.
+// No pointer: no night, and this file does nothing beyond one fs.exists. With a night open (status opening, armed
+// or wrapup) the mod:
+//   - answers crew-chief's own questions by itself (askWithDeadline -> nightQuietAnswer): compaction yes, plain
+//     saver (never ultra), everything else its safe "no"; the advisor and handoff offers are not made at all;
+//   - in the opening phase only, closes Claude's own AskUserQuestion after night.ask minutes (default 20) with a
+//     NO_ANSWER label (nightOpeningDeadline, used by hooks/src/ask.js);
+//   - keeps night/<sid8>/hold fresh while a compaction is under way, so the Stop hook lets that turn end;
+//   - wakes the session once it sits idle (and after a compaction) with one resume prompt, at most 6 an hour;
+//   - starts the wrap-up when the 5-hour or the weekly limit reaches limitPct (95) percent;
+//   - runs report-fallback once when the deadline is 2 minutes past and no report came;
+//   - /night status|off.
+// Every decision it takes by itself is one line in night/<sid8>/events.log ("<ISO time> mod <text>").
+const NIGHT_TICK_MS = 60_000
+const NIGHT_WAKE_DELAY_MS = 5_000
+
+let nightGen = 0
+let nightTimer = null
+let nightDataDir // resolved once per module life
+let nightCache = null // { dir, mtime, state }
+let nightDefaultsCache = null
+let nightInFlight = false
+let nightLastActivity = 0
+let nightNudges = []
+let nightCapLogged = false
+let nightHoldOn = false
+let nightLimitFired = new Set() // night folders whose limit wrap-up the mod already started
+let nightFallbackFired = new Set()
+let nightOverToasted = new Set()
+let nightSeenActive = new Set()
+let nightCmdRegistered = false
+
+async function nightTry(fn, fallback) {
+  try {
+    return await fn()
+  } catch (err) {
+    return fallback
+  }
+}
+
+// session.start, session.end, /clear, /resume: timers of the old session stop, the memory goes.
+function nightReset() {
+  nightGen += 1
+  const timer = nightTimer
+  nightTimer = null
+  try {
+    if (timer) timer.cancel()
+  } catch (err) {
+    // Already fired.
+  }
+  nightDataDir = undefined
+  nightCache = null
+  nightInFlight = false
+  nightLastActivity = 0
+  nightNudges = []
+  nightCapLogged = false
+  nightHoldOn = false
+  nightLimitFired = new Set()
+  nightFallbackFired = new Set()
+  nightOverToasted = new Set()
+  nightSeenActive = new Set()
+}
+
+async function nightDataDirOf($) {
+  if (nightDataDir !== undefined) return nightDataDir
+  const env = await nightTry(() => $.env.get('CLAUDE_PLUGIN_DATA'), undefined)
+  const home = await nightTry(() => $.env.get('HOME'), undefined)
+  const configDir = await nightTry(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined)
+  const found = resolveDataDir({ env, pluginRoot: $.plugin.root, pluginName: $.plugin.name, home, configDir })
+  nightDataDir = found === undefined ? '' : found.dir
+  return nightDataDir
+}
+
+// This session's night: { sid, dir, state } or undefined. One fs.exists when there is none. state.json is read
+// again only when its mtime moved.
+async function nightRead($) {
+  try {
+    const sid = await $.session.id()
+    if (typeof sid !== 'string' || sid === '') return undefined
+    const data = await nightDataDirOf($)
+    if (data === '') return undefined
+    const pointer = `${data}/night/${sid}`
+    if (!(await $.fs.exists(pointer))) return undefined
+    const dir = String(await $.fs.read(pointer))
+      .trim()
+      .replace(/\/+$/, '')
+    if (dir === '') return undefined
+    const file = `${dir}/state.json`
+    const stat = await nightTry(() => $.fs.stat(file), undefined)
+    if (!stat) return undefined
+    if (nightCache && nightCache.dir === dir && nightCache.mtime === stat.mtimeMs) return { sid, dir, data, state: nightCache.state }
+    const state = parseNightState(await $.fs.read(file))
+    if (state === undefined) return undefined
+    nightCache = { dir, mtime: stat.mtimeMs, state }
+    return { sid, dir, data, state }
+  } catch (err) {
+    return undefined
+  }
+}
+
+async function nightDefaultsOf($) {
+  if (nightDefaultsCache) return nightDefaultsCache
+  const text = await nightTry(() => $.fs.read(`${$.plugin.root}/data/night-defaults.json`), undefined)
+  nightDefaultsCache = text === undefined ? { ...NIGHT_DEFAULTS } : nightDefaults(text)
+  return nightDefaultsCache
+}
+
+// One line into events.log. An append through the shell: the hooks append to the same file at the same time.
+async function nightEvent($, night, text) {
+  try {
+    const line = nightEventLine(await $.clock.now(), text)
+    await $.process.run(['sh', '-c', 'printf "%s\\n" "$1" >> "$2"', 'sh', line, `${night.dir}/events.log`], { timeoutMs: 5000 })
+  } catch (err) {
+    // The log is for the report; the night goes on without the line.
+  }
+}
+
+// scripts/night-state.sh <args>. The night is named three ways so the script can pick it up however it looks:
+// cwd = the night's git root, CREW_CHIEF_NIGHT_DIR = the night folder, the session id and the plugin data folder.
+async function nightScript($, night, args) {
+  const env = { CREW_CHIEF_NIGHT_DIR: night.dir, CREW_CHIEF_SESSION_ID: night.sid, CLAUDE_SESSION_ID: night.sid }
+  if (night.data) env.CLAUDE_PLUGIN_DATA = night.data
+  const init = { env, timeoutMs: 20_000 }
+  if (typeof night.state.root === 'string' && night.state.root !== '') init.cwd = night.state.root
+  try {
+    return await $.process.run(['sh', `${$.plugin.root}/scripts/night-state.sh`, ...args], init)
+  } catch (err) {
+    return { exitCode: 1, stdout: '', stderr: String(err && err.message ? err.message : err) }
+  }
+}
+
+// The open night (opening|armed|wrapup), or undefined. For the offers that are not made at night.
+async function nightQuietNow($) {
+  const night = await nightRead($)
+  return night && nightQuietStatus(night.state.status) ? night : undefined
+}
+
+// Called first by askWithDeadline. While a night is open the question is never shown: returns the caller's night
+// answer (`night.answer`), or its safe fallback, and logs it. undefined: no night, ask as usual.
+// `night.hold`: the answer starts a compaction; the hold file goes up before the yes returns.
+async function nightQuietAnswer($, question, answers, fallback, night) {
+  const open = await nightQuietNow($)
+  if (!open) return undefined
+  const label = night && typeof night.answer === 'string' ? night.answer : fallback
+  if (night && night.hold) await nightHoldWrite($, open)
+  await nightEvent($, open, `auto-answered a crew-chief question (nobody asked at night): "${String(question).slice(0, 120)}" -> ${String(label)}`)
+  return label
+}
+
+// Logs an offer that is not made because the night is open.
+async function nightSkipped($, night, what) {
+  await nightEvent($, night, `skipped ${what} (night)`)
+}
+
+async function nightHoldWrite($, night) {
+  try {
+    await $.fs.write(`${night.dir}/hold`, nightHoldText(await $.clock.now()))
+    nightHoldOn = true
+  } catch (err) {
+    // Without the hold the Stop hook may block the update turn; the compaction then retries.
+  }
+}
+
+async function nightHoldClear($, night) {
+  nightHoldOn = false
+  await nightTry(() => $.process.run(['rm', '-f', `${night.dir}/hold`]), undefined)
+}
+
+// While a compaction is under way or due (compactWanted: the turn must be allowed to end first): the hold stays
+// fresh. Otherwise: removed.
+async function nightHoldRefresh($, night) {
+  if (compactBusy() || compactWanted()) await nightHoldWrite($, night)
+  else if (nightHoldOn) await nightHoldClear($, night)
+}
+
+// ---- the opening interview's deadline (hooks/src/ask.js) --------------------------------------------------------
+
+// night.ask: a value the person set (/crew-config or CREW_CHIEF_NIGHT_ASK_MIN) wins; otherwise askMin from the
+// defaults file (20).
+async function nightAskMinutes($) {
+  const st = await nightTry(() => cfgState($, 'night.ask'), undefined)
+  if (st && st.source !== 'default' && typeof st.value === 'number' && st.value > 0) return st.value
+  return (await nightDefaultsOf($)).askMin
+}
+
+// For Claude's own AskUserQuestion: a deadline entry while this session's night is in its opening phase, else
+// undefined (outside a night and after arming, Claude's questions get no deadline from the mod).
+async function nightOpeningDeadline($) {
+  const night = await nightRead($)
+  if (!night || night.state.status !== 'opening') return undefined
+  const min = await nightAskMinutes($)
+  return { night, min, ms: min * 60_000, fallback: nightNoAnswerLabel(min), lang: await nightTry(() => resolveLang($), 'en'), announced: false }
+}
+
+async function nightAnnounceExpiry($, d, count) {
+  await nightEvent($, d.night, `opening question${count === 1 ? '' : 's'} unanswered for ${d.min} min (${count}): answered NO_ANSWER, to be parked in QUESTIONS.md`)
+  await nightTry(() => $.ui.toast(nightText(d.lang, 'ask_expired', { min: d.min }), { timeoutMs: 15000 }), undefined)
+}
+
+// ---- activity, the watchdog, the limit stop -----------------------------------------------------------------------
+
+// From the main loop: a prompt or a model request (inFlight), or a finished turn.
+function nightNoteActivity(nowMs, inFlight) {
+  nightLastActivity = nowMs
+  nightInFlight = inFlight
+}
+
+function nightArm($) {
+  if (nightTimer) return
+  const gen = nightGen
+  nightTimer = $.clock.after(NIGHT_TICK_MS, () => nightTick($, gen))
+}
+
+async function nightTick($, gen) {
+  if (gen !== nightGen) return
+  nightTimer = null
+  const night = await nightRead($)
+  const keep = night ? await nightCheck($, night, undefined, true) : false
+  if (keep && gen === nightGen) nightArm($)
+}
+
+// One look at the night: hold, end notice, limit, and (`watch`, from the timer) the watchdog; a turn that just ended
+// is not idle. Returns whether the watchdog should keep ticking.
+async function nightCheck($, night, rateLimits, watch) {
+  const st = night.state
+  await nightHoldRefresh($, night)
+  if (nightOverStatus(st.status)) {
+    if (nightSeenActive.has(night.dir)) await nightOver($, night)
+    return false
+  }
+  if (!nightQuietStatus(st.status)) return false
+  nightSeenActive.add(night.dir)
+  if (!nightArmedStatus(st.status)) return true // opening: keep watching for the arming
+  const usage = rateLimits === undefined ? await nightTry(() => $.session.usage(), undefined) : { rateLimits }
+  await nightLimit($, night, usage ? usage.rateLimits : undefined)
+  if (watch) await nightWatchdog($, night)
+  return true
+}
+
+async function nightOver($, night) {
+  if (nightOverToasted.has(night.dir)) return
+  nightOverToasted.add(night.dir)
+  const lang = await nightTry(() => resolveLang($), 'en')
+  await nightTry(() => $.ui.toast(nightText(lang, 'over', { path: `${night.dir}/REPORT.md` }), { timeoutMs: 20000 }), undefined)
+}
+
+// The 5-hour window or the weekly limit at limitPct: the wrap-up starts, once per night.
+async function nightLimit($, night, rateLimits) {
+  if (night.state.status !== 'armed' || nightLimitFired.has(night.dir)) return
+  const d = await nightDefaultsOf($)
+  const hit = nightLimitHit(rateLimits, d.limitPct)
+  if (!hit) return
+  nightLimitFired.add(night.dir)
+  const r = await nightScript($, night, ['phase', 'wrapup', '--reason', 'limit'])
+  await nightEvent($, night, `limit: ${hit.kind} at ${hit.percent}% (stop at ${d.limitPct}%): wrap-up started` + (r.exitCode === 0 ? '' : ` (night-state.sh failed: ${String(r.stderr || '').trim().slice(0, 120)})`))
+  const lang = await nightTry(() => resolveLang($), 'en')
+  await nightTry(() => $.ui.toast(nightText(lang, 'limit', { window: hit.kind, percent: hit.percent }), { timeoutMs: 12000 }), undefined)
+}
+
+async function nightNudge($, night, reason) {
+  const now = await $.clock.now()
+  nightNudges = nightRecentNudges(nightNudges, now)
+  if (!nightNudgeAllowed(nightNudges, now)) {
+    if (!nightCapLogged) {
+      nightCapLogged = true
+      await nightEvent($, night, `watchdog: ${nightNudges.length} resume prompts in the last hour, no more until the hour has passed`)
+    }
+    return
+  }
+  nightCapLogged = false
+  nightNudges.push(now)
+  nightLastActivity = now // the next nudge waits a full idle period, whether this one started a turn or not
+  const idleMin = Math.round(NIGHT_IDLE_MS / 60_000)
+  await nightEvent($, night, reason === 'compaction' ? 'compaction finished: resume prompt sent' : `watchdog: idle ${idleMin}+ min, resume prompt sent`)
+  try {
+    $.prompt.submit({ text: nightNudgeText(night.state, now, reason, night.dir) }).catch(() => {})
+  } catch (err) {
+    // A session that cannot take a prompt now: the next tick tries again.
+  }
+}
+
+async function nightWatchdog($, night) {
+  const st = night.state
+  const action = nightWatchdogAction({
+    status: st.status,
+    deadline: st.deadline,
+    reportDone: Boolean(st.reportDone),
+    fallbackDone: nightFallbackFired.has(night.dir),
+    nowMs: await $.clock.now(),
+    lastActivityMs: nightLastActivity,
+    inFlight: nightInFlight,
+    compactBusy: compactBusy(),
+    agentsRunning: await nightTry(() => runningAgents($), 0),
+  })
+  if (action === 'nudge') return nightNudge($, night, 'idle')
+  if (action !== 'fallback') return
+  nightFallbackFired.add(night.dir)
+  const r = await nightScript($, night, ['report-fallback'])
+  await nightEvent($, night, 'deadline + 2 min with no report: report-fallback ran' + (r.exitCode === 0 ? '' : ` (failed: ${String(r.stderr || '').trim().slice(0, 120)})`))
+  await nightOver($, night)
+}
+
+// ---- hooks the entry (hooks/src/register.js) calls ----------------------------------------------------------------
+
+async function nightSessionStart($) {
+  nightReset()
+  try {
+    await $.command.register({ name: 'night', description: 'crew-chief night mode: status, or off (start one with /crew-chief:crew-night)', immediate: true, argumentHint: '[status|off]' })
+    nightCmdRegistered = true
+  } catch (err) {
+    nightCmdRegistered = await nightOwnsCommand($)
+  }
+  const night = await nightRead($)
+  if (night && nightQuietStatus(night.state.status)) {
+    nightSeenActive.add(night.dir)
+    nightLastActivity = await $.clock.now()
+    nightArm($)
+  }
+}
+
+// A finished main turn and a measurement: the hold, the limit, and the watchdog's timer when a night just armed.
+async function nightTurnComplete($, usage) {
+  const night = await nightRead($)
+  if (!night) return
+  const keep = await nightCheck($, night, usage && Array.isArray(usage.rateLimits) ? usage.rateLimits : [], false)
+  if (keep) nightArm($)
+}
+
+async function nightMeasure($, e) {
+  const night = await nightRead($)
+  if (!night || night.state.status !== 'armed') return
+  await nightLimit($, night, e && Array.isArray(e.rateLimits) ? e.rateLimits : undefined)
+}
+
+// From compact-flow's afterCompaction (both the direct and the /compact path): the hold comes down and, a few
+// seconds later, the session that now sits idle is told to go on.
+async function nightAfterCompaction($) {
+  const night = await nightRead($)
+  if (!night || !nightArmedStatus(night.state.status)) return
+  await nightHoldClear($, night)
+  const gen = nightGen
+  const at = await $.clock.now()
+  $.clock.after(NIGHT_WAKE_DELAY_MS, async () => {
+    if (gen !== nightGen) return
+    if (nightInFlight && nightLastActivity > at) return // a turn already started
+    const now = await nightRead($)
+    if (!now || !nightArmedStatus(now.state.status)) return
+    await nightNudge($, now, 'compaction')
+  })
+}
+
+async function nightOwnsCommand($) {
+  try {
+    const commands = await $.command.list()
+    return commands.some((c) => c.name === 'night' && c.source === 'plugin' && /^crew-chief(@|$)/.test(String(c.plugin ?? '')))
+  } catch (err) {
+    return false
+  }
+}
+
+function registerNight(on) {
+  on('command.run', { command: 'night' }, async ($, e, next) => {
+    if (!nightCmdRegistered) nightCmdRegistered = await nightOwnsCommand($)
+    if (!nightCmdRegistered) return next(e)
+    const word = String(e.args || '').trim().toLowerCase()
+    const night = await nightRead($)
+    if (!night) return { text: 'crew-chief night: no night in this session. Start one with /crew-chief:crew-night.' }
+    if (word === '' || word === 'status') return { text: nightStatusText(night.state, await $.clock.now(), await nightDefaultsOf($), night.dir) }
+    if (word === 'off') {
+      if (!nightQuietStatus(night.state.status)) return { text: `crew-chief night: the night is already ${night.state.status}; nothing to turn off.` }
+      const r = await nightScript($, night, ['stop', '--reason', 'off'])
+      if (r.exitCode !== 0) return { text: `crew-chief night: could not turn it off (night-state.sh exit ${r.exitCode}): ${String(r.stderr || r.stdout || '').trim().slice(0, 200)}` }
+      nightCache = null
+      if (nightHoldOn) await nightHoldClear($, night)
+      const lang = await nightTry(() => resolveLang($), 'en')
+      nightOverToasted.add(night.dir) // the toast below says it; no "night over" toast after it
+      await nightTry(() => $.ui.toast(nightText(lang, 'off'), { timeoutMs: 8000 }), undefined)
+      return { text: `crew-chief night: off. Claude Code is back to normal; the night's files stay in ${night.dir}.` }
+    }
+    return { text: 'crew-chief night: /night status or /night off. Start a night with /crew-chief:crew-night.' }
   })
 }
 
@@ -5947,6 +6390,9 @@ async function handoffOfferRun($, e) {
   if (recordSilences(lastRecord(tsv, proj), nowSec)) return
 
   if (!(await hoInteractive($, e))) return
+  // A night is open: nobody is there to answer, and "later" must not be recorded for them.
+  const night = await hoTry(() => nightQuietNow($), undefined)
+  if (night) return void (await hoTry(() => nightSkipped($, night, 'the handoff setup offer'), undefined))
   // The person may have typed already while the checks ran.
   if ((await hoTry(() => $.session.turns(), 1)) !== 0) return
   if (storeKey) await hoTry(() => $.store.set(storeKey, '1'), undefined)
@@ -6140,7 +6586,8 @@ async function askUser($, hit) {
       accent: 1, // the ultra answer's text in the saver's ultra colour
       quiet: 3, // "don't ask again": a quiet text button at the end
     }
-    const answer = await askWithDeadline($, t(lang, 'ask', { window: windowName(lang, hit.kind), percent: hit.percent, reset }), answers, answers[2], card)
+    // At night (hooks/src/night.js): the plain saver, never ultra (the user's rule).
+    const answer = await askWithDeadline($, t(lang, 'ask', { window: windowName(lang, hit.kind), percent: hit.percent, reset }), answers, answers[2], card, { answer: answers[0] })
     if (answer === answers[0]) {
       saver = true
       $.ui.toast(t(lang, 'toast_saver_on'), { timeoutMs: 8000 })
@@ -6258,6 +6705,8 @@ async function offerAdvisor($) {
     if (!commands.some((c) => c.name === 'advisor')) return
     const plan = advisorPlan(await $.session.model())
     if (plan === undefined) return
+    const night = await nightQuietNow($)
+    if (night) return void (await nightSkipped($, night, 'the advisor offer'))
     let stored
     try {
       stored = await $.store.get('advisor')
@@ -6362,6 +6811,7 @@ export function register(on) {
     await uiSessionStart($)
     await panesSessionStart($)
     await avSessionStart($)
+    await nightSessionStart($)
     handoffOfferStart($, e)
     return result
   })
@@ -6373,12 +6823,14 @@ export function register(on) {
     panesReset()
     avReset()
     await guardSessionEnd($)
+    nightReset()
     return next(e)
   })
 
   on('prompt.submit', async ($, e, next) => {
     lastPromptAt = await $.clock.now()
     compactNoteActivity()
+    nightNoteActivity(lastPromptAt, true)
     // Only what the person types counts: task notifications, peer sessions, schedules, and other
     // plugins also come through prompt.submit, and their text is usually English.
     const kind = e.origin ? e.origin.kind : undefined
@@ -6398,6 +6850,7 @@ export function register(on) {
     uiTouch($)
     await compactUpdate($, e)
     await resetOnUsage($, e)
+    await nightMeasure($, e)
     await evaluate($)
     if (pending !== null && !(await turnInFlight($))) launchAsk($)
     return next(e)
@@ -6411,12 +6864,14 @@ export function register(on) {
     await avTurnComplete($, e)
     if (e.agentId === undefined) {
       lastCompleteAt = await $.clock.now()
+      nightNoteActivity(lastCompleteAt, false)
       uiTouch($)
       const usage = await $.session.usage()
       await uiNoteContext($, usage)
       await compactTurnComplete($, usage, e.reason)
       await handoffTurnComplete($, e)
       await resetOnUsage($, usage)
+      await nightTurnComplete($, usage)
       await evaluate($)
       launchAsk($)
       if (e.reason === 'answer' && !advisorChecked && pending === null && !open.saver) {
@@ -6431,6 +6886,7 @@ export function register(on) {
     if (e.agentId === undefined) {
       lastStepAt = await $.clock.now()
       compactNoteActivity('step')
+      nightNoteActivity(lastStepAt, true)
       uiNoteMainStep(e)
     }
     await statsStepStart($, e)
@@ -6584,4 +7040,5 @@ export function register(on) {
   registerTidy(on)
   registerStats(on)
   registerGuard(on)
+  registerNight(on)
 }

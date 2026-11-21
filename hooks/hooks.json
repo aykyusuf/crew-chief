@@ -1,5 +1,5 @@
 {
-  "description": "crew-chief: routing policy at session start; read-only guard for the scanner, deep-reader, and reviewer agents; solo mode enforcement; update notices; agent panel row installer; skill hints and a one-time skill offer; per-subagent progress for the panel row; limit-aware token saver, compact flow and a subagent status line for Desktop, VS Code and Windows (mod); an opt-in command guard with an ssh first-contact gate (mod); no Fable subagent unless the user asks for Fable (the first Agent call naming Fable is held back once); a UI task goes to the ui-implementer agent with a project UI profile and per-call model and effort rules, big UI jobs start with the read-only ui-designer (a UI brief that does not is held back once, and so is a write of a UI file in a project without a UI profile); a quiet band above the prompt (on by default, /crew-ui off) with the plugin's questions as buttons, and opt-in panes for tasks, agents and the guard (mod); a security gate holds back Claude's first `git commit` of security-relevant files (risk map in .crew-chief/security-map.json) until the read-only security-reviewer has looked, the identical retry passes; after a compaction, the pinned constraints and open tasks are put back from the handoff files",
+  "description": "crew-chief: routing policy at session start; read-only guard for the scanner, deep-reader, and reviewer agents; solo mode enforcement; update notices; agent panel row installer; skill hints and a one-time skill offer; per-subagent progress for the panel row; limit-aware token saver, compact flow and a subagent status line for Desktop, VS Code and Windows (mod); an opt-in command guard with an ssh first-contact gate (mod); no Fable subagent unless the user asks for Fable (the first Agent call naming Fable is held back once); a UI task goes to the ui-implementer agent with a project UI profile and per-call model and effort rules, big UI jobs start with the read-only ui-designer (a UI brief that does not is held back once, and so is a write of a UI file in a project without a UI profile); a quiet band above the prompt (on by default, /crew-ui off) with the plugin's questions as buttons, and opt-in panes for tasks, agents and the guard (mod); a security gate holds back Claude's first `git commit` of security-relevant files (risk map in .crew-chief/security-map.json) until the read-only security-reviewer has looked, the identical retry passes; after a compaction, the pinned constraints and open tasks are put back from the handoff files; night mode (unattended run): a Stop hook refuses to stop until the deadline and a guard denies push, forbidden commands, extra subagents, questions and permission prompts while the night runs",
   "modules": [
     "./register.js"
   ],
@@ -107,6 +107,35 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/security-gate.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Agent|AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/night-guard.sh\""
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/night-guard.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/night-stop.sh\""
           }
         ]
       }

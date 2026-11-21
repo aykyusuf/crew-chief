@@ -87,6 +87,28 @@ security_rescan() {
   return 0
 }
 
+# Night mode: at the first start after a night ended, its report is shown once (night/<sid8>/REPORT.md).
+night_report() {
+  [ "$source" = "startup" ] || return 0
+  [ -n "$cwd" ] && [ -d "$cwd" ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || root=$cwd
+  [ -d "$root/night" ] || return 0
+  shown="$CLAUDE_PLUGIN_DATA/night-reports-shown.tsv"
+  for st in "$root"/night/*/state.json; do
+    [ -f "$st" ] || continue
+    case "$(jq -r '.status // empty' "$st" 2>/dev/null)" in done|stalled|stopped) ;; *) continue ;; esac
+    rep="$(dirname "$st")/REPORT.md"
+    [ -f "$rep" ] || continue
+    grep -qxF "$rep" "$shown" 2>/dev/null && continue
+    printf '%s\n' "$rep" >> "$shown" 2>/dev/null
+    printf '%s\n' '<crew-chief-night-report>' \
+      "A night run ended and its report is waiting: $rep. Before anything else in your first answer, give the user its verdict line and the 'Needs you' items (short), then do what they asked." \
+      '</crew-chief-night-report>'
+  done
+  return 0
+}
+
 handoff_check() {
   [ "$source" = "startup" ] || return 0
   [ -n "$cwd" ] && [ -d "$cwd" ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ] || return 0
@@ -165,6 +187,7 @@ if [ -n "$cwd" ] && [ -f "$cwd/CLAUDE.md" ] && grep -q '<!-- crew-chief:start' "
   handoff_offer
   handoff_check
   security_rescan
+  night_report
   exit 0
 fi
 
@@ -207,3 +230,4 @@ printf '%s\n' \
 handoff_offer
 handoff_check
 security_rescan
+night_report

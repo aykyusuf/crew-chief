@@ -84,6 +84,7 @@ export const SETTINGS = {
   'saver.five': { group: 'saver', parse: list, def: FIVE_HOUR_DEFAULT, env: 'CREW_CHIEF_SAVER_FIVE_HOUR', what: '5-hour limit percents that raise the saver question (for example 80,95)' },
   'saver.seven': { group: 'saver', parse: list, def: SEVEN_DAY_DEFAULT, env: 'CREW_CHIEF_SAVER_SEVEN_DAY', what: 'weekly limit percents that raise the saver question' },
   'ask.timeout': { group: 'ask', parse: minutes, def: 20, env: 'CREW_CHIEF_ASK_TIMEOUT_MIN', what: `minutes before an unanswered question takes its safe answer (1-${ASK_TIMEOUT_MAX_MIN}, or off)` },
+  'night.ask': { group: 'night', parse: whole(1, 120), def: 20, env: 'CREW_CHIEF_NIGHT_ASK_MIN', what: 'in a night\'s opening phase only, minutes before a question Claude asked and nobody answered is closed as NO_ANSWER and parked (1-120)' },
   'handoff.mode': { group: 'handoff', parse: choice(HANDOFF_MODES), def: HANDOFF_DEFAULTS.mode, env: 'CREW_CHIEF_HANDOFF', what: 'keeping STATUS.md / tasks.json / PROGRESS.md current: off, nudge (reminders to Claude) or turn (also one extra turn asking for the update when reminders went unanswered)' },
   'handoff.files': { group: 'handoff', parse: whole(2, 100), def: HANDOFF_DEFAULTS.files, what: 'distinct project files edited since the handoff files were last written before Claude is reminded' },
   'handoff.minutes': { group: 'handoff', parse: whole(5, 600), def: HANDOFF_DEFAULTS.minutes, what: 'minutes of editing after which a third of that many files is enough to remind' },
@@ -105,6 +106,7 @@ export function formatSetting(key, value) {
   const def = SETTINGS[key]
   if (!def) return String(value)
   if (key === 'ask.timeout') return value === 0 ? 'off' : `${value} min`
+  if (key === 'night.ask') return `${value} min`
   if (key === 'compact.quiet' || key === 'notify.min') return `${value} s`
   if (key.endsWith('pct')) return `${value} %`
   if (Array.isArray(value)) return value.join(',')

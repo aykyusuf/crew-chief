@@ -10,6 +10,7 @@
 //   - Set up submits one prompt that runs the crew-chief:crew-handoff skill; the user already said yes.
 // The question runs detached: it never holds up the session start or the person's first prompt.
 import { askWithDeadline } from './ask.mjs'
+import { nightQuietNow, nightSkipped } from './night.mjs'
 import { resolveLang } from './lang.mjs'
 import { t } from './saver-i18n.mjs'
 import {
@@ -162,6 +163,9 @@ async function handoffOfferRun($, e) {
   if (recordSilences(lastRecord(tsv, proj), nowSec)) return
 
   if (!(await hoInteractive($, e))) return
+  // A night is open: nobody is there to answer, and "later" must not be recorded for them.
+  const night = await hoTry(() => nightQuietNow($), undefined)
+  if (night) return void (await hoTry(() => nightSkipped($, night, 'the handoff setup offer'), undefined))
   // The person may have typed already while the checks ran.
   if ((await hoTry(() => $.session.turns(), 1)) !== 0) return
   if (storeKey) await hoTry(() => $.store.set(storeKey, '1'), undefined)

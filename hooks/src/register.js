@@ -45,6 +45,7 @@ import { avNote, avReset, avSessionStart, avTurnComplete, registerAgentView } fr
 import { registerUi, uiNoteContext, uiNoteMainStep, uiSessionStart, uiTouch } from './crew-ui.mjs'
 import { guardAfter, guardCheck, guardNudge, guardSessionEnd, guardSessionStart, guardWants, registerGuard } from './guard.mjs'
 import { handoffOfferMarker, handoffOfferNote, handoffOfferStart } from './handoff-offer.mjs'
+import { nightMeasure, nightNoteActivity, nightQuietNow, nightReset, nightSessionStart, nightSkipped, nightTurnComplete, registerNight } from './night.mjs'
 import {
   compactNoteActivity,
   compactNudge,
@@ -210,7 +211,8 @@ async function askUser($, hit) {
       accent: 1, // the ultra answer's text in the saver's ultra colour
       quiet: 3, // "don't ask again": a quiet text button at the end
     }
-    const answer = await askWithDeadline($, t(lang, 'ask', { window: windowName(lang, hit.kind), percent: hit.percent, reset }), answers, answers[2], card)
+    // At night (hooks/src/night.js): the plain saver, never ultra (the user's rule).
+    const answer = await askWithDeadline($, t(lang, 'ask', { window: windowName(lang, hit.kind), percent: hit.percent, reset }), answers, answers[2], card, { answer: answers[0] })
     if (answer === answers[0]) {
       saver = true
       $.ui.toast(t(lang, 'toast_saver_on'), { timeoutMs: 8000 })
@@ -328,6 +330,8 @@ async function offerAdvisor($) {
     if (!commands.some((c) => c.name === 'advisor')) return
     const plan = advisorPlan(await $.session.model())
     if (plan === undefined) return
+    const night = await nightQuietNow($)
+    if (night) return void (await nightSkipped($, night, 'the advisor offer'))
     let stored
     try {
       stored = await $.store.get('advisor')
@@ -432,6 +436,7 @@ export function register(on) {
     await uiSessionStart($)
     await panesSessionStart($)
     await avSessionStart($)
+    await nightSessionStart($)
     handoffOfferStart($, e)
     return result
   })
@@ -443,12 +448,14 @@ export function register(on) {
     panesReset()
     avReset()
     await guardSessionEnd($)
+    nightReset()
     return next(e)
   })
 
   on('prompt.submit', async ($, e, next) => {
     lastPromptAt = await $.clock.now()
     compactNoteActivity()
+    nightNoteActivity(lastPromptAt, true)
     // Only what the person types counts: task notifications, peer sessions, schedules, and other
     // plugins also come through prompt.submit, and their text is usually English.
     const kind = e.origin ? e.origin.kind : undefined
@@ -468,6 +475,7 @@ export function register(on) {
     uiTouch($)
     await compactUpdate($, e)
     await resetOnUsage($, e)
+    await nightMeasure($, e)
     await evaluate($)
     if (pending !== null && !(await turnInFlight($))) launchAsk($)
     return next(e)
@@ -481,12 +489,14 @@ export function register(on) {
     await avTurnComplete($, e)
     if (e.agentId === undefined) {
       lastCompleteAt = await $.clock.now()
+      nightNoteActivity(lastCompleteAt, false)
       uiTouch($)
       const usage = await $.session.usage()
       await uiNoteContext($, usage)
       await compactTurnComplete($, usage, e.reason)
       await handoffTurnComplete($, e)
       await resetOnUsage($, usage)
+      await nightTurnComplete($, usage)
       await evaluate($)
       launchAsk($)
       if (e.reason === 'answer' && !advisorChecked && pending === null && !open.saver) {
@@ -501,6 +511,7 @@ export function register(on) {
     if (e.agentId === undefined) {
       lastStepAt = await $.clock.now()
       compactNoteActivity('step')
+      nightNoteActivity(lastStepAt, true)
       uiNoteMainStep(e)
     }
     await statsStepStart($, e)
@@ -654,4 +665,5 @@ export function register(on) {
   registerTidy(on)
   registerStats(on)
   registerGuard(on)
+  registerNight(on)
 }

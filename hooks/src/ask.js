@@ -6,7 +6,8 @@
 // races that call against a timer, and when the timer wins it returns the flow's safe default as the
 // answer: the engine closes the dialog and $.ui.ask resolves to that label, exactly as if it was clicked.
 // (That hook is only reached while the asking hook still runs; see askWithDeadline for the other case.)
-// Only questions noted here are raced: an AskUserQuestion that Claude raises itself passes through.
+// Only questions noted here are raced: an AskUserQuestion that Claude raises itself passes through, except in a
+// night's opening phase (hooks/src/night.js), where it is closed with a NO_ANSWER label after night.ask minutes.
 // CREW_CHIEF_ASK_TIMEOUT_MIN sets the minutes (default 20, at most 30; "off" or "0" = no deadline).
 import { rowRefreshSurfaces } from './agent-row.mjs'
 import { uiAskStart } from './crew-ui.mjs'
@@ -14,6 +15,7 @@ import { resolveLang } from './lang.mjs'
 import { t } from './saver-i18n.mjs'
 import { minutesLabel, pickFallback } from './ask-logic.mjs'
 import { cfgGet } from './config.mjs'
+import { nightAnnounceExpiry, nightOpeningDeadline, nightQuietAnswer } from './night.mjs'
 
 // question text -> { fallback, ms, lang, announced }
 const deadlines = new Map()
@@ -26,7 +28,16 @@ const EXPIRED = Symbol('expired')
 //   - the race below, so the flow moves on with the default in every case, even when the dialog could
 //     not be closed (then a late click on it changes nothing).
 // `look` (optional) only changes how the band draws the question outside the terminal (see uiAskStart).
-export async function askWithDeadline($, question, answers, fallback, look) {
+// `night` (optional): while a night is open (hooks/src/night.js) the question is never shown; it is answered at once
+// with `night.answer` when given (it may be the yes), else with `fallback`. `night.hold`: that answer starts a compaction.
+export async function askWithDeadline($, question, answers, fallback, look, night) {
+  let quiet
+  try {
+    quiet = await nightQuietAnswer($, question, answers, fallback, night)
+  } catch (err) {
+    quiet = undefined
+  }
+  if (quiet !== undefined) return quiet
   let entry
   try {
     const ms = (await cfgGet($, 'ask.timeout')) * 60_000
@@ -103,6 +114,13 @@ export function registerAsk(on) {
     } catch (err) {
       d = undefined
     }
+    if (d === undefined) {
+      try {
+        d = await nightOpeningDeadline($)
+      } catch (err) {
+        d = undefined
+      }
+    }
     if (d === undefined) return next(e)
     let timer
     let answered
@@ -114,6 +132,12 @@ export function registerAsk(on) {
       answered.catch(() => {})
       const first = await Promise.race([answered.then((r) => ({ r })), expired])
       if (first === EXPIRED) {
+        if (d.night !== undefined) {
+          // The night's opening interview: every question of the batch is answered with the NO_ANSWER label.
+          const qs = (Array.isArray(e.questions) ? e.questions : []).filter((q) => q && typeof q.question === 'string')
+          await nightAnnounceExpiry($, d, qs.length)
+          return { result: { questions: e.questions, answers: Object.fromEntries(qs.map((q) => [q.question, d.fallback])), afkTimeoutMs: d.ms } }
+        }
         announceExpiry($, d)
         return { result: { questions: e.questions, answers: { [d.question]: d.fallback }, afkTimeoutMs: d.ms } }
       }

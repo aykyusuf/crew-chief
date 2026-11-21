@@ -64,6 +64,15 @@ def suite():
     os.makedirs(SCRATCH)
     data = os.path.join(SCRATCH, "data")
     try:
+        # Night mode: a finished night's report is shown once, at the next startup only.
+        nr = repo("night-report", [("night/abcd1234/state.json", json.dumps({"status": "done"})), ("night/abcd1234/REPORT.md", "# r\n"), ("night/live0000/state.json", json.dumps({"status": "armed"})), ("night/live0000/REPORT.md", "# x\n")])
+        ndata = os.path.join(SCRATCH, "ndata")
+        os.makedirs(ndata)
+        out = run(nr, data=ndata)
+        check("night: a finished night's report is announced at startup", "<crew-chief-night-report>" in out and "abcd1234/REPORT.md" in out, out)
+        check("night: a running night's report is not announced", "live0000" not in out, out)
+        check("night: the same report is not announced twice", "<crew-chief-night-report>" not in run(nr, data=ndata))
+        check("night: not on resume", "<crew-chief-night-report>" not in run(nr, source="resume", data=os.path.join(SCRATCH, "data-other")))
         bare = repo("bare")
         out = run(bare, data=data)
         check("policy printed", "<crew-chief-policy>" in out, out[:200])

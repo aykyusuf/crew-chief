@@ -146,6 +146,28 @@ def suite():
         ok = False
     check("a cut in the middle of a Turkish character leaves valid UTF-8", ok)
 
+    # Night mode: an armed night in this session is restated after a compaction; another session or a finished night is not.
+    import tempfile
+    nb = tempfile.mkdtemp(prefix="crew-chief-restore-night-")
+    ndir = os.path.join(nb, "proj", "night", "abcd1234")
+    os.makedirs(ndir)
+    os.makedirs(os.path.join(nb, "data", "night"))
+    with open(os.path.join(nb, "data", "night", "sess-1"), "w") as f:
+        f.write(ndir + "\n")
+    def night_state(status):
+        with open(os.path.join(ndir, "state.json"), "w") as f:
+            json.dump({"status": status, "deadline": 1900000000}, f)
+    def night_run(sid):
+        payload = json.dumps({"cwd": os.path.join(nb, "proj"), "source": "compact", "transcript_path": "/t/s.jsonl", "session_id": sid})
+        return run(None, raw=payload, env_extra={"CLAUDE_PLUGIN_DATA": os.path.join(nb, "data")})
+    night_state("armed")
+    out = night_run("sess-1")
+    check("night: an armed night is restated", "<crew-chief-night>" in out and "NIGHT.md" in out and "QUESTIONS.md" in out and "night-policy.md" in out, out)
+    check("night: another session gets no night block", "<crew-chief-night>" not in night_run("sess-2"))
+    night_state("done")
+    check("night: a finished night gets no night block", "<crew-chief-night>" not in night_run("sess-1"))
+    shutil.rmtree(nb, ignore_errors=True)
+
 
 def main():
     global SHELL

@@ -153,6 +153,7 @@ Before you start something the user will not watch (an overnight `/loop`, a `/go
 4. **Guardrails:** how many turns or how much spend before it stops?
 5. **Output and approval:** where does the result land (a PR, a summary, a progress file), and what does a person approve before anything irreversible (migrations, deletes, production, money)?
 In a project with handoff files, the open task's `done_when` in `tasks.json` is a good `/goal` condition.
+For a whole unattended night, use `/crew-chief:crew-night`: it asks these questions up front, then enforces the boundaries and the deadline with hooks.
 
 ## 5. User overrides
 

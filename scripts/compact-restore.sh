@@ -105,6 +105,24 @@ if [ -n "$tasks" ] && command -v jq >/dev/null 2>&1; then
   [ -n "$open" ] && add "## Open tasks from $tasks (not done)" && add "$open" && add ""
 fi
 
+# Night mode (scripts/night-state.sh): a compaction in the middle of a night must not make Claude forget it.
+sid=$(field session_id)
+if [ -n "$sid" ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -f "$CLAUDE_PLUGIN_DATA/night/$sid" ] && command -v jq >/dev/null 2>&1; then
+  ndir=$(head -n 1 "$CLAUDE_PLUGIN_DATA/night/$sid" 2>/dev/null)
+  if [ -n "$ndir" ] && [ -f "$ndir/state.json" ]; then
+    nst=$(jq -r '.status // empty' "$ndir/state.json" 2>/dev/null)
+    ndl=$(jq -r '.deadline // 0' "$ndir/state.json" 2>/dev/null)
+    case "$nst" in
+      armed|wrapup)
+        nwhen=$(date -r "$ndl" '+%H:%M %Z' 2>/dev/null || date -d "@$ndl" '+%H:%M %Z' 2>/dev/null)
+        printf '%s\n' '<crew-chief-night>' \
+          "NIGHT MODE is running in this session (phase $nst) until $nwhen. The user is away: never ask them anything; write questions to $ndir/QUESTIONS.md and continue." \
+          "Read $ndir/NIGHT.md (the contract) and $(dirname "$0")/../skills/crew-night/assets/night-policy.md (the policy) again now, then continue with the next task; log decisions in $ndir/DECISIONS.md." \
+          '</crew-chief-night>' ;;
+    esac
+  fi
+fi
+
 [ -n "$out" ] || [ -n "$transcript" ] || exit 0
 
 printf '%s\n' '<crew-chief-restore>'

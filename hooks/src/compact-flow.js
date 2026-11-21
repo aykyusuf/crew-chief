@@ -26,6 +26,7 @@ import { statsNoteBoundary } from './stats-flow.mjs'
 import { resolveLang } from './lang.mjs'
 import { cfgGet, cfgState } from './config.mjs'
 import { askWithDeadline } from './ask.mjs'
+import { nightAfterCompaction } from './night.mjs'
 import { uiAnswerOpen } from './crew-ui.mjs'
 import { t } from './saver-i18n.mjs'
 import { tokensLabel } from './saver-logic.mjs'
@@ -175,6 +176,15 @@ export function compactBusy() {
   return Boolean(ck.plan || ck.compacting || ck.asking)
 }
 
+// True when a compaction question is due but waits for a turn to end: Claude called the checkpoint tool, or the
+// context passed the ask size. At night the Stop hook blocks every turn end, so the night mod puts up the hold file
+// on this, the turn ends, and the usual flow (question auto-answered, handoff update, compaction) can run.
+export function compactWanted() {
+  if (ck.never || ck.plan || ck.compacting || ck.asking) return false
+  if (ck.wantAsk) return true
+  return ck.armed && !ck.askedFallback && typeof ck.lastTokens === 'number' && typeof ck.askAt === 'number' && ck.lastTokens >= ck.askAt
+}
+
 // Counts prompts and model requests; unchanged between two moments means the session stayed quiet.
 export function compactActivity() {
   return ck.activity
@@ -238,6 +248,8 @@ export async function compactUpdate($, usage) {
   const tokens = usage?.context?.tokens
   if (typeof tokens !== 'number' || compactCtxStale(tokens) || ck.never || ck.plan || ck.compacting) return
   const lim = await limits($, usage)
+  ck.lastTokens = tokens
+  ck.askAt = lim.ask
   if (!ck.armed && tokens >= Math.max(lim.arm, ck.rearmAt)) {
     ck.armed = true
     ck.nudged = false
@@ -341,8 +353,8 @@ async function askAndPlan($, why) {
     }
     let answer
     try {
-      // Unanswered: "not now", the same as clicking it.
-      answer = await askWithDeadline($, t(lang, 'ck_ask', { tokens: tokensLabel(tokens), phase, state: state.line }), answers, answers[1], card)
+      // Unanswered: "not now", the same as clicking it. At night: yes, nobody is there to ask (hooks/src/night.js).
+      answer = await askWithDeadline($, t(lang, 'ck_ask', { tokens: tokensLabel(tokens), phase, state: state.line }), answers, answers[1], card, { answer: answers[0], hold: true })
     } catch (err) {
       return 'unavailable'
     }
@@ -448,8 +460,8 @@ async function advancePlan($) {
   open.compact = true
   let answer
   try {
-    // Unanswered: "cancel", the same as clicking it.
-    answer = await askWithDeadline($, t(lang, 'ck_gate_ask'), answers, answers[2])
+    // Unanswered: "cancel", the same as clicking it. At night: compact anyway (the update turn already ran).
+    answer = await askWithDeadline($, t(lang, 'ck_gate_ask'), answers, answers[2], undefined, { answer: answers[0], hold: true })
   } catch (err) {
     answer = answers[2]
   } finally {
@@ -723,6 +735,7 @@ async function afterCompaction($, result, linesBefore) {
   } catch (err) {
     // The compaction itself succeeded; the extras are best effort.
   }
+  await safe(() => nightAfterCompaction($), undefined)
 }
 
 // ---- registration ---------------------------------------------------------------------------

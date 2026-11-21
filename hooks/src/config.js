@@ -25,6 +25,8 @@ async function envRaw($, key) {
         return await $.env.get('CREW_CHIEF_SAVER_SEVEN_DAY')
       case 'ask.timeout':
         return await $.env.get('CREW_CHIEF_ASK_TIMEOUT_MIN')
+      case 'night.ask':
+        return await $.env.get('CREW_CHIEF_NIGHT_ASK_MIN')
       case 'handoff.mode':
         return await $.env.get('CREW_CHIEF_HANDOFF')
       case 'notify.agent':

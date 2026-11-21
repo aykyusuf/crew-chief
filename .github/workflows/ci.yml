@@ -47,6 +47,12 @@ jobs:
         run: python3 tests/test_plugin_notices.py
       - name: Compact restore tests
         run: python3 tests/test_compact_restore.py
+      - name: Night mode state tests
+        run: python3 tests/test_night_state.py
+      - name: Night mode Stop hook tests
+        run: python3 tests/test_night_stop.py
+      - name: Night mode guard tests
+        run: python3 tests/test_night_guard.py
       - name: Saver and compact logic tests
         run: node --test tests/*.test.mjs
       - name: Saver and compact mod tests
