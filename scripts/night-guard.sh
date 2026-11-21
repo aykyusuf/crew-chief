@@ -73,8 +73,9 @@ case "$tool" in
   Bash)
     cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty | strings' 2>/dev/null)
     [ -n "$cmd" ] || exit 0
+    outw=$(jq -r '.outward // "closed"' "$dir/state.json" 2>/dev/null)
     OPT='(-[Cc][[:space:]]+("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]]+)|--(git-dir|work-tree|namespace|exec-path)[[:space:]]+[^[:space:]]+|--[A-Za-z-]+(=[^[:space:]]*)?|-[A-Za-z])'
-    if printf '%s\n' "$cmd" | grep -qE "(^|[^[:alnum:]_.-])git([[:space:]]+$OPT)*[[:space:]]+push([^[:alnum:]_-]|\$)"; then
+    if [ "$outw" != open ] && printf '%s\n' "$cmd" | grep -qE "(^|[^[:alnum:]_.-])git([[:space:]]+$OPT)*[[:space:]]+push([^[:alnum:]_-]|\$)"; then
       deny "git push denied: $(short "$cmd")" "git push is not allowed at night, in any form. Commit locally only; if a push is needed, park it in night/$sid8/QUESTIONS.md as \"ready to run: <command>\". (If the words are only text inside another command, rephrase them.)"
     fi
     forb=$(jq -r '.forbidden[]? | strings | select(length > 0)' "$dir/state.json" 2>/dev/null)
@@ -106,7 +107,12 @@ case "$tool" in
     outward="$outward|${B}aws[[:space:]]+s3[[:space:]]+(rm|mv|rb|mb)([[:space:]]|\$)|${B}aws[[:space:]]+s3[[:space:]]+(cp|sync)([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^-[:space:]][^[:space:]]*([[:space:]]+-[^[:space:]]+)*[[:space:]]+s3://"
     outward="$outward|${B}gcloud[[:space:]][^;&|]*[[:space:]](deploy|create|delete|update|set|add-[a-z-]+|remove-[a-z-]+|reset|start|stop|resize|import|patch|apply|submit|ssh|scp|cp|rm|mv|rsync)([[:space:]]|\$)"
     outward="$outward|${B}az[[:space:]][^;&|]*[[:space:]](create|delete|update|set|start|stop|restart|deploy|up|import|purge|remove|add|reset|upload|sync)([[:space:]]|\$)"
-    if printf '%s\n' "$cmd" | grep -qE "$outward"; then
+    if [ "$outw" = open ]; then
+      # Open night: allowed, logged for the report; the command guard still stops risky ones once.
+      if printf '%s\n' "$cmd" | grep -qE "$outward|(^|[^[:alnum:]_.-])git([[:space:]]+$OPT)*[[:space:]]+push([^[:alnum:]_-]|\$)"; then
+        nl_event "$dir" guard "outward allowed (open night): $(short "$cmd")"
+      fi
+    elif printf '%s\n' "$cmd" | grep -qE "$outward"; then
       deny "outward command denied: $(short "$cmd")" "night mode: commands that change something outside this machine (GitHub writes, deploys, publishes, cloud changes, server changes over ssh, uploads) are not allowed at night; reading (logs, lists, downloads) is fine. Prepare it and park it in night/$sid8/QUESTIONS.md as \"ready to run: <command>\"."
     fi
     # rm -r of a path outside the repo (absolute, ~ or ..), checked token by token.

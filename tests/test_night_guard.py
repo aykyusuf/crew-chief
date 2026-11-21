@@ -270,6 +270,21 @@ def main():
         check("5 min past the deadline: push still denied", at(dl + 300, bash("git push origin main", sid=SL)) == 2)
         check("past deadline + 10 min: git push no longer denied", at(dl + 601, bash("git push origin main", sid=SL)) == 0)
         check("past deadline + 10 min: questions allowed again", at(dl + 601, pre("AskUserQuestion", {"questions": []}, sid=SL)) == 0)
+        # outward open (user, 2026-11-21): push, deploy and server writes pass and are logged; the forbidden list and rm -r outside the repo still hold
+        SO = "open0010-0000-0000-0000-000000000010"
+        projo = make_repo(base, "open")
+        r = cli(["arm", "--session", SO, "--hours", "2", "--outward", "open", "--forbid", "terraform destroy"], projo, data, fb)
+        check("open: armed", r.returncode == 0 and state(projo, SO[:8])["outward"] == "open", (r.stderr, state(projo, SO[:8])))
+        for c in ["git push origin master", "vercel --prod", "ssh api 'systemctl restart api'", "gh workflow run ci.yml", "kubectl apply -f k.yaml"]:
+            check(f"open: allowed: {c}", guard(data, fb, bash(c, sid=SO))[0] == 0, guard(data, fb, bash(c, sid=SO)))
+        evo = open(os.path.join(projo, "night", SO[:8], "events.log")).read()
+        check("open: each outward command is logged", evo.count("outward allowed (open night)") >= 5, evo)
+        check("open: the forbidden list still holds", guard(data, fb, bash("terraform destroy -auto-approve", sid=SO))[0] == 2)
+        check("open: rm -r outside the repo still denied", guard(data, fb, bash("rm -rf /tmp/x", sid=SO))[0] == 2)
+        check("open: AskUserQuestion still denied", guard(data, fb, pre("AskUserQuestion", {"questions": []}, sid=SO))[0] == 2)
+        check("closed is the default", state(proj)["outward"] == "closed" if "outward" in state(proj) else True)
+        r = cli(["arm", "--session", "bad00011-0000-0000-0000-000000000011", "--hours", "2", "--outward", "maybe"], projo, data, fb)
+        check("--outward with a bad value fails", r.returncode != 0 and "--outward" in r.stderr, r.stderr)
     finally:
         for p in pids:
             try:

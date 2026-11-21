@@ -25,13 +25,14 @@ Main session only: this skill interviews the user with AskUserQuestion, which a 
 - Goal and a done condition a command can check.
 - Deadline: "until HH:MM" or hours, unless the argument gave it. Resolve it to an absolute local time and say it back.
 - Git for this night: commit per task on the current branch / no commits / a branch the user names. Never open a branch yourself, never push (the user decides this per night: "bazen isteyip bazen istemeyebilirim").
+- Outward actions tonight (push, deploy, CI, writes on servers or clouds): **closed** (recommended unless the work needs them: the night guard denies them and prepared commands wait in the report) or **open** (allowed; crew-chief's command guard still stops risky ones once and you must do its safety check; every push and deploy is logged and listed in the report). Ask it only when the scope could need such actions.
 - Forbidden commands or areas, if any.
 - Decision rights: the defaults in the policy file (decide small things, park product choices); ask only if the user wants them different.
 - One question per critical item from step 2, as few as possible.
 An answer that starts with `NO_ANSWER:` (the plugin closed the question after 20 minutes) means: park that item (QUESTIONS.md), do not guess it. If scope or deadline got no answer, there is no night: write REPORT.md "no instructions received", run `NS stop --session ${CLAUDE_SESSION_ID} --reason no-answer`, stop.
 
 **4. Contract.** Fill `night-contract.md` into `night/<sid8>/NIGHT.md`: scope, done condition, deadline, git policy, forbidden list, decision rights, parked items. Show it in a few lines. Then arm (no second confirmation; the answers were the confirmation):
-`NS arm --session ${CLAUDE_SESSION_ID} --until HH:MM` (or `--hours N`) `--git <commit-per-task|none|branch:NAME>` plus `--forbid "<cmd>"` per forbidden item. Add one line under Constraints in STATUS.md: `- NIGHT until HH:MM (session <sid8>): see night/<sid8>/NIGHT.md`. Remove that line when the night ends.
+`NS arm --session ${CLAUDE_SESSION_ID} --until HH:MM` (or `--hours N`) `--git <commit-per-task|none|branch:NAME>` `--outward <closed|open>` plus `--forbid "<cmd>"` per forbidden item. Add one line under Constraints in STATUS.md: `- NIGHT until HH:MM (session <sid8>): see night/<sid8>/NIGHT.md`. Remove that line when the night ends.
 
 **5. Work loop** (start in the same turn). Read `night-policy.md` once now and follow it all night. For each task: `NS task <id> --session ${CLAUDE_SESSION_ID}`, do it, run its check, commit if the git policy says so, log decisions in DECISIONS.md, move on. A hook may stop you from ending your turn before the deadline: that is the night continuing; read its reason and carry on. A denied command or question is final: do not work around it; park and move on. Never ask the user anything after arming: write the question into QUESTIONS.md with two options and your recommendation, and continue with other work.
 

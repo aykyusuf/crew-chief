@@ -2,7 +2,7 @@
 # crew-chief night mode: the one writer of night/<sid8>/state.json. POSIX sh; needs jq.
 #
 #   night-state.sh open   --session <id>
-#   night-state.sh arm    --session <id> (--until HH:MM | --hours N) [--git commit-per-task|none|branch:<name>]
+#   night-state.sh arm    --session <id> (--until HH:MM | --hours N) [--git commit-per-task|none|branch:<name>] [--outward closed|open]
 #                         [--forbid "<cmd>"]... [--dry-run]
 #   night-state.sh resume --session <id> [--from <sid8>]     (back to the ORIGINAL deadline, never extended)
 #   night-state.sh get [field]       phase <opening|armed|wrapup> [--reason r]     task <id>
@@ -22,13 +22,14 @@ cmd=${1:-}
 [ -n "$cmd" ] || die "usage: night-state.sh open|arm|resume|get|phase|task|done|stop|report-fallback|event|cleanup"
 shift
 
-SID=""; UNTIL=""; HOURS=""; GITP=""; FORBID=""; DRY=0; REASON=""; FROM=""; POS=""; NPOS=0
+SID=""; UNTIL=""; HOURS=""; GITP=""; OUTWARD=""; FORBID=""; DRY=0; REASON=""; FROM=""; POS=""; NPOS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --session) [ $# -ge 2 ] || die "--session needs a value"; SID=$2; shift 2 ;;
     --until) [ $# -ge 2 ] || die "--until needs a value"; UNTIL=$2; shift 2 ;;
     --hours) [ $# -ge 2 ] || die "--hours needs a value"; HOURS=$2; shift 2 ;;
     --git) [ $# -ge 2 ] || die "--git needs a value"; GITP=$2; shift 2 ;;
+    --outward) [ $# -ge 2 ] || die "--outward needs a value"; OUTWARD=$2; shift 2 ;;
     --forbid) [ $# -ge 2 ] || die "--forbid needs a value"; if [ -n "$2" ]; then FORBID="$FORBID$2
 "; fi; shift 2 ;;
     --reason) [ $# -ge 2 ] || die "--reason needs a value"; REASON=$2; shift 2 ;;
@@ -148,6 +149,9 @@ case "$cmd" in
       branch:*) printf '%s' "${GITP#branch:}" | grep -qE '^[A-Za-z0-9._/-]+$' || die "bad branch name in --git" ;;
       *) die "--git wants commit-per-task, none or branch:<name>" ;;
     esac
+    # Outward actions tonight (push, deploy, CI, server writes): closed = denied by the night guard (default);
+    # open = allowed, each one logged, the command guard's first-attempt stop still applies (user, 2026-11-21).
+    case "$OUTWARD" in ''|closed) OUTWARD=closed ;; open) ;; *) die "--outward wants open or closed" ;; esac
 
     DIR=$(ns_dir)
     if [ -n "$DIR" ]; then
@@ -163,15 +167,15 @@ case "$cmd" in
     forb=$(printf '%s' "$FORBID" | jq -R -s -c 'split("\n") | map(select(length > 0))')
     sha=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)
     pid=$(nl_caff_start $((deadline - now + 600)))
-    nl_update "$DIR" '.status = "armed" | .started = $now | .deadline = $dl | .softWrap = $sw | .git = $git | .forbidden = $forb
+    nl_update "$DIR" '.status = "armed" | .started = $now | .deadline = $dl | .softWrap = $sw | .git = $git | .outward = $outward | .forbidden = $forb
       | .startSha = $sha | .dryRun = $dry | .blocks = 0 | .noProgress = 0 | .lastSig = "" | .spawned = 0 | .reason = ""
       | .ended = 0 | .reportDone = false | .caffeinatePid = ($pid | tonumber? // 0) | .current = {id: "", since: 0}' \
-      --argjson now "$now" --argjson dl "$deadline" --argjson sw "$softwrap" --arg git "$GITP" --argjson forb "$forb" \
+      --argjson now "$now" --argjson dl "$deadline" --argjson sw "$softwrap" --arg git "$GITP" --arg outward "$OUTWARD" --argjson forb "$forb" \
       --arg sha "$sha" --argjson dry "$([ "$DRY" = 1 ] && echo true || echo false)" --arg pid "${pid:-0}" \
       || die "cannot write state.json"
     ns_pointer "$SID" "$DIR"
     nl_summary "$ROOT"
-    nl_event "$DIR" night "armed: deadline $(fmt_local "$deadline"), git $GITP$([ "$DRY" = 1 ] && echo ', dry run')"
+    nl_event "$DIR" night "armed: deadline $(fmt_local "$deadline"), git $GITP, outward $OUTWARD$([ "$DRY" = 1 ] && echo ', dry run')"
     echo "night armed: $DIR"
     echo "deadline: $(fmt_local "$deadline") (epoch $deadline); wrap-up from $(fmt_local "$softwrap")"
     echo "git: $GITP; forbidden: $(printf '%s' "$forb" | jq -r 'if length == 0 then "none" else join(", ") end')"
