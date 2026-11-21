@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- **The mod finds the plugin data folder for a plugin read from a local marketplace folder** (through `known_marketplaces.json`), so the handoff offer's marker and the night pointer are where the shell hooks look; before, such an install could show the handoff offer twice.
 - **Existing projects hear about the new routine step.** The weekly handoff check notices a CLAUDE.md crew-chief routine that predates the repeated-mistake step and has Claude offer the missing lines once; nothing is edited without a yes.
 - **Night mode finds its state when the plugin is read from a local marketplace folder.** The mod looked for the night pointer in a derived data folder (`<name>-inline`) while the hooks wrote it under `<name>-<marketplace>`, so the opening question never closed (seen live); it now checks every `plugins/data/<name>-*` folder.
 - **Learning from repeated mistakes.** The handoff routine (new installs of `/crew-chief:crew-handoff`) and the compaction's update request now ask Claude, at the end of a session, to propose one Constraint when the user corrected the same mistake a second time (it is already under Failed attempts or Decisions), added only after a yes; new Constraints end with `(added YYYY-MM-DD, <model>)` so a later model can tell whether a rule still answers a real problem. Projects that already have the routine keep their text (it is never rewritten).

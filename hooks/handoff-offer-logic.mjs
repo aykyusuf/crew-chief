@@ -107,7 +107,10 @@ export function markerFresh(text, nowSec) {
 // Order: the environment variable if the mod's process has it; the folder derived from the plugin's cache
 // path; the folder for an inline plugin. undefined when none of them can be worked out (then the mod offers
 // nothing and writes nothing, and the shell's line stays the only offer).
-export function resolveDataDir({ env, pluginRoot, pluginName, home, configDir }) {
+// `marketplaces`: the parsed <config>/plugins/known_marketplaces.json, optional. A plugin read straight from a local
+// marketplace folder (source "directory") has no /plugins/cache/ path; its data folder is still <name>-<marketplace>
+// (seen 2026-11-21: deriving "<name>-inline" there made the mod and the hooks use different folders).
+export function resolveDataDir({ env, pluginRoot, pluginName, home, configDir, marketplaces }) {
   if (typeof env === 'string' && env !== '') return { dir: env, source: 'env' }
   const clean = (s) => String(s).replace(/[^A-Za-z0-9_-]/g, '-')
   const root = String(pluginRoot ?? '')
@@ -118,6 +121,12 @@ export function resolveDataDir({ env, pluginRoot, pluginName, home, configDir })
     if (marketplace && name) return { dir: `${root.slice(0, at)}/plugins/data/${clean(name)}-${clean(marketplace)}`, source: 'derived' }
   }
   const base = typeof configDir === 'string' && configDir !== '' ? trimSlashes(configDir) : typeof home === 'string' && home !== '' ? `${trimSlashes(home)}/.claude` : undefined
+  if (base !== undefined && typeof pluginName === 'string' && pluginName !== '' && marketplaces && typeof marketplaces === 'object') {
+    for (const [mkt, rec] of Object.entries(marketplaces)) {
+      const loc = trimSlashes(String((rec && (rec.installLocation || (rec.source && rec.source.path))) || ''))
+      if (loc !== '' && (root === loc || root.startsWith(loc + '/'))) return { dir: `${base}/plugins/data/${clean(pluginName)}-${clean(mkt)}`, source: 'marketplace' }
+    }
+  }
   if (base !== undefined && typeof pluginName === 'string' && pluginName !== '') return { dir: `${base}/plugins/data/${clean(pluginName)}-inline`, source: 'inline' }
   return undefined
 }

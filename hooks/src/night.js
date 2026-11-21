@@ -100,7 +100,9 @@ async function nightDataDirsOf($) {
   const env = await nightTry(() => $.env.get('CLAUDE_PLUGIN_DATA'), undefined)
   const home = await nightTry(() => $.env.get('HOME'), undefined)
   const configDir = await nightTry(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined)
-  const found = resolveDataDir({ env, pluginRoot: $.plugin.root, pluginName: $.plugin.name, home, configDir })
+  const base0 = configDir ? String(configDir).replace(/\/+$/, '') : home ? `${String(home).replace(/\/+$/, '')}/.claude` : undefined
+  const marketplaces = base0 ? await nightTry(async () => JSON.parse(await $.fs.read(`${base0}/plugins/known_marketplaces.json`)), undefined) : undefined
+  const found = resolveDataDir({ env, pluginRoot: $.plugin.root, pluginName: $.plugin.name, home, configDir, marketplaces })
   const dirs = found === undefined ? [] : [found.dir]
   const base = configDir ? String(configDir).replace(/\/+$/, '') : home ? `${String(home).replace(/\/+$/, '')}/.claude` : undefined
   const prefix = String($.plugin.name || '').replace(/[^A-Za-z0-9_-]/g, '-') + '-'

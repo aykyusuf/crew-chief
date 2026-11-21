@@ -152,3 +152,14 @@ test('setupPrompt: says the user already said yes; carries the git choice', () =
   assert.match(none, /without git/)
   assert.match(none, /pass \/p as the directory argument/)
 })
+
+test('resolveDataDir: a plugin read from a local marketplace folder gets <name>-<marketplace>, not -inline', () => {
+  const marketplaces = { 'crew-chief-dev': { source: { source: 'directory', path: '/h/.claude/local-marketplaces/crew-chief-dev' }, installLocation: '/h/.claude/local-marketplaces/crew-chief-dev' } }
+  const got = resolveDataDir({ pluginRoot: '/h/.claude/local-marketplaces/crew-chief-dev/crew-chief', pluginName: 'crew-chief', home: '/h', marketplaces })
+  assert.deepEqual(got, { dir: '/h/.claude/plugins/data/crew-chief-crew-chief-dev', source: 'marketplace' })
+  // --plugin-dir (no marketplace holds the path) stays -inline; the env still wins
+  assert.equal(resolveDataDir({ pluginRoot: '/work/crew-chief', pluginName: 'crew-chief', home: '/h', marketplaces }).source, 'inline')
+  assert.equal(resolveDataDir({ env: '/e', pluginRoot: '/h/.claude/local-marketplaces/crew-chief-dev/crew-chief', pluginName: 'crew-chief', home: '/h', marketplaces }).dir, '/e')
+  // a marketplace whose folder only shares a prefix does not match
+  assert.equal(resolveDataDir({ pluginRoot: '/h/.claude/local-marketplaces/crew-chief-dev2/crew-chief', pluginName: 'crew-chief', home: '/h', marketplaces }).source, 'inline')
+})

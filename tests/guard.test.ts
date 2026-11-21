@@ -61,7 +61,7 @@ function harness(on: any, opts: Opts = {}) {
   state.sid = 'sess-1'
   on('session.id', () => ({ value: state.sid }))
   on('fs.read', ($: any, e: any) => {
-    state.reads.push(e.path)
+    if (!String(e.path).endsWith("/plugins/known_marketplaces.json")) state.reads.push(e.path) // the data-folder lookup, not the guard
     if (e.path in state.files) return { value: state.files[e.path] }
     return { deny: 'ENOENT: no such file' }
   })
