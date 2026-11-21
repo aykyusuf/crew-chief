@@ -54,34 +54,39 @@ nl_dir_of() {
 
 nl_get() { jq -r "$2 // empty" "$1/state.json" 2>/dev/null; }
 
-# A mkdir lock that records its owner. It is broken only when the owner is gone (a crashed hook), or after about
-# 10 s as a last resort; breaking it on a short timeout let two writers in under load (seen in CI: 26 parallel Agent
-# calls counted 21). Unlock removes it only when we own it.
+# The state lock is a symlink whose target is the owner's pid: `ln -s` creates it and names the owner in one atomic
+# step. It is never broken while its owner lives (breaking it on a timeout let two writers in under load: seen in CI,
+# 26 parallel Agent calls lost an increment with a 3 s and then a 10 s limit); only a dead owner's lock is removed.
+# After about 30 s it gives up and returns 1: the caller must not write.
 nl_lock() {
   _i=0
-  while ! mkdir "$1/.lock" 2>/dev/null; do
+  while ! ln -s "$$" "$1/.lock" 2>/dev/null; do
     _i=$((_i + 1))
-    _owner=$(cat "$1/.lock/pid" 2>/dev/null)
-    if [ -n "$_owner" ] && ! kill -0 "$_owner" 2>/dev/null; then
-      rm -f "$1/.lock/pid" 2>/dev/null; rmdir "$1/.lock" 2>/dev/null; continue
-    fi
-    if [ "$_i" -gt 200 ]; then
-      rm -f "$1/.lock/pid" 2>/dev/null; rmdir "$1/.lock" 2>/dev/null; mkdir "$1/.lock" 2>/dev/null; break
-    fi
+    _owner=$(readlink "$1/.lock" 2>/dev/null)
+    case "$_owner" in
+      ''|*[!0-9]*) ;;
+      *) if ! kill -0 "$_owner" 2>/dev/null; then
+           [ "$(readlink "$1/.lock" 2>/dev/null)" = "$_owner" ] && rm -f "$1/.lock" 2>/dev/null
+           continue
+         fi ;;
+    esac
+    [ "$_i" -gt 600 ] && return 1
     sleep 0.05 2>/dev/null || sleep 1
   done
-  printf '%s\n' "$$" > "$1/.lock/pid" 2>/dev/null
+  return 0
 }
 nl_unlock() {
-  [ "$(cat "$1/.lock/pid" 2>/dev/null)" = "$$" ] || return 0
-  rm -f "$1/.lock/pid" 2>/dev/null
-  rmdir "$1/.lock" 2>/dev/null
+  [ "$(readlink "$1/.lock" 2>/dev/null)" = "$$" ] && rm -f "$1/.lock" 2>/dev/null
+  return 0
 }
 
 # nl_update <dir> <jq filter> [jq args...]: read-modify-write state.json under a lock, atomic mv.
 nl_update() {
   _ud=$1; _uf=$2; shift 2
-  nl_lock "$_ud"
+  if ! nl_lock "$_ud"; then
+    printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" lib "state.json lock not taken in 30 s: update skipped" >> "$_ud/events.log" 2>/dev/null
+    return 2
+  fi
   _ut="$_ud/state.json.$$"
   if jq "$@" "$_uf" "$_ud/state.json" > "$_ut" 2>/dev/null && [ -s "$_ut" ]; then
     mv "$_ut" "$_ud/state.json"; _urc=0

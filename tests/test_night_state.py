@@ -384,7 +384,7 @@ def main():
         tools = {}
         bindir = os.path.join(base, "tools")
         os.makedirs(bindir)
-        for tool in ("sh", "jq", "git", "date", "awk", "grep", "sed", "cut", "tr", "head", "tail", "wc", "cat", "mkdir", "rm", "rmdir", "mv", "find", "stat", "ps", "kill", "sleep", "cksum", "dirname", "pwd"):
+        for tool in ("sh", "jq", "git", "date", "awk", "grep", "sed", "cut", "tr", "head", "tail", "wc", "cat", "mkdir", "rm", "rmdir", "mv", "find", "stat", "ps", "kill", "sleep", "cksum", "dirname", "pwd", "ln", "readlink"):
             p = shutil.which(tool)
             if p:
                 os.symlink(p, os.path.join(bindir, tool))
