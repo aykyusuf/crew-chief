@@ -30,7 +30,20 @@ here=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
 . "$here/night-lib.sh" || exit 0
 dir=$(nl_dir_of "$sid")
 [ -n "$dir" ] || exit 0
-eval "$(jq -r '@sh "status=\(.status // "") owner=\(.session // "") sid8=\(.sid8 // "") spawned=\(.spawned // 0) deadline=\(.deadline // 0)"' "$dir/state.json" 2>/dev/null)" || exit 0
+# Read the state; a read that comes back empty is retried a few times (seen once in CI with 26 parallel calls: one call
+# slipped through the fail-open path), and a final failure is logged so it shows up in the report.
+status=""
+_try=0
+while [ "$_try" -lt 5 ]; do
+  eval "$(jq -r '@sh "status=\(.status // "") owner=\(.session // "") sid8=\(.sid8 // "") spawned=\(.spawned // 0) deadline=\(.deadline // 0)"' "$dir/state.json" 2>/dev/null)" 2>/dev/null
+  [ -n "$status" ] && break
+  _try=$((_try + 1))
+  sleep 0.05 2>/dev/null || sleep 1
+done
+if [ -z "$status" ]; then
+  nl_event "$dir" guard "state.json unreadable: this call was let through (fail open)"
+  exit 0
+fi
 case "$status" in armed|wrapup) ;; *) exit 0 ;; esac
 # Ten minutes past the deadline the night is over even if nobody closed it: the returning user is not blocked.
 case "$deadline" in ''|*[!0-9]*) ;; *) [ "$deadline" -gt 0 ] && [ "$(nl_now)" -gt $((deadline + 600)) ] && exit 0 ;; esac
@@ -152,7 +165,8 @@ case "$tool" in
     max=$(nl_default maxAgents 20)
     if ! nl_update "$dir" 'if .spawned >= $max then error("cap") else .spawned += 1 end' --argjson max "$max"; then
       now_spawned=$(nl_get "$dir" .spawned)
-      case "$now_spawned" in ''|*[!0-9]*) exit 0 ;; esac
+      case "$now_spawned" in ''|*[!0-9]*) sleep 0.1 2>/dev/null || sleep 1; now_spawned=$(nl_get "$dir" .spawned) ;; esac
+      case "$now_spawned" in ''|*[!0-9]*) nl_event "$dir" guard "agent count unreadable: this Agent call was let through (fail open)"; exit 0 ;; esac
       if [ "$now_spawned" -ge "$max" ]; then
         deny "Agent denied: subagent budget of $max used" "the subagent budget of this night ($max) is used. Do it yourself, or park the task."
       fi

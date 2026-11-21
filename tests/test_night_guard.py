@@ -210,7 +210,7 @@ def main():
         for p in procs:
             p.stdout.close()
             p.stderr.close()
-        check("26 parallel Agent calls: exactly 20 pass, 6 are denied", codes.count(0) == 20 and codes.count(2) == 6, codes)
+        check("26 parallel Agent calls: exactly 20 pass, 6 are denied", codes.count(0) == 20 and codes.count(2) == 6, (codes, events(proj2, "pa000002")[-1500:]))
         check("the parallel count in state is exactly 20", state(proj2, "pa000002")["spawned"] == 20, state(proj2, "pa000002"))
 
         # other tools and wrapup
